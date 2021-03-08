@@ -1,0 +1,20 @@
+--- bitcoin-0.21.0/src/randomenv.cpp	2021-01-13 23:52:34.000000000 +0200
++++ bitcoin-0.21.0/src/randomenv.cpp	2021-03-08 14:34:45.601644400 +0200
+@@ -304,6 +304,8 @@
+     free(addr);
+ }
+ 
++void* malloc_wrapper(size_t s) { return malloc(s); }
++
+ void RandAddStaticEnv(CSHA512& hasher)
+ {
+     // Some compile-time static properties
+@@ -353,7 +355,7 @@
+ #endif
+ 
+     // Memory locations
+-    hasher << &hasher << &RandAddStaticEnv << &malloc << &errno << &environ;
++    hasher << &hasher << &RandAddStaticEnv << &malloc_wrapper << &errno << &environ;
+ 
+     // Hostname
+     char hname[256];
