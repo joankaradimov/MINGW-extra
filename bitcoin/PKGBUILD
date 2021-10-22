@@ -19,7 +19,7 @@ makedepends=(${MINGW_PACKAGE_PREFIX}-boost
              ${MINGW_PACKAGE_PREFIX}-libsodium
              ${MINGW_PACKAGE_PREFIX}-zeromq)
 license=('MIT')
-source=("$pkgname-$pkgver.tar.gz::https://github.com/bitcoin/bitcoin/archive/v$pkgver.tar.gz"
+source=("bitcoin-$pkgver.tar.gz::https://github.com/bitcoin/bitcoin/archive/v$pkgver.tar.gz"
         'https://download.oracle.com/berkeley-db/db-4.8.30.NC.tar.gz'
         'dependency-fixes.patch'
 	'gcc-segfault-workaround.patch')
