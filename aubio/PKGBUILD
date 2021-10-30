@@ -1,0 +1,42 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+# Contributoir: Tim Mayberry <mojofunk@gmail.com>
+
+_realname=aubio
+pkgname="${MINGW_PACKAGE_PREFIX}-${_realname}"
+pkgver=0.4.9
+pkgrel=1
+pkgdesc="A library for audio and music analysis"
+arch=('any')
+url="https://aubio.org"
+license=("GPLv2+")
+makedepends=("${MINGW_PACKAGE_PREFIX}-gcc"
+             "${MINGW_PACKAGE_PREFIX}-pkg-config"
+             'python')
+depends=("${MINGW_PACKAGE_PREFIX}-gcc-libs"
+         "${MINGW_PACKAGE_PREFIX}-libsamplerate"
+         "${MINGW_PACKAGE_PREFIX}-fftw")
+options=('staticlibs') # '!strip' 'debug')
+source=("https://aubio.org/pub/${_realname}-${pkgver}.tar.bz2"
+        "mingw-fix.patch")
+sha256sums=('d48282ae4dab83b3dc94c16cf011bcb63835c1c02b515490e1883049c3d1f3da'
+            'afbaebd46906e73c0350e8bc6134ee7b570f7280e6ee4dde8e00ed930376be21')
+
+prepare() {
+  cd "${srcdir}/${_realname}-${pkgver}"
+
+  patch -p1 -i ${srcdir}/mingw-fix.patch
+}
+
+build() {
+  cd "${srcdir}/${_realname}-${pkgver}"
+
+  # TODO: enable jack; enable docs
+  /usr/bin/python ./waf configure --prefix=${MINGW_PREFIX} --check-c-compiler=gcc --disable-jack --disable-docs --with-target-platform=win32
+  /usr/bin/python ./waf build -v
+}
+
+package() {
+  cd "${srcdir}/${_realname}-${pkgver}"
+  /usr/bin/python ./waf --destdir="${pkgdir}" install
+  mv "${pkgdir}/${MINGW_PREFIX}/lib/"*.dll "${pkgdir}/${MINGW_PREFIX}/bin"
+}

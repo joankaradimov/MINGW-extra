@@ -1,0 +1,11 @@
+--- 0/src/aubio_priv.h	2021-10-30 17:57:16.041156900 +0300
++++ 0/src/aubio_priv.h	2021-10-30 17:57:30.306204000 +0300
+@@ -330,7 +330,7 @@
+ #define isnan _isnan
+ #endif
+ 
+-#if !defined(_MSC_VER)
++#if !defined(_WIN32)
+ #define AUBIO_STRERROR(errno,buf,len) strerror_r(errno, buf, len)
+ #else
+ #define AUBIO_STRERROR(errno,buf,len) strerror_s(buf, len, errno)
