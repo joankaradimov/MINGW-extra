@@ -1,0 +1,31 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=serd
+pkgname="${MINGW_PACKAGE_PREFIX}-${_realname}"
+pkgver=0.30.10
+pkgrel=1
+pkgdesc="A C library for RDF syntax with Turtle, TRiG, NTriples, and NQuads support"
+arch=('any')
+url="http://drobilla.net/software/serd"
+license=('ISC')
+depends=("${MINGW_PACKAGE_PREFIX}-gcc-libs")
+makedepends=("${MINGW_PACKAGE_PREFIX}-gcc"
+             "${MINGW_PACKAGE_PREFIX}-pkg-config"
+             'python')
+options=('staticlibs') # '!strip' 'debug')
+source=("http://download.drobilla.net/${_realname}-${pkgver}.tar.bz2")
+sha256sums=('affa80deec78921f86335e6fc3f18b80aefecf424f6a5755e9f2fa0eb0710edf')
+
+build() {
+  cd "${srcdir}/${_realname}-${pkgver}"
+
+  /usr/bin/python ./waf configure --prefix=${MINGW_PREFIX}
+  /usr/bin/python ./waf -v
+}
+
+package() {
+  cd "${srcdir}/${_realname}-${pkgver}"
+  /usr/bin/python ./waf -v install --destdir=${pkgdir}
+  install -Dm644 COPYING "${pkgdir}/${MINGW_PREFIX}/share/licenses/$_realname/LICENSE"
+  mv "${pkgdir}/${MINGW_PREFIX}/lib/"*dll "${pkgdir}/${MINGW_PREFIX}/bin"
+}
