@@ -1,0 +1,33 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+# Contributor: Tim Mayberry <mojofunk@gmail.com>
+
+_realname=lv2
+pkgname="${MINGW_PACKAGE_PREFIX}-${_realname}"
+pkgver=1.18.2
+pkgrel=1
+pkgdesc="Successor to the LADSPA audio plug-in standard"
+url="https://lv2plug.in/"
+license=('LGPL' 'custom')
+arch=('any')
+makedepends=("${MINGW_PACKAGE_PREFIX}-gcc"
+             "${MINGW_PACKAGE_PREFIX}-libsndfile"
+             "${MINGW_PACKAGE_PREFIX}-gtk2"
+             "${MINGW_PACKAGE_PREFIX}-pkg-config"
+             'python')
+optdepends=("${MINGW_PACKAGE_PREFIX}-libsndfile: Example sampler"
+            "${MINGW_PACKAGE_PREFIX}-gtk2: Example sampler"
+            "${MINGW_PACKAGE_PREFIX}-python: Scripts")
+source=("https://lv2plug.in/spec/${_realname}-${pkgver}.tar.bz2")
+sha256sums=('4e891fbc744c05855beb5dfa82e822b14917dd66e98f82b8230dbd1c7ab2e05e')
+
+build() {
+  cd "${srcdir}/${_realname}-${pkgver}"
+
+  /usr/bin/python ./waf configure --prefix=${MINGW_PREFIX} --lv2dir="${MINGW_PREFIX}/lib/lv2" --copy-headers
+  /usr/bin/python ./waf -v
+}
+
+package() {
+  cd "${srcdir}/${_realname}-${pkgver}"
+  /usr/bin/python ./waf -v install --destdir=${pkgdir}
+}
