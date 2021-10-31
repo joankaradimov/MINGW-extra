@@ -1,0 +1,33 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+# Contributor: Tim Mayberry <mojofunk@gmail.com>
+
+_realname=sratom
+pkgname="${MINGW_PACKAGE_PREFIX}-${_realname}"
+pkgver=0.6.8
+pkgrel=1
+pkgdesc="An LV2 Atom RDF serialisation library"
+url="https://drobilla.net/software/sratom"
+license=('ISC')
+arch=('any')
+makedepends=("${MINGW_PACKAGE_PREFIX}-gcc"
+             "${MINGW_PACKAGE_PREFIX}-pkg-config"
+             'python')
+depends=("${MINGW_PACKAGE_PREFIX}-lv2>=1.10.0"
+         "${MINGW_PACKAGE_PREFIX}-sord>=0.12.2")
+source=("https://download.drobilla.net/${_realname}-${pkgver}.tar.bz2")
+sha256sums=('3acb32b1adc5a2b7facdade2e0818bcd6c71f23f84a1ebc17815bb7a0d2d02df')
+
+build() {
+  cd "${srcdir}/${_realname}-${pkgver}"
+
+  /usr/bin/python ./waf configure --prefix=${MINGW_PREFIX}
+  /usr/bin/python ./waf -v
+}
+
+package() {
+  cd "${srcdir}/${_realname}-${pkgver}"
+  /usr/bin/python ./waf -v install --destdir=${pkgdir}
+  install -Dm644 COPYING "${pkgdir}/${MINGW_PREFIX}/share/licenses/$_realname/LICENSE"
+  mkdir -p "${pkgdir}/${MINGW_PREFIX}/bin"
+  mv "${pkgdir}/${MINGW_PREFIX}/lib/"*dll "${pkgdir}/${MINGW_PREFIX}/bin"
+}
