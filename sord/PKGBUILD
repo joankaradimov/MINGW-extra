@@ -7,7 +7,7 @@ pkgrel=1
 pkgdesc="A C library for storing RDF data in memory"
 arch=('any')
 url="http://drobilla.net/software/sord"
-license=('custom:ISC')
+license=('ISC')
 depends=("${MINGW_PACKAGE_PREFIX}-serd")
 makedepends=("${MINGW_PACKAGE_PREFIX}-gcc"
              "${MINGW_PACKAGE_PREFIX}-pkg-config"
