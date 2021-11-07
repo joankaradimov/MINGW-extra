@@ -13,7 +13,7 @@ makedepends=("${MINGW_PACKAGE_PREFIX}-gcc" "${MINGW_PACKAGE_PREFIX}-pkg-config")
 depends=("${MINGW_PACKAGE_PREFIX}-gcc-libs")
 options=('staticlibs') # '!strip' 'debug')
 source=("http://downloads.sourceforge.net/project/liblo/liblo/${pkgver}/${_realname}-${pkgver}.tar.gz")
-md5sums=('2b4f446e1220dcd624ecd8405248b08b7601e9a0d87a0b94730c2907dbccc750')
+sha256sums=('2b4f446e1220dcd624ecd8405248b08b7601e9a0d87a0b94730c2907dbccc750')
 
 build() {
   mkdir -p "${srcdir}/build-${CARCH}"
