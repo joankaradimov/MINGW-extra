@@ -1,0 +1,10 @@
+--- 0/common/JackTools.cpp	2021-10-31 03:43:57.095964200 +0300
++++ 0/common/JackTools.cpp	2021-10-31 03:44:00.951322500 +0300
+@@ -21,6 +21,7 @@
+ #include "driver_interface.h"
+ #include "JackTools.h"
+ #include "JackError.h"
++#include "JackPlatformPlug.h"
+ #include <stdlib.h>
+ #include <stdio.h>
+ #include <assert.h>

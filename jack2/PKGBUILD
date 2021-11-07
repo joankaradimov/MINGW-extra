@@ -1,0 +1,40 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+# Contributor: Tim Mayberry <mojofunk@gmail.com>
+
+_realname=jack2
+pkgname="${MINGW_PACKAGE_PREFIX}-${_realname}"
+pkgver=1.9.14
+pkgrel=1
+pkgdesc="The Jack Audio Connectin Kit"
+arch=('any')
+url="https://jackaudio.org"
+license=("GPL")
+makedepends=("${MINGW_PACKAGE_PREFIX}-gcc"
+             "${MINGW_PACKAGE_PREFIX}-pkg-config"
+             'python')
+depends=("${MINGW_PACKAGE_PREFIX}-gcc-libs"
+         "${MINGW_PACKAGE_PREFIX}-libsamplerate"
+         "${MINGW_PACKAGE_PREFIX}-portaudio")
+options=('staticlibs') # '!strip' 'debug')
+source=("${_realname}-${pkgver}.tar.gz::https://github.com/jackaudio/jack2/archive/v${pkgver}.tar.gz"
+        'mingw-fix.patch')
+sha256sums=('a20a32366780c0061fd58fbb5f09e514ea9b7ce6e53b080a44b11a558a83217c'
+            'cd6a6326faf0520647ecef4777818ea83808b6800b27339e40ae71e4798064bf')
+
+prepare() {
+  cd "$srcdir/${_realname}-${pkgver}"
+
+  patch -p1 -i "${srcdir}/mingw-fix.patch"
+}
+
+build() {
+  cd "${srcdir}/${_realname}-${pkgver}"
+
+  /usr/bin/python ./waf configure --prefix=${MINGW_PREFIX} --portaudio --winmme
+  /usr/bin/python ./waf build
+}
+
+package() {
+  cd "${srcdir}/${_realname}-${pkgver}"
+  /usr/bin/python ./waf --destdir="${pkgdir}" install
+}
