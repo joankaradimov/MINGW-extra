@@ -1,0 +1,40 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=toluapp
+pkgname="${MINGW_PACKAGE_PREFIX}-${_realname}"
+pkgver=1.0.93
+pkgrel=1
+pkgdesc="A tool to integrate C/C++ code with Lua"
+arch=('any')
+url="https://github.com/LuaDist/toluapp"
+license=('MIT')
+depends=("${MINGW_PACKAGE_PREFIX}-lua")
+makedepends=('cmake' 'git')
+options=('staticlibs')
+source=("$_realname-$pkgver.tar.gz:https://github.com/LuaDist/toluapp/archive/refs/tags/${pkgver}.tar.gz"
+        "newer-lua-versions.patch")
+sha512sums=('68f169244f1b37fdeb1a72b0f8fc61a30329c0a828f46af718021c8cfa120fe15379b4b2bc10f0995de90e34735564afd6d302fa1865be60272e52e276e1114f'
+            '43b6633d8438247460832811176ab6349c3fbe8c87d18065d4e1be52d798da5b0c724da68e2afb3b9344a61b97bea3a72d9e5f8bfb85dd2ba4a1a8d098998f54')
+
+prepare() {
+  cd "${srcdir}/${_realname}-${pkgver}"
+
+  patch -p1 -i ${srcdir}/newer-lua-versions.patch
+}
+
+build() {
+  cd "${srcdir}/${_realname}-${pkgver}"
+
+  rm -rf "build-${MINGW_CHOST}" && mkdir "build-${MINGW_CHOST}"
+  cd "build-${MINGW_CHOST}"
+
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" cmake -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" ..
+  ninja
+}
+
+package() {
+  cd "${srcdir}/${_realname}-${pkgver}/"build-${MINGW_CHOST}""
+
+  DESTDIR="${pkgdir}" ninja install
+  install -Dm644 "../COPYRIGHT" "${pkgdir}/${MINGW_PREFIX}/share/licenses/$_realname/COPYRIGHT"
+}
