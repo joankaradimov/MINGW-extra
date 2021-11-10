@@ -1,0 +1,22 @@
+--- 0/src/CMakeLists.txt	2021-10-05 11:54:30.820363900 +0300
++++ 0/src/CMakeLists.txt	2021-11-10 20:15:44.721212500 +0200
+@@ -162,7 +162,7 @@
+ endif ()
+ 
+ 
+-if (UNIX AND NOT APPLE)
++if (WIN32)
+   install (TARGETS ${PROJECT_NAME} RUNTIME
+      DESTINATION ${CMAKE_INSTALL_BINDIR})
+   install (FILES ${QM_FILES}
+--- 0/CMakeLists.txt	2021-10-05 11:54:30.819363900 +0300
++++ 0/CMakeLists.txt	2021-11-10 20:20:35.396813400 +0200
+@@ -273,7 +273,7 @@
+ 
+ add_subdirectory (src)
+ 
+-if (NOT WIN32)
++if (WIN32)
+   configure_file (qjackctl.spec.in qjackctl.spec IMMEDIATE @ONLY)
+ 
+   install (FILES qjackctl.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
