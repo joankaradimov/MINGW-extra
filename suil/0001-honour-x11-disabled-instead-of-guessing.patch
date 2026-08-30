@@ -1,0 +1,37 @@
+Honour -Dx11=disabled instead of guessing X11 from the headers.
+
+suil_config.h defines HAVE_X11 from __has_include(<X11/Xlib.h>) unless the build
+system defines SUIL_NO_DEFAULT_CONFIG, and meson never defines either. The guess
+is wrong on Windows: mingw-w64's tk package installs X11 headers, so HAVE_X11
+gets defined on a system with no X server, and suil_init() then tries to dlopen
+a suil_x11 module that -Dx11=disabled never built. The result is an error on
+stderr from every host that calls suil_init().
+
+Define HAVE_X11 explicitly when the x11 dependency was actually found, and
+suppress the header's autodetection otherwise. X11 is the only feature the
+default-config block gates, so disabling it costs nothing else.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/meson.build b/meson.build
+index be54345..5d16cbd 100644
+--- a/meson.build
++++ b/meson.build
+@@ -226,6 +226,16 @@ x11_dep = dependency(
+   required: get_option('x11'),
+ )
+ 
++# Tell suil_config.h whether X11 is really available instead of letting it guess
++# from __has_include(<X11/Xlib.h>).  The headers can be installed on platforms
++# that have no X server and where no suil_x11 module was built, in which case
++# the guess is wrong and suil_init() fails to load a module that does not exist.
++if x11_dep.found()
++  platform_defines += ['-DHAVE_X11']
++else
++  platform_defines += ['-DSUIL_NO_DEFAULT_CONFIG']
++endif
++
+ gtk2_dep = dependency(
+   'gtk+-2.0',
+   include_type: 'system',

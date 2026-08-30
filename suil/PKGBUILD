@@ -1,0 +1,73 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=suil
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=0.10.26
+pkgrel=1
+pkgdesc="A library for loading and wrapping LV2 plugin UIs (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64')
+url='https://drobilla.net/software/suil.html'
+license=('spdx:ISC')
+msys2_repository_url='https://gitlab.com/drobilla/suil'
+msys2_references=(
+  'archlinux: suil'
+)
+depends=("${MINGW_PACKAGE_PREFIX}-lv2>=1.18.4")
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-meson"
+             "${MINGW_PACKAGE_PREFIX}-ninja"
+             "${MINGW_PACKAGE_PREFIX}-pkg-config")
+source=("https://download.drobilla.net/${_realname}-${pkgver}.tar.xz"
+        "0001-honour-x11-disabled-instead-of-guessing.patch")
+sha256sums=('62808916602c47d201a1ec2d246323a8048243f2bf972f859f0db1db4662ee43'
+            'bbb4784578692a34e6fc94774ad3ca93b43c9333314a6c3142a621c4d6b13474')
+
+prepare() {
+  cd "${_realname}-${pkgver}"
+
+  patch -Np1 -i "${srcdir}/0001-honour-x11-disabled-instead-of-guessing.patch"
+}
+
+build() {
+  # Every toolkit wrapper is disabled deliberately rather than left to
+  # --auto-features=enabled. Suil's wrappers exist to embed a UI of one toolkit
+  # inside a host of another, and each one that is meaningful here would drag in
+  # a GUI stack the Windows build has no use for: the x11, gtk3 and qt5 wrappers
+  # are all X11-only (see the gtk+-x11-3.0 / Qt5X11Extras dependencies upstream),
+  # and cocoa is macOS. Hosts on Windows reach LV2 UIs through suil's core, which
+  # needs none of them.
+  MSYS2_ARG_CONV_EXCL="--prefix=" \
+    meson setup \
+      --prefix="${MINGW_PREFIX}" \
+      --wrap-mode=nodownload \
+      --buildtype=plain \
+      -Dcocoa=disabled \
+      -Ddocs=disabled \
+      -Dgtk2=disabled \
+      -Dgtk3=disabled \
+      -Dqt5=disabled \
+      -Dqt6=disabled \
+      -Dx11=disabled \
+      -Dtests=enabled \
+      "build-${MSYSTEM}" \
+      "${_realname}-${pkgver}"
+
+  meson compile -C "build-${MSYSTEM}"
+}
+
+check() {
+  meson test -C "build-${MSYSTEM}" --print-errorlogs
+}
+
+package() {
+  meson install -C "build-${MSYSTEM}" --destdir "${pkgdir}"
+
+  install -Dm644 "${_realname}-${pkgver}/COPYING" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/COPYING"
+  install -Dm644 "${_realname}-${pkgver}/LICENSES/ISC.txt" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/ISC.txt"
+  install -Dm644 "${_realname}-${pkgver}/LICENSES/0BSD.txt" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/0BSD.txt"
+}
