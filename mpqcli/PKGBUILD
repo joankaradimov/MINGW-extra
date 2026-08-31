@@ -1,0 +1,73 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=mpqcli
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=0.10.2
+pkgrel=1
+pkgdesc="A command line tool to create, read and modify MPQ archives (mingw-w64)"
+arch=('any')
+# mingw32 is missing on purpose: the library side builds and passes there, but
+# CLI11 has no i686 package -- MSYS2 ships it for ucrt64, clang64, mingw64 and
+# clangarm64 only -- so this would need CLI11 packaged for i686 first.
+mingw_arch=('ucrt64' 'clang64')
+url='https://github.com/TheGrayDot/mpqcli'
+license=('spdx:MIT')
+msys2_repository_url='https://github.com/TheGrayDot/mpqcli'
+# The commit v0.10.2 was cut from. Upstream builds this into the binary with
+# `git rev-parse HEAD`, which from an unpacked tarball answers with whichever
+# repository happens to contain the build tree -- this one. Passing it
+# explicitly keeps `mpqcli version` honest and the build reproducible.
+_commit=4bd21908966bafbafc55c6dd293c68488684d212
+depends=("${MINGW_PACKAGE_PREFIX}-cc-libs"
+         "${MINGW_PACKAGE_PREFIX}-stormlib")
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-cli11"
+             "${MINGW_PACKAGE_PREFIX}-cmake"
+             "${MINGW_PACKAGE_PREFIX}-ninja")
+source=("${_realname}-${pkgver}.tar.gz::https://github.com/TheGrayDot/${_realname}/archive/v${pkgver}.tar.gz"
+        "0001-build-against-system-stormlib-and-cli11.patch")
+sha256sums=('68a678697fe778cd0c6cda4adf9fa7cb93f114ee1d68c81bd0164ca5d7eb6c1a'
+            'f841f0d0a509cb376924baf19a2cddbabbb3781d2894a88dba0e0d9a5d7f92c9')
+
+prepare() {
+  cd "${_realname}-${pkgver}"
+
+  patch -Np1 -i "${srcdir}/0001-build-against-system-stormlib-and-cli11.patch"
+}
+
+build() {
+  # BUILD_STATIC stays OFF. It appends -static to the link line and restricts
+  # CMAKE_FIND_LIBRARY_SUFFIXES to .a, which would refuse the shared StormLib
+  # this package depends on and statically bind the C++ runtime besides.
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
+    "${MINGW_PREFIX}"/bin/cmake.exe \
+      -G Ninja \
+      -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DBUILD_MPQCLI=ON \
+      -DBUILD_STATIC=OFF \
+      -DGIT_COMMIT_HASH="${_commit}" \
+      -B "build-${MSYSTEM}" \
+      -S "${_realname}-${pkgver}"
+
+  "${MINGW_PREFIX}"/bin/cmake.exe --build "build-${MSYSTEM}"
+}
+
+package() {
+  DESTDIR="${pkgdir}" "${MINGW_PREFIX}"/bin/cmake.exe --install "build-${MSYSTEM}"
+
+  # The completion scripts are compiled into the binary and only reachable
+  # through the `completion` subcommand, so ask the freshly built executable
+  # for them rather than shipping a second copy from src/completion/.
+  local _mpqcli="${srcdir}/build-${MSYSTEM}/bin/${_realname}.exe"
+  install -d "${pkgdir}${MINGW_PREFIX}/share/bash-completion/completions"
+  "${_mpqcli}" completion bash \
+    > "${pkgdir}${MINGW_PREFIX}/share/bash-completion/completions/${_realname}"
+  install -d "${pkgdir}${MINGW_PREFIX}/share/zsh/site-functions"
+  "${_mpqcli}" completion zsh \
+    > "${pkgdir}${MINGW_PREFIX}/share/zsh/site-functions/_${_realname}"
+
+  install -Dm644 "${_realname}-${pkgver}/LICENSE" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/LICENSE"
+}
