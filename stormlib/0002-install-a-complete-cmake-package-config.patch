@@ -1,0 +1,172 @@
+Install a complete CMake package config
+
+install(EXPORT) on its own does not produce a usable package. It writes the
+imported targets and nothing else, so the installed StormLibConfig.cmake has no
+version information and no way to re-import the dependencies it names. Any
+version-qualified lookup fails outright:
+
+    find_package(StormLib 9.40 CONFIG REQUIRED)
+
+    Could not find a configuration file [...] compatible with requested
+    version "9.40". The following configuration files were considered but
+    not accepted:
+      .../share/StormLib/StormLibConfig.cmake, version: unknown
+
+Rename the export set to StormLibTargets and generate a real config around it
+with configure_package_config_file, plus a version file from
+write_basic_package_version_file. The install destination is unchanged, so a
+consumer already doing an unversioned find_package(StormLib) keeps working.
+
+Three things had to be sorted out first:
+
+  - project() carried no VERSION, so there was nothing to generate a version
+    file from. VERSION_MAJOR/MINOR/PATCH were assigned inside
+    if(BUILD_SHARED_LIBS) -> if(UNIX), leaving them empty on Windows and in
+    every static build -- which also silently emptied the
+    CPACK_PACKAGE_VERSION_* settings further down. They are now derived from
+    project() and defined everywhere.
+
+  - Those literals still read 9.30 in the 9.40 release. src/StormLib.h is
+    authoritative (STORMLIB_VERSION_STRING "9.40", STORMLIB_VERSION 0x0928), so
+    project() follows the header. This also corrects the SOVERSION and the
+    CPack version, which were reporting 9.30 for a 9.40 tree.
+
+  - zlib and bzip2 are linked conditionally, and whichever were used appear in
+    the exported target's INTERFACE_LINK_LIBRARIES. The generated config now
+    calls find_dependency() for exactly those, guarded by flags recorded where
+    the decision is made. This package builds shared, where the companion patch
+    keeps those dependencies PRIVATE and the interface stays empty; it is a
+    static build that would otherwise break, and the guard costs nothing.
+
+The namespaced name StormLib::storm is unchanged -- it is what the existing
+NAMESPACE StormLib:: already produced from target `storm`.
+
+Not yet sent upstream.
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,5 +1,16 @@
+ cmake_minimum_required(VERSION 3.10)
+-project(StormLib)
++project(StormLib VERSION 9.40.0)
++
++# Derived from project() so they exist in every configuration. They used to be
++# set only inside if(BUILD_SHARED_LIBS) -> if(UNIX), which left them empty on
++# Windows and in every static build, taking the CPACK_PACKAGE_VERSION_* settings
++# with them and leaving nothing to generate a package version file from. The
++# literals there also still read 9.30 in the 9.40 release; src/StormLib.h is
++# authoritative (STORMLIB_VERSION_STRING "9.40") and is what this follows.
++set(VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
++set(VERSION_MINOR ${PROJECT_VERSION_MINOR})
++set(VERSION_PATCH ${PROJECT_VERSION_PATCH})
++set(VERSION_STRING ${PROJECT_VERSION})
+ 
+ set(LIBRARY_NAME storm)
+ set(CMAKE_CXX_STANDARD 11)
+@@ -290,10 +301,18 @@
+ target_compile_definitions(${LIBRARY_NAME} PRIVATE -D_7ZIP_ST -DBZ_STRICT_ANSI)
+ set(LINK_LIBS)
+ 
++# Recorded for StormLibConfig.cmake.in: whichever of these was used has to be
++# re-imported by the installed config before StormLibTargets.cmake, or a
++# consumer resolving ZLIB::ZLIB / BZip2::BZip2 fails. Harmless for the shared
++# build this ships, load-bearing for a static one.
++set(STORMLIB_SYSTEM_ZLIB OFF)
++set(STORMLIB_SYSTEM_BZIP2 OFF)
++
+ find_package(ZLIB)
+ if (ZLIB_FOUND AND NOT STORM_USE_BUNDLED_LIBRARIES)
+ 	set(LINK_LIBS ${LINK_LIBS} ZLIB::ZLIB)
+     target_compile_definitions(${LIBRARY_NAME} PRIVATE -D__SYS_ZLIB)
++    set(STORMLIB_SYSTEM_ZLIB ON)
+ else()
+ 	set(SRC_FILES ${SRC_FILES} ${ZLIB_FILES})
+ endif()
+@@ -302,6 +321,7 @@
+ if (BZIP2_FOUND AND NOT STORM_USE_BUNDLED_LIBRARIES)
+ 	set(LINK_LIBS ${LINK_LIBS} BZip2::BZip2)
+     target_compile_definitions(${LIBRARY_NAME} PRIVATE -D__SYS_BZLIB)
++    set(STORMLIB_SYSTEM_BZIP2 ON)
+ else()
+ 	set(SRC_FILES ${SRC_FILES} ${BZIP2_FILES})
+ endif()
+@@ -357,10 +377,6 @@
+         set_target_properties(${LIBRARY_NAME} PROPERTIES LINK_FLAGS "-framework Carbon")
+     endif()
+     if(UNIX)
+-        SET(VERSION_MAJOR "9")
+-        SET(VERSION_MINOR "30")
+-        SET(VERSION_PATCH "0")
+-        SET(VERSION_STRING "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}")
+         set_target_properties(${LIBRARY_NAME} PROPERTIES VERSION "${VERSION_STRING}")
+         set_target_properties(${LIBRARY_NAME} PROPERTIES SOVERSION "${VERSION_MAJOR}")
+     endif()
+@@ -370,7 +386,7 @@
+ 
+ if (NOT STORM_SKIP_INSTALL)
+     install(TARGETS ${LIBRARY_NAME}
+-        EXPORT ${PROJECT_NAME}Config
++        EXPORT ${PROJECT_NAME}Targets
+         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+@@ -378,7 +394,36 @@
+         PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+         INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+ 
+-        install(EXPORT ${PROJECT_NAME}Config NAMESPACE ${PROJECT_NAME}:: DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/${PROJECT_NAME})
++        # The export set alone is not a package: install(EXPORT) writes only the
++        # imported targets, with no version file and no way to re-import the
++        # dependencies it names. Generate a real config around it instead, so
++        # find_package(StormLib 9.40 CONFIG) can succeed. The destination is
++        # unchanged, so existing consumers keep working.
++        set(STORMLIB_INSTALL_CMAKEDIR "${CMAKE_INSTALL_DATAROOTDIR}/${PROJECT_NAME}")
++
++        install(EXPORT ${PROJECT_NAME}Targets
++            FILE ${PROJECT_NAME}Targets.cmake
++            NAMESPACE ${PROJECT_NAME}::
++            DESTINATION ${STORMLIB_INSTALL_CMAKEDIR})
++
++        include(CMakePackageConfigHelpers)
++        configure_package_config_file(
++            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/StormLibConfig.cmake.in"
++            "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
++            INSTALL_DESTINATION ${STORMLIB_INSTALL_CMAKEDIR})
++
++        # SameMajorVersion: the project treats the major version as its ABI
++        # boundary already -- SOVERSION is VERSION_MAJOR alone -- so a request
++        # for 9.x is satisfied by any later 9.y and never by 10.
++        write_basic_package_version_file(
++            "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
++            VERSION ${PROJECT_VERSION}
++            COMPATIBILITY SameMajorVersion)
++
++        install(FILES
++            "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
++            "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
++            DESTINATION ${STORMLIB_INSTALL_CMAKEDIR})
+ 
+         #CPack configurtion
+         SET(CPACK_GENERATOR "DEB" "RPM")
+--- /dev/null
++++ b/cmake/StormLibConfig.cmake.in
+@@ -0,0 +1,19 @@
++@PACKAGE_INIT@
++
++include(CMakeFindDependencyMacro)
++
++# StormLib links zlib and bzip2 only when it found them and was not told to use
++# its bundled copies. Whichever it used are named in the exported target's
++# INTERFACE_LINK_LIBRARIES, and have to be re-imported before that file is
++# included -- otherwise consuming StormLib::storm fails with "target not found",
++# and a static consumer would need them on its own link line regardless.
++if(@STORMLIB_SYSTEM_ZLIB@)
++    find_dependency(ZLIB)
++endif()
++if(@STORMLIB_SYSTEM_BZIP2@)
++    find_dependency(BZip2)
++endif()
++
++include("${CMAKE_CURRENT_LIST_DIR}/StormLibTargets.cmake")
++
++check_required_components(StormLib)
