@@ -1,0 +1,71 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=stormlib
+_upstreamname=StormLib
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=9.40
+pkgrel=1
+pkgdesc="A C/C++ API to read and write MPQ files, with support for merged archives and patch MPQs (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64' 'mingw32')
+url='https://github.com/ladislav-zezula/StormLib'
+license=('spdx:MIT')
+msys2_repository_url='https://github.com/ladislav-zezula/StormLib'
+msys2_references=(
+  'aur: stormlib'
+)
+depends=("${MINGW_PACKAGE_PREFIX}-bzip2"
+         "${MINGW_PACKAGE_PREFIX}-cc-libs"
+         "${MINGW_PACKAGE_PREFIX}-zlib")
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-cmake"
+             "${MINGW_PACKAGE_PREFIX}-ninja")
+source=("${_realname}-${pkgver}.tar.gz::https://github.com/ladislav-zezula/${_upstreamname}/archive/v${pkgver}.tar.gz"
+        "0001-link-compression-libraries-privately.patch")
+sha256sums=('f80b08bae168888702a4251312d6c2279f487673df611c2b5ef4f395e810c3b1'
+            '07ac07ae5596a06bd0424612da8ab636041cf17ed0128f4a4bcc714c8b8e10c4')
+
+prepare() {
+  cd "${_upstreamname}-${pkgver}"
+
+  patch -Np1 -i "${srcdir}/0001-link-compression-libraries-privately.patch"
+}
+
+build() {
+  # STORM_USE_BUNDLED_LIBRARIES stays OFF so the vendored copies of zlib and
+  # bzip2 under src/ are left alone and the system libraries are linked
+  # instead. libtomcrypt and libtommath are not up for the same treatment:
+  # upstream's WITH_LIBTOMCRYPT option is guarded by `if(WIN32) ... else()`, so
+  # on Windows the bundled crypto is compiled in unconditionally.
+  #
+  # STORM_UNICODE is pinned OFF rather than left to the default. It only adds
+  # UNICODE/_UNICODE PRIVATE to the library, so switching it on would make the
+  # exported entry points take wchar_t* while every consumer still compiles
+  # against the ANSI declarations in StormLib.h. ANSI on both sides is the only
+  # self-consistent choice.
+  #
+  # STORM_BUILD_TESTS stays OFF because the suite is not runnable here: its
+  # CMakeLists does find_package(ALSA REQUIRED), and StormTest.cpp reads MPQ
+  # archives from a path hardcoded to upstream's own machine (/media/ladik/MPQs).
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
+    "${MINGW_PREFIX}"/bin/cmake.exe \
+      -G Ninja \
+      -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DBUILD_SHARED_LIBS=ON \
+      -DSTORM_USE_BUNDLED_LIBRARIES=OFF \
+      -DSTORM_UNICODE=OFF \
+      -DSTORM_BUILD_TESTS=OFF \
+      -B "build-${MSYSTEM}" \
+      -S "${_upstreamname}-${pkgver}"
+
+  "${MINGW_PREFIX}"/bin/cmake.exe --build "build-${MSYSTEM}"
+}
+
+package() {
+  DESTDIR="${pkgdir}" "${MINGW_PREFIX}"/bin/cmake.exe --install "build-${MSYSTEM}"
+
+  install -Dm644 "${_upstreamname}-${pkgver}/LICENSE" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/LICENSE"
+}

@@ -1,0 +1,45 @@
+Link the compression and wininet dependencies privately
+
+StormLib links zlib, bzip2 and wininet with the plain
+target_link_libraries() signature, which makes them PUBLIC. They therefore
+land in INTERFACE_LINK_LIBRARIES of the exported target:
+
+    set_target_properties(StormLib::storm PROPERTIES
+      INTERFACE_LINK_LIBRARIES "ZLIB::ZLIB;BZip2::BZip2;wininet")
+
+but the generated StormLibConfig.cmake never calls find_dependency(ZLIB) or
+find_dependency(BZip2), so those imported targets do not exist on the
+consumer's side. find_package(StormLib) itself succeeds; the failure only
+appears when something actually links the target:
+
+    CMake Error at .../StormLibConfig.cmake:60 (set_target_properties):
+      The link interface of target "StormLib::storm" contains:
+        ZLIB::ZLIB
+      but the target was not found.
+
+None of the three is part of StormLib's API -- neither StormLib.h nor
+StormPort.h mentions a zlib or bzip2 type, and wininet is an implementation
+detail of the HTTP file streams in FileStream.cpp -- so PRIVATE is what was
+meant. For the shared library this package ships, that empties the link
+interface of the undefined targets and consumers pick the dependencies up
+through the DLL.
+
+Note for a future static build: with a static StormLib, CMake re-exports
+PRIVATE dependencies as $<LINK_ONLY:...>, and the consumer would need the
+imported targets again. Shipping libstorm.a would additionally require
+replacing install(EXPORT StormLibConfig) with a StormLibTargets export
+wrapped in a hand-written config file that calls find_dependency().
+
+Not yet sent upstream.
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -344,7 +344,7 @@
+     endif()
+ endif()
+ 
+-target_link_libraries(${LIBRARY_NAME} ${LINK_LIBS})
++target_link_libraries(${LIBRARY_NAME} PRIVATE ${LINK_LIBS})
+ add_library(${PROJECT_NAME}::${LIBRARY_NAME} ALIAS ${LIBRARY_NAME}) # Allow users to link StormLib::storm when using add_subdirectory
+ target_compile_definitions(${LIBRARY_NAME} INTERFACE __STORMLIB_NO_STATIC_LINK__) #CMake will take care of the linking
+ target_include_directories(${LIBRARY_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/src>)
