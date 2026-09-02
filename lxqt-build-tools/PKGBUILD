@@ -1,0 +1,66 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=lxqt-build-tools
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=2.4.0
+pkgrel=1
+pkgdesc="Various packaging tools and scripts for LXQt applications (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url="https://github.com/lxqt/${_realname}"
+license=('spdx:BSD-3-Clause')
+msys2_repository_url="https://github.com/lxqt/${_realname}"
+msys2_references=(
+  'archlinux: lxqt-build-tools'
+)
+# cmake, qt6-tools and perl are runtime dependencies: this package ships only
+# CMake modules and scripts, and it is the *consumer* project that needs them.
+# LXQtTranslateTs.cmake drives lupdate/lrelease from qt6-tools, and
+# LXQtTranslateDesktop.cmake opens with find_package(Perl REQUIRED).
+depends=("${MINGW_PACKAGE_PREFIX}-cmake"
+         "${MINGW_PACKAGE_PREFIX}-perl"
+         "${MINGW_PACKAGE_PREFIX}-qt6-tools")
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-ninja")
+source=("https://github.com/lxqt/${_realname}/releases/download/${pkgver}/${_realname}-${pkgver}.tar.xz"
+        "0001-do-not-use-elf-only-linker-flags-on-windows.patch")
+sha256sums=('14999ff954e820a23af44389b9f7c65f9e58b2f1c0a559f0badd38f9b459aee6'
+            '96630f1a941ecd14480e91793fa29847d032657f1459eec8782488d72fd7327e')
+
+prepare() {
+  cd "${_realname}-${pkgver}"
+
+  # Without this every LXQt library fails to link in CLANG64, where the linker
+  # is lld rather than GNU ld.
+  patch -Np1 -i "${srcdir}/0001-do-not-use-elf-only-linker-flags-on-windows.patch"
+}
+
+build() {
+  # Nothing is compiled here -- the package is CMake modules plus one shell
+  # script -- but project() is declared without LANGUAGES NONE, so CMake still
+  # runs its C/C++ compiler checks. Hence the -cc makedepend.
+  #
+  # LXQT_ETC_XDG_DIR is pinned deliberately. Upstream autodetects it from
+  # `qtpaths6 --query QT_INSTALL_CONFIGURATION`, which reports "**Unknown**" on
+  # MSYS2, so the fallback fires and bakes in a bare /etc/xdg -- the MSYS root,
+  # outside the prefix entirely. Keeping it under ${MINGW_PREFIX} means every
+  # downstream LXQt app looks for its system-wide config inside the same prefix
+  # that installed it.
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=;-DLXQT_ETC_XDG_DIR=" \
+  cmake -B "build-${MSYSTEM}" -S "${_realname}-${pkgver}" \
+    -G Ninja \
+    -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DLXQT_ETC_XDG_DIR="${MINGW_PREFIX}/etc/xdg" \
+    -Wno-dev
+
+  cmake --build "build-${MSYSTEM}"
+}
+
+package() {
+  DESTDIR="${pkgdir}" cmake --install "build-${MSYSTEM}"
+
+  install -Dm644 "${srcdir}/${_realname}-${pkgver}/BSD-3-Clause" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/BSD-3-Clause"
+}

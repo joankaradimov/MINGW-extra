@@ -1,0 +1,45 @@
+Do not use ELF-only linker flags on Windows
+
+LXQtCompilerSettings.cmake adds -Wl,-Bsymbolic-functions to the shared, module
+and executable linker flags of every project that includes it. The block clears
+the flag for AppleClang with the comment
+
+    # -Bsymbolic* make sense for ELF only
+
+and then falls through to setting it for everything else, Windows included.
+PE/COFF has no symbol interposition for -Bsymbolic-functions to defeat, so the
+flag is meaningless there in the first place.
+
+It goes unnoticed under MINGW64/UCRT64 because GNU ld accepts the option and
+ignores it. In CLANG64 the linker is lld, which refuses what it does not
+recognise, and every LXQt library fails at the link step:
+
+    lld: error: unknown argument: -Bsymbolic-functions
+    clang++: error: linker command failed with exit code 1
+
+Give Windows its own branch: --no-undefined is still wanted, since a Windows DLL
+genuinely cannot have undefined symbols, but the symbolic flags are dropped.
+Keeping it separate from the AppleClang branch rather than folding the two
+together, because that one also swaps --no-undefined for -undefined,error.
+
+Upstream: not submitted
+Applies-to: all environments (only the WIN32 branch is new; ELF builds are
+            unchanged)
+
+--- a/cmake/modules/LXQtCompilerSettings.cmake
++++ b/cmake/modules/LXQtCompilerSettings.cmake
+@@ -160,6 +160,14 @@
+         set(NO_UNDEFINED_FLAGS "-Wl,-undefined,error")
+         # -Bsymbolic* make sense for ELF only
+         set(SYMBOLIC_FLAGS "")
++    elseif (WIN32)
++        set(NO_UNDEFINED_FLAGS "-Wl,--no-undefined")
++        # -Bsymbolic* make sense for ELF only, as the comment above says. PE/COFF
++        # has no symbol interposition to defeat, so the flag buys nothing here.
++        # GNU ld accepts and ignores it, which is why this went unnoticed, but
++        # lld -- the default linker of the CLANG64 environment -- refuses it:
++        #     lld: error: unknown argument: -Bsymbolic-functions
++        set(SYMBOLIC_FLAGS "")
+     else()
+         set(NO_UNDEFINED_FLAGS "-Wl,--no-undefined")
+         # -Bsymbolic-functions: replace dynamic symbols used internally in
