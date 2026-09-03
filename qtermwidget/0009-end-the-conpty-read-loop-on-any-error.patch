@@ -1,0 +1,65 @@
+End the ConPTY read loop on any unexpected error
+
+The reader thread's loop looks like a spin at a glance -- `while (true)` with no
+sleep -- but it is not, in the normal case: ReadFile on a blocking pipe parks in
+the syscall until bytes arrive. Measured on an idle MSYS2 shell it costs
+0.000s of CPU over 10s, and 0.000s over 22s after the shell has exited.
+
+The exception is the error path. Of the ways ReadFile can fail, exactly two were
+handled: ERROR_MORE_DATA appended what it got, ERROR_BROKEN_PIPE broke out. Any
+other failure -- ERROR_OPERATION_ABORTED, or ERROR_INVALID_HANDLE once the
+handle is closed underneath the thread -- appended nothing, did not break, and
+did not block. ReadFile would fail the same way immediately on the next
+iteration, and the loop would spin a core until the ConPtyProcess was destroyed.
+
+Invert it: append on success or ERROR_MORE_DATA, break on anything else. Broken
+pipe is still covered, now as the ordinary case of "this pipe is finished"
+rather than as a special one, and the interruption check keeps its own break.
+
+GetLastError() is also captured once instead of being called twice for two
+different questions. It is thread-global state; reading it twice around
+intervening work is a bug waiting for a maintainer.
+
+No reproducer is known for the spin -- this is defensive. It was found by
+reading the loop while investigating a report of busy-looping that measurement
+did not confirm.
+
+Origin: this loop arrives with 0001, from ptyqt, not from qtermwidget upstream.
+
+Upstream: not submitted; belongs on PR #578, which is not being merged --
+         see 0001's header
+Applies-to: all environments (the changed code is behind Q_OS_WIN)
+
+--- a/lib/ptyqt/conptyprocess.cpp
++++ b/lib/ptyqt/conptyprocess.cpp
+@@ -202,15 +202,27 @@
+             // Read from the pipe
+             BOOL result = ReadFile(m_hPipeIn, szBuffer, BUFF_SIZE, &dwBytesRead, NULL);
+ 
+-            const bool needMoreData = !result && GetLastError() == ERROR_MORE_DATA;
++            // Capture the error once. GetLastError() was previously consulted
++            // twice for two different questions, which is fragile: it is
++            // thread-global state and anything in between could reset it.
++            const DWORD lastError = result ? ERROR_SUCCESS : GetLastError();
++
++            const bool needMoreData = !result && lastError == ERROR_MORE_DATA;
+             if (result || needMoreData) {
+                 QMutexLocker locker(&m_bufferMutex);
+                 m_buffer.m_readBuffer.append(szBuffer, dwBytesRead);
+                 m_buffer.emitReadyRead();
++            } else {
++                // Any other failure ends the loop. Only ERROR_BROKEN_PIPE used
++                // to, so an unexpected error -- ERROR_OPERATION_ABORTED or
++                // ERROR_INVALID_HANDLE after the handle is closed underneath
++                // this thread -- fell through to the bottom of the loop, did
++                // not break, and did not block: ReadFile would fail again
++                // immediately, spinning a core until the object was destroyed.
++                break;
+             }
+ 
+-            const bool brokenPipe = !result && GetLastError() == ERROR_BROKEN_PIPE;
+-            if (QThread::currentThread()->isInterruptionRequested() || brokenPipe)
++            if (QThread::currentThread()->isInterruptionRequested())
+                 break;
+         }
+     });

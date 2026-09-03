@@ -1,0 +1,112 @@
+Launch the configured shell on Windows
+
+QTermWidget::setShellProgram() is documented public API and, on Windows, did
+nothing at all. Session::run()'s Windows branch opened by assigning over
+whatever the caller had configured:
+
+    QString exec = QStringLiteral("C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe");
+    if(!QFile(exec).exists())
+        exec = QStringLiteral("C:\WINDOWS\system32\cmd.exe");
+
+_program is never read, so every terminal got PowerShell no matter what was
+asked for. The Unix branch immediately above does the opposite -- it starts from
+_program and falls back only when that is empty or missing -- so this restores
+the same shape: honour _program, resolve a bare name through PATH because
+ConPtyProcess requires an absolute path, and fall back to PowerShell, then
+%ComSpec%, then cmd.exe. Consulting ComSpec before hardcoding cmd.exe is a small
+addition; the previous code assumed C:\WINDOWS.
+
+The second half is why fixing the first half alone still does not work.
+Session::run() builds `arguments` starting with the program itself, following
+the argv[0] convention the Unix path wants. ConPtyProcess::startProcess() then
+prepends the shell path to whatever list it is given, so the program is named
+twice and the second copy arrives as an argument. With PowerShell that is
+harmless enough to go unnoticed; point it at a shell and the shell is asked to
+execute itself as a script:
+
+    C:/dev/msys64/usr/bin/bash.exe: C:/dev/msys64/usr/bin/bash.exe:
+        cannot execute binary file
+
+Hence arguments.mid(1).
+
+This is NOT the cause of the unanswered report on the PR that
+startTerminalTeletype "is not work", though it looks like a candidate at first:
+
+    https://github.com/lxqt/qtermwidget/pull/578#issuecomment-3009278241
+
+That path never reaches this code. Session::runEmptyPTY() does not call
+Pty::start() at all -- it calls Pty::setEmptyPTYProperties(), which the Windows
+branch leaves as an empty stub. ConPTY has no pty-without-a-process to hand a
+caller, so there is nothing obvious for it to do, and making that mode work
+needs a design decision rather than a fix. Left alone here.
+
+Not fixed here, and worth knowing about: ConPtyProcess::startProcess() builds
+its command line by joining the path and arguments with spaces and no quoting,
+so a shell whose path contains a space -- anything under C:\Program Files --
+will still be split. Correct Windows command-line quoting is a bigger change
+than this patch wants to be.
+
+Verified live together with 0007: an MSYS2 bash comes up with its own prompt,
+the correct working directory, colours and bracketed paste.
+
+Upstream: not submitted; belongs on PR #578, which is not being merged --
+         see 0001's header
+Applies-to: all environments (the changed code is behind Q_OS_WIN)
+
+--- a/lib/Session.cpp
++++ b/lib/Session.cpp
+@@ -33,6 +33,8 @@
+ #include <algorithm>
+ 
+ #include <QDir>
++#include <QFileInfo>
++#include <QStandardPaths>
+ #include <QProcessEnvironment>
+ #include <QFile>
+ #include <QStringList>
+@@ -309,10 +311,26 @@
+         }
+     }
+ #else
+-    QString exec = QStringLiteral("C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+-    // Change shell to cmd.exe if we don't have powershell
+-    if(!QFile(exec).exists())
+-        exec = QStringLiteral("C:\\WINDOWS\\system32\\cmd.exe");
++    // Honour the configured program, exactly as the Unix branch above does, and
++    // fall back only when it is unset or missing. ConPtyProcess demands an
++    // absolute path, so resolve a bare name against PATH first.
++    QString exec = _program;
++    if (!exec.isEmpty() && QFileInfo(exec).isRelative()) {
++        const QString resolved = QStandardPaths::findExecutable(exec);
++        if (!resolved.isEmpty())
++            exec = resolved;
++    }
++
++    if (exec.isEmpty() || !QFile::exists(exec)) {
++        if (!exec.isEmpty())
++            qWarning() << "Session: shell" << exec << "not found, falling back to the system shell";
++        exec = QStringLiteral("C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
++        // Change shell to cmd.exe if we don't have powershell
++        if (!QFile::exists(exec))
++            exec = QString::fromLocal8Bit(qgetenv("ComSpec"));
++        if (exec.isEmpty() || !QFile::exists(exec))
++            exec = QStringLiteral("C:\\WINDOWS\\system32\\cmd.exe");
++    }
+ #endif
+ 
+     // _arguments sometimes contain ("") so isEmpty()
+@@ -372,7 +390,13 @@
+         return a.compare(b, Qt::CaseInsensitive) < 0;
+     });
+ 
+-    int result = _shellProcess->start(exec, arguments, _initialWorkingDir.isEmpty() ? QDir::currentPath() : _initialWorkingDir, childEnvList, cols, lines);
++    // arguments[0] is the program itself, by the argv[0] convention the Unix
++    // branch follows. ConPtyProcess::startProcess() prepends the shell path to
++    // whatever it is given, so passing the whole list would name the program
++    // twice -- and the second copy becomes an argument. For a shell that means
++    // being asked to run itself as a script: "bash.exe: bash.exe: cannot
++    // execute binary file". Hand over only the arguments after argv[0].
++    int result = _shellProcess->start(exec, arguments.mid(1), _initialWorkingDir.isEmpty() ? QDir::currentPath() : _initialWorkingDir, childEnvList, cols, lines);
+ #endif
+ 
+     if (result < 0) {

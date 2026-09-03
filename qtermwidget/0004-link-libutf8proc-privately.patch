@@ -1,0 +1,60 @@
+Link libutf8proc privately
+
+utf8proc is used in exactly one translation unit, konsole_wcwidth.cpp, and its
+header appears in no installed header -- HAVE_UTF8PROC is already PRIVATE. But
+the include directory is attached INTERFACE and the library is linked with the
+plain target_link_libraries() signature, which is equivalent to PUBLIC, so both
+are exported to consumers. Since find_library reports an absolute path, the
+installed CMake package config hardcodes the build machine's prefix:
+
+    INTERFACE_INCLUDE_DIRECTORIES "C:/dev/msys64/ucrt64/include;..."
+    INTERFACE_LINK_LIBRARIES "Qt6::Widgets;C:/dev/msys64/ucrt64/lib/libutf8proc.dll.a"
+
+That is wrong on any machine whose MSYS2 root differs from the builder's, and
+it makes makepkg flag the package for containing a reference to
+$(cygpath -m /). Both become PRIVATE, which is what the code actually is.
+
+target_link_libraries cannot mix its plain and keyword signatures on one
+target, so the other two calls on the library have to be converted at the same
+time: Qt6::Widgets becomes PUBLIC, since the installed headers include Qt and
+consumers do need it, and the Linux/FreeBSD utempter library becomes PRIVATE
+for the same reason as utf8proc.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -147,7 +147,7 @@
+ )
+ 
+ add_library(${QTERMWIDGET_LIBRARY_NAME} SHARED ${SRCS} ${MOCS} ${UI_SRCS} ${QTERMWIDGET_QM})
+-target_link_libraries(${QTERMWIDGET_LIBRARY_NAME} Qt6::Widgets)
++target_link_libraries(${QTERMWIDGET_LIBRARY_NAME} PUBLIC Qt6::Widgets)
+ set_target_properties( ${QTERMWIDGET_LIBRARY_NAME} PROPERTIES
+                        SOVERSION ${QTERMWIDGET_VERSION_MAJOR}
+                        VERSION ${QTERMWIDGET_VERSION}
+@@ -176,7 +176,7 @@
+                 "HAVE_UTEMPTER"
+         )
+         find_library(UTEMPTER_LIB NAMES utempter ulog REQUIRED)
+-        target_link_libraries(${QTERMWIDGET_LIBRARY_NAME} ${UTEMPTER_LIB})
++        target_link_libraries(${QTERMWIDGET_LIBRARY_NAME} PRIVATE ${UTEMPTER_LIB})
+     endif()
+ endif()
+ 
+@@ -186,11 +186,12 @@
+             "HAVE_UTF8PROC"
+     )
+     target_include_directories(${QTERMWIDGET_LIBRARY_NAME}
+-        INTERFACE
++        PRIVATE
+             ${UTF8PROC_INCLUDE_DIRS}
+     )
+     target_link_libraries(${QTERMWIDGET_LIBRARY_NAME}
+-        ${UTF8PROC_LIBRARIES}
++        PRIVATE
++            ${UTF8PROC_LIBRARIES}
+     )
+     string(APPEND PKG_CONFIG_REQ ", libutf8proc")
+ endif()

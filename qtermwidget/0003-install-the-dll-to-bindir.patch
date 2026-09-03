@@ -1,0 +1,35 @@
+Install the DLL to BINDIR
+
+install(TARGETS) names only the unnamed DESTINATION and LIBRARY DESTINATION,
+both CMAKE_INSTALL_LIBDIR. On ELF platforms that is the whole story, because a
+shared library is a single LIBRARY artifact. On Windows a SHARED target is two
+artifacts -- a RUNTIME .dll and an ARCHIVE import .dll.a -- and with no RUNTIME
+destination given CMake falls back to the unnamed DESTINATION, so the DLL is
+installed next to the import library in lib/:
+
+    ucrt64/lib/libqtermwidget6.dll
+    ucrt64/lib/libqtermwidget6.dll.a
+
+Windows has no rpath and resolves DLLs from PATH, which contains bin and not
+lib, so nothing linked against the library can start. Name all three artifact
+kinds explicitly. The unnamed DESTINATION is dropped rather than left in place:
+once RUNTIME/LIBRARY/ARCHIVE are all given it only serves to catch a fourth
+artifact kind by accident.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -294,9 +294,10 @@
+ )
+ 
+ install(TARGETS ${QTERMWIDGET_LIBRARY_NAME}
+-    DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+     EXPORT "${QTERMWIDGET_LIBRARY_NAME}-targets"
++    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
++    ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+     PUBLIC_HEADER
+     COMPONENT Runtime
+ )

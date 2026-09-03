@@ -1,0 +1,194 @@
+Find resources in the installed prefix, relative to the library
+
+KB_LAYOUT_DIR, COLORSCHEMES_DIR and TRANSLATIONS_DIR are baked into the library
+as absolute paths from CMAKE_INSTALL_FULL_DATADIR. Under MSYS2 the install
+prefix is a POSIX path, so what lands in the DLL is
+
+    /ucrt64/share/qtermwidget6/color-schemes
+
+which a native Windows binary resolves against the current drive root -- it
+never exists. The failure is silent and total: availableColorSchemes() and
+availableKeyBindings() return empty lists and no translation is ever loaded.
+
+Patch 0001 already added a Windows fallback for all three, but it looks beside
+the *executable* -- applicationDirPath()/kb-layouts/ and friends. That is the
+right shape for a self-contained application directory, where a bundler has
+copied the resources next to the .exe. It is the wrong shape for a package
+manager, which installs them once into
+
+    $PREFIX/share/qtermwidget6/...
+
+and leaves the DLL in $PREFIX/bin. So this adds a second fallback, tried after
+0001's, that resolves relative to the module rather than the application:
+CMake computes the data directory relative to BINDIR and passes it as
+QTERMWIDGET_DATA_RELDIR, and get_module_dir() asks the loader for this DLL's
+own path via GetModuleHandleEx(FROM_ADDRESS).
+
+The module and not applicationDirPath() on purpose. kb-layouts and
+color-schemes belong to the library, and a consumer executable is under no
+obligation to sit in the same directory as the DLL -- during this package's own
+smoke test it did not, which is exactly how the empty lists were noticed.
+
+Ordering is deliberate: the compiled-in absolute path first, then 0001's
+app-directory lookup, then this one. A bundler who has deliberately placed
+resources next to the executable still wins; the prefix layout is the fallback
+for everyone who has not.
+
+Kept separate from 0001 rather than folded into it so that refreshing the
+vendored PR stays a clean drop-in. See 0001's header for that PR's status.
+
+Upstream: not submitted
+Applies-to: all environments (the new code is behind Q_OS_WIN)
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -221,8 +221,20 @@
+     set_target_properties(${QTERMWIDGET_LIBRARY_NAME} PROPERTIES INSTALL_NAME_DIR ${CMAKE_INSTALL_FULL_LIBDIR})
+ endif()
+ 
++# Windows installs have no fixed filesystem prefix -- the tree is unpacked
++# wherever the user puts it, and under MSYS2 the configure-time prefix is a
++# POSIX path that a native binary cannot resolve at all. Record the data
++# directory relative to bin/ as well, so the library can locate its resources
++# next to itself at runtime. Relative to bin/ rather than to the prefix because
++# that is where the DLL lands, and the DLL is what does the lookup.
++file(RELATIVE_PATH QTERMWIDGET_DATA_RELDIR
++    "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}"
++    "${CMAKE_INSTALL_FULL_DATADIR}/${QTERMWIDGET_LIBRARY_NAME}"
++)
++
+ target_compile_definitions(${QTERMWIDGET_LIBRARY_NAME}
+     PRIVATE
++        "QTERMWIDGET_DATA_RELDIR=\"${QTERMWIDGET_DATA_RELDIR}\""
+         "KB_LAYOUT_DIR=\"${KB_LAYOUT_DIR}\""
+         "COLORSCHEMES_DIR=\"${COLORSCHEMES_DIR}\""
+         "TRANSLATIONS_DIR=\"${TRANSLATIONS_DIR}\""
+--- a/lib/tools.h
++++ b/lib/tools.h
+@@ -4,6 +4,13 @@
+ #include <QString>
+ #include <QStringList>
+ #include <QLoggingCategory>
++#include <QtGlobal>
++
++#ifdef Q_OS_WIN
++/*! Resolve a subdirectory of the installed data directory relative to the
++    module (DLL) this code lives in, so the tree stays relocatable. */
++QString get_relocated_data_dir(const QString& subdir);
++#endif
+ 
+ QString get_kb_layout_dir();
+ void add_custom_color_scheme_dir(const QString& custom_dir);
+--- a/lib/tools.cpp
++++ b/lib/tools.cpp
+@@ -2,8 +2,48 @@
+ 
+ #include <QCoreApplication>
+ #include <QDir>
++#include <QFileInfo>
+ #include <QtDebug>
+ 
++#ifdef Q_OS_WIN
++#include <windows.h>
++
++/*! Directory holding the module (DLL) this function is compiled into.
++
++The library, not the application, owns kb-layouts and color-schemes, and a
++consumer executable need not live in the same directory as the DLL -- so
++QCoreApplication::applicationDirPath() is the wrong anchor for an installed
++prefix. Ask the loader where this code actually came from instead.
++*/
++static QString get_module_dir()
++{
++    HMODULE mod = nullptr;
++    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
++                                | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
++                            reinterpret_cast<LPCWSTR>(&get_module_dir),
++                            &mod))
++        return QString();
++
++    wchar_t buf[32768];
++    const DWORD n = GetModuleFileNameW(mod, buf, DWORD(sizeof(buf) / sizeof(buf[0])));
++    if (n == 0 || n >= DWORD(sizeof(buf) / sizeof(buf[0])))
++        return QString();
++
++    return QFileInfo(QString::fromWCharArray(buf, int(n))).absolutePath();
++}
++
++QString get_relocated_data_dir(const QString& subdir)
++{
++    const QString moduleDir = get_module_dir();
++    if (moduleDir.isEmpty())
++        return QString();
++
++    return QDir::cleanPath(moduleDir + QLatin1Char('/')
++                           + QLatin1String(QTERMWIDGET_DATA_RELDIR)
++                           + QLatin1Char('/') + subdir);
++}
++#endif
++
+ 
+ Q_LOGGING_CATEGORY(qtermwidgetLogger, "qtermwidget", QtWarningMsg)
+ 
+@@ -34,6 +74,16 @@
+     if (d.exists())
+         return QCoreApplication::applicationDirPath() + QLatin1String("/kb-layouts/");
+ #endif
++#ifdef Q_OS_WIN
++    // installed prefix, found relative to this DLL
++    k = get_relocated_data_dir(QLatin1String("kb-layouts"));
++    if (!k.isEmpty())
++    {
++        d.setPath(k);
++        if (d.exists())
++            return k.append(QLatin1Char('/'));
++    }
++#endif
+ #ifdef Q_OS_MAC
+     d.setPath(QCoreApplication::applicationDirPath() + QLatin1String("/../Resources/kb-layouts/"));
+     if (d.exists())
+@@ -82,6 +132,19 @@
+         rval << (QCoreApplication::applicationDirPath() + QLatin1String("/color-schemes/"));
+     }
+ #endif
++#ifdef Q_OS_WIN
++    // installed prefix, found relative to this DLL
++    if (rval.isEmpty())
++    {
++        QString w = get_relocated_data_dir(QLatin1String("color-schemes"));
++        if (!w.isEmpty())
++        {
++            d.setPath(w);
++            if (d.exists())
++                rval << w.append(QLatin1Char('/'));
++        }
++    }
++#endif
+ #ifdef Q_OS_MAC
+     d.setPath(QCoreApplication::applicationDirPath() + QLatin1String("/../Resources/color-schemes/"));
+     if (d.exists())
+--- a/lib/qtermwidget.cpp
++++ b/lib/qtermwidget.cpp
+@@ -33,6 +33,7 @@
+ #include "ColorScheme.h"
+ #include "SearchBar.h"
+ #include "qtermwidget.h"
++#include "tools.h"
+ 
+ #ifdef Q_OS_MACOS
+ // Qt does not support fontconfig on macOS, so we need to use a "real" font name.
+@@ -317,6 +318,14 @@
+     dirs.append(QCoreApplication::applicationDirPath() + QStringLiteral("/translations/"));
+ #endif
+     dirs.append(QFile::decodeName(TRANSLATIONS_DIR));
++#ifdef Q_OS_WIN
++    // installed prefix, found relative to this DLL
++    {
++        const QString w = get_relocated_data_dir(QLatin1String("translations"));
++        if (!w.isEmpty())
++            dirs.append(w);
++    }
++#endif
+ 
+     m_translator = new QTranslator(this);
+ 

@@ -1,0 +1,126 @@
+Fix the working directory on Windows
+
+Two defects, one of which stops the library linking at all.
+
+1. PR #578 does not link against 2.4.0.
+
+The PR was written against 2.3.0-era master, where Session::run() set the
+child's directory with Pty::setWorkingDirectory(). Between 2.3.0 and 2.4.0
+upstream introduced Pty::setInitialWorkingDirectory() -- which normalises a
+trailing slash, forwards to setWorkingDirectory() and fixes up PWD -- and moved
+both call sites in Session::run() onto it. The PR only provides
+setWorkingDirectory() in its Windows branch, so:
+
+    Session.cpp:(.text+0x688f): undefined reference to
+        `Konsole::Pty::setInitialWorkingDirectory(QString const&)'
+
+The PR still reports as mergeable on GitHub because the conflict is semantic,
+not textual -- nothing it touches overlaps the lines that changed. Worth knowing
+before trusting "mergeable: clean" on a PR this old.
+
+The Windows branch gets its own setInitialWorkingDirectory() mirroring the Unix
+one, minus the PWD handling: that exists so a POSIX shell inherits a symlinked
+path unresolved, and neither ConPTY nor the environment block (see below) can
+carry it today.
+
+2. The working directory was dropped on the floor regardless.
+
+Pty::setWorkingDirectory() was an empty stub, and ConPtyProcess::startProcess()
+took a workingDir parameter it never used -- the CreateProcessW call passes NULL
+with the real argument sitting next to it, commented out, from the original
+ptyqt sources. So QTermWidget::setWorkingDirectory() silently did nothing and
+every terminal opened wherever the host application happened to be. gcc catches
+both halves as -Wunused-parameter, which is how this was noticed.
+
+Now the stub stores the value, Pty::start() falls back to it when the caller
+passes nothing, and CreateProcessW receives it -- through toNativeSeparators(),
+since Qt hands out '/' and this argument reaches the Win32 API unmodified, and
+as NULL rather than an empty string, which is how CreateProcessW spells "inherit
+the parent's".
+
+STILL OUTSTANDING, deliberately not fixed here: the environment block is dropped
+in exactly the same way. envArg is built and then passed as NULL two lines above
+the working directory, so TERM and everything Session adds never reach the child.
+That has to be fixed before an MSYS2 shell can be launched properly -- MSYSTEM
+and CHERE_INVOKING are passed the same way -- but it is a larger change than a
+one-argument fix and belongs in its own patch.
+
+Upstream: not submitted; belongs on PR #578, which is not being merged --
+         see 0001's header
+Applies-to: all environments (the changed code is behind Q_OS_WIN)
+
+--- a/lib/Pty.h
++++ b/lib/Pty.h
+@@ -281,6 +281,7 @@
+     bool _utf8;
+ #ifdef Q_OS_WIN
+     std::unique_ptr<IPtyProcess> m_proc;
++    QString _workingDir;
+ #endif
+ };
+ 
+--- a/lib/Pty.cpp
++++ b/lib/Pty.cpp
+@@ -463,8 +463,22 @@
+     return _eraseChar;
+ }
+ 
+-void Pty::setWorkingDirectory(const QString & /*dir*/)
++void Pty::setWorkingDirectory(const QString &dir)
+ {
++    _workingDir = dir;
++}
++
++void Pty::setInitialWorkingDirectory(const QString &dir)
++{
++    QString pwd = dir;
++
++    // remove trailing slash in the path when appropriate
++    // example: /usr/share/icons/ ==> /usr/share/icons
++    if (pwd.length() > 1 && pwd.endsWith(QLatin1Char('/'))) {
++        pwd.chop(1);
++    }
++
++    setWorkingDirectory(pwd);
+ }
+ 
+ void Pty::addEnvironmentVariables(const QStringList & /*environmentVariables*/)
+@@ -476,7 +490,7 @@
+     if (!m_proc || !m_proc->isAvailable()) {
+         return -1;
+     }
+-    bool res = m_proc->startProcess(program, arguments, workingDir, environment, cols, lines);
++    bool res = m_proc->startProcess(program, arguments, workingDir.isEmpty() ? _workingDir : workingDir, environment, cols, lines);
+     if (!res) {
+         return -1;
+     } else {
+--- a/lib/ptyqt/conptyprocess.cpp
++++ b/lib/ptyqt/conptyprocess.cpp
+@@ -4,6 +4,7 @@
+ */
+ #include "conptyprocess.h"
+ #include <QCoreApplication>
++#include <QDir>
+ #include <QDebug>
+ #include <QFile>
+ #include <QFileInfo>
+@@ -99,6 +100,10 @@
+         return false;
+     }
+ 
++    // CreateProcessW wants a native path here, and NULL rather than an empty
++    // string to mean "inherit the parent's".
++    std::wstring workingDirW = QDir::toNativeSeparators(workingDir).toStdWString();
++
+     // already running
+     if (m_ptyHandler != INVALID_HANDLE_VALUE)
+         return false;
+@@ -151,7 +156,7 @@
+                        FALSE, // Inherit handles
+                        EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT, // Creation flags
+                        NULL, // envArg, // Environment block
+-                       NULL, // workingDir.toStdWString().data(), // Use parent's starting directory
++                       workingDirW.empty() ? NULL : workingDirW.data(), // Starting directory
+                        &m_shellStartupInfo.StartupInfo, // Pointer to STARTUPINFO
+                        &m_shellProcessInformation) // Pointer to PROCESS_INFORMATION
+         ? S_OK

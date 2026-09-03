@@ -1,0 +1,89 @@
+Pass the environment to the child process on Windows
+
+Two independent halves of the same failure, so they are fixed together.
+
+ConPtyProcess::startProcess() builds a correct UTF-16, double-NUL-terminated
+environment block in envArg -- and then hands CreateProcessW a literal NULL,
+with the real argument commented out beside it, exactly as it does for the
+working directory (see 0006). Nothing the caller supplies reaches the child.
+gcc notices the dead variable:
+
+    conptyprocess.cpp:129:12: warning: unused variable 'envArg'
+
+Simply passing envArg is not enough, though, and doing only that would be worse
+than the bug. Session::run() hands Windows a bare _environment, which holds
+just the few variables Session itself adds -- TERM, COLORFGBG and whatever the
+caller appended. The Unix branch a few lines above merges those over the
+process's existing environment; the Windows branch never did, because the value
+was being discarded anyway. Pass _environment alone and the child launches with
+no PATH, no SystemRoot and no TEMP, which most shells do not survive.
+
+So the merge is done first, with QProcessEnvironment -- which is
+case-insensitive on Windows, so overriding an inherited variable replaces it
+instead of leaving two entries that differ only in case -- and the result is
+sorted case-insensitively, which is the order CreateProcess documents for the
+environment block.
+
+This is what makes an MSYS2 shell usable rather than merely launchable: MSYSTEM,
+MSYS2_PATH_TYPE and CHERE_INVOKING are ordinary environment variables, so with
+this in place a caller can select the UCRT64/MINGW64/CLANG64 environment the
+normal way, and a shell inherited from an MSYS2 parent already comes up correct.
+
+Verified live: bash.exe under this widget reports MSYSTEM=[UCRT64] and
+uname -o = Msys.
+
+Upstream: not submitted; belongs on PR #578, which is not being merged --
+         see 0001's header
+Applies-to: all environments (the changed code is behind Q_OS_WIN)
+
+--- a/lib/Session.cpp
++++ b/lib/Session.cpp
+@@ -30,7 +30,10 @@
+ 
+ // Qt
+ #include <QApplication>
++#include <algorithm>
++
+ #include <QDir>
++#include <QProcessEnvironment>
+ #include <QFile>
+ #include <QStringList>
+ #include <QSysInfo>
+@@ -351,7 +354,25 @@
+     const auto size = _emulation->imageSize();
+     const int lines = size.height();
+     const int cols = size.width();
+-    int result = _shellProcess->start(exec, arguments, _initialWorkingDir.isEmpty() ? QDir::currentPath() : _initialWorkingDir, _environment, cols, lines);
++    // _environment holds only the handful of variables this class adds (TERM,
++    // COLORFGBG, ...). The Unix branch above merges them over the process's own
++    // environment; do the same here, or the child starts with nothing -- no
++    // PATH, no SystemRoot -- and most shells will not run at all.
++    // QProcessEnvironment is case-insensitive on Windows, so an override of an
++    // inherited variable replaces it rather than producing a duplicate key.
++    QProcessEnvironment childEnv = QProcessEnvironment::systemEnvironment();
++    for (const QString &variable : std::as_const(_environment)) {
++        const int eq = variable.indexOf(QLatin1Char('='));
++        if (eq > 0)
++            childEnv.insert(variable.left(eq), variable.mid(eq + 1));
++    }
++    // CreateProcess wants the block sorted case-insensitively.
++    QStringList childEnvList = childEnv.toStringList();
++    std::sort(childEnvList.begin(), childEnvList.end(), [](const QString &a, const QString &b) {
++        return a.compare(b, Qt::CaseInsensitive) < 0;
++    });
++
++    int result = _shellProcess->start(exec, arguments, _initialWorkingDir.isEmpty() ? QDir::currentPath() : _initialWorkingDir, childEnvList, cols, lines);
+ #endif
+ 
+     if (result < 0) {
+--- a/lib/ptyqt/conptyprocess.cpp
++++ b/lib/ptyqt/conptyprocess.cpp
+@@ -155,7 +155,7 @@
+                        NULL, // Thread handle not inheritable
+                        FALSE, // Inherit handles
+                        EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT, // Creation flags
+-                       NULL, // envArg, // Environment block
++                       envArg, // Environment block
+                        workingDirW.empty() ? NULL : workingDirW.data(), // Starting directory
+                        &m_shellStartupInfo.StartupInfo, // Pointer to STARTUPINFO
+                        &m_shellProcessInformation) // Pointer to PROCESS_INFORMATION

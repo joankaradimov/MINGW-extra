@@ -1,0 +1,109 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=qtermwidget
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=2.4.0
+pkgrel=1
+pkgdesc="Terminal emulator widget for Qt, used by QTerminal (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url="https://github.com/lxqt/${_realname}"
+# MIT covers the ConPTY backend vendored by patch 0001 (lib/ptyqt/, lib/wcwidth.c).
+license=('spdx:LGPL-2.0-or-later AND BSD-3-Clause AND MIT')
+msys2_repository_url="https://github.com/lxqt/${_realname}"
+msys2_references=(
+  'archlinux: qtermwidget'
+)
+depends=("${MINGW_PACKAGE_PREFIX}-cc-libs"
+         "${MINGW_PACKAGE_PREFIX}-libutf8proc"
+         "${MINGW_PACKAGE_PREFIX}-qt6-base")
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-cmake"
+             "${MINGW_PACKAGE_PREFIX}-lxqt-build-tools"
+             "${MINGW_PACKAGE_PREFIX}-ninja"
+             "${MINGW_PACKAGE_PREFIX}-qt6-tools")
+source=("https://github.com/lxqt/${_realname}/releases/download/${pkgver}/${_realname}-${pkgver}.tar.xz"
+        "0001-backport-windows-conpty-support.patch"
+        "0002-widen-isRegionalIndicator-to-char32_t.patch"
+        "0003-install-the-dll-to-bindir.patch"
+        "0004-link-libutf8proc-privately.patch"
+        "0005-find-resources-in-the-msys2-prefix.patch"
+        "0006-fix-the-working-directory-on-windows.patch"
+        "0007-pass-the-environment-to-the-child-process.patch"
+        "0008-launch-the-configured-shell-on-windows.patch"
+        "0009-end-the-conpty-read-loop-on-any-error.patch")
+sha256sums=('ceb7d1991ecc0e75b751b6b7786c4962598d367c6e9a0b55f78fc12a49f25304'
+            'e80f96bd2322e3b18d9923ac46752108155c681749e87862b12c61f201ff2a11'
+            'b38b50e4ca7b7f8b6237dbcc86876f5323da3347f9ed614903e000df0ebe8bdb'
+            '1e6f6f3eb0b36317d4146ec98486eb150e2a2537a3bc50638b2d719cfe0aa470'
+            '040f7d082ee4fcab6c33922b59487f3e323d6f7499b73a7c33bd5bc62afe75cf'
+            '44d69c55132ab6e76e3143f199fed80aea285f931e4331537bab2e970192e858'
+            'c430493315fb0119dcfe64d3f2cbac8323663b724057b03b48fce30c13218121'
+            '5309f5d3500b0a6e87a39c647030d1cd01cce4fe94209ef42555892b125a4619'
+            '1e8e09cfd0dd0cd63bcd4de1e7738c948e6914d99288e881e8df42915f3cb639'
+            'a102ed67b1c049ba2528df1b785ba8d5f80142328505a3111b03a6e1179ee1df')
+# Unpacked by hand in prepare(); see the comment there.
+noextract=("${_realname}-${pkgver}.tar.xz")
+
+prepare() {
+  # 0001 vendors lxqt/qtermwidget PR #578, which replaces the POSIX KPty stack
+  # with a ConPTY one on Windows. It is open upstream and will stay open -- the
+  # maintainer declined it for lack of Windows manpower, not on technical
+  # grounds -- so on a version bump, refresh the patch rather than expecting it
+  # to have merged. That patch's header carries the full discussion trail.
+  #
+  #     https://github.com/lxqt/qtermwidget/pull/578
+  #
+  # The release tarball stores COPYING-CMAKE-SCRIPTS as a symlink to
+  # LICENSE.BSD-3-clause, ahead of the target it points at. Cygwin's symlink
+  # emulation will not create a dangling native symlink, so bsdtar fails that
+  # one entry with ENOENT and makepkg aborts the whole extraction. Asking for
+  # winsymlinks:sys switches it to the Cygwin magic-file form, which needs
+  # neither an existing target nor SeCreateSymbolicLinkPrivilege. Nothing in
+  # the build reads that file -- the two real licence files are installed
+  # explicitly in package() -- but this keeps the source tree intact rather
+  # than papering over it with --exclude.
+  MSYS=winsymlinks:sys bsdtar -xf "${srcdir}/${_realname}-${pkgver}.tar.xz" -C "${srcdir}"
+
+  cd "${_realname}-${pkgver}"
+
+  patch -Np1 -i "${srcdir}/0001-backport-windows-conpty-support.patch"
+  patch -Np1 -i "${srcdir}/0002-widen-isRegionalIndicator-to-char32_t.patch"
+  patch -Np1 -i "${srcdir}/0003-install-the-dll-to-bindir.patch"
+  patch -Np1 -i "${srcdir}/0004-link-libutf8proc-privately.patch"
+  patch -Np1 -i "${srcdir}/0005-find-resources-in-the-msys2-prefix.patch"
+  patch -Np1 -i "${srcdir}/0006-fix-the-working-directory-on-windows.patch"
+  patch -Np1 -i "${srcdir}/0007-pass-the-environment-to-the-child-process.patch"
+  patch -Np1 -i "${srcdir}/0008-launch-the-configured-shell-on-windows.patch"
+  patch -Np1 -i "${srcdir}/0009-end-the-conpty-read-loop-on-any-error.patch"
+}
+
+build() {
+  # USE_UTF8PROC is pinned ON rather than left at its default of OFF. With it
+  # off, konsole_wcwidth() calls wcwidth(), which the MS CRT does not provide;
+  # patch 0002 adds a crude fallback so the source still compiles that way, but
+  # libutf8proc is a real width table and the widget is a terminal emulator, so
+  # getting East Asian and combining widths right is not optional.
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
+    "${MINGW_PREFIX}"/bin/cmake.exe \
+      -G Ninja \
+      -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DBUILD_EXAMPLE=OFF \
+      -DUSE_UTF8PROC=ON \
+      -DQTERMWIDGET_USE_UTEMPTER=OFF \
+      -B "build-${MSYSTEM}" \
+      -S "${_realname}-${pkgver}"
+
+  "${MINGW_PREFIX}"/bin/cmake.exe --build "build-${MSYSTEM}"
+}
+
+package() {
+  DESTDIR="${pkgdir}" "${MINGW_PREFIX}"/bin/cmake.exe --install "build-${MSYSTEM}"
+
+  install -Dm644 "${srcdir}/${_realname}-${pkgver}/LICENSE.LGPL2+" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/LICENSE.LGPL2+"
+  install -Dm644 "${srcdir}/${_realname}-${pkgver}/LICENSE.BSD-3-clause" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/LICENSE.BSD-3-clause"
+}

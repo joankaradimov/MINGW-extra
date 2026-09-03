@@ -1,0 +1,2311 @@
+Backport Windows support (ConPTY) from lxqt/qtermwidget PR #578
+
+Vendored verbatim from the pull request, which is open and will stay that way.
+It swaps the POSIX KPty stack for a ConPTY one on Windows: lib/ptyqt/ gains an
+abstract IPtyProcess plus a ConPtyProcess implementation, Pty is reparented to
+QObject instead of KPtyProcess, and CMake drops kpty.cpp/kptydevice.cpp/
+kptyprocess.cpp/BlockArray.cpp from the Windows build. History moves off mmap
+onto QTemporaryFile::map() and widens its offsets to qint64.
+
+    PR:     https://github.com/lxqt/qtermwidget/pull/578
+    Author: loliting, 2025-01-01, branch loliting:windows-support
+
+Provenance of the vendored code, per the PR's own README additions:
+
+    lib/ptyqt/conptyprocess.{h,cpp}  Vitaly Petrov <v31337@gmail.com>, MIT
+    lib/ptyqt/iptyprocess.{h,cpp}    Waqar Ahmed <waqar.17a@gmail.com>, MIT
+    lib/wcwidth.c                    Markus Kuhn, MIT
+
+    upstream of ptyqt: https://github.com/kafeg/ptyqt
+
+WHY THIS IS CARRIED DOWNSTREAM AND NOT WAITED ON
+
+The PR is not blocked on technical review. The qtermwidget maintainer declined
+it on the first day and again in June 2025, both times on manpower grounds:
+
+    "LXQt doesn't have the required manpower to support Windows."
+    "As the current maintainer of qterminal+qtermwidget, I don't (and won't)
+     have Windows (to say nothing of the time)."
+        -- tsujan, https://github.com/lxqt/qtermwidget/pull/578#issuecomment-2566430448
+
+When another contributor offered to do the review, the answer was a flat "No":
+
+    https://github.com/lxqt/qtermwidget/pull/578#issuecomment-2979012570
+
+The author has said he does not need it upstreamed. So do not wait for this to
+merge, and do not drop this patch on a version bump expecting upstream to have
+taken it. Re-check the PR's state, then refresh the patch.
+
+THE REST OF THE PAPER TRAIL
+
+    #42   https://github.com/lxqt/qtermwidget/issues/42
+          The original 2015 "Port qtermwidget to Windows" request. Closed with
+          "PRs accepted, but we're not leaving a tracker bug open for this."
+          Everything below cross-references it.
+    #240  https://github.com/lxqt/qtermwidget/issues/240
+          GNU Octave maintains an independent fork with win32 support, a second
+          prior-art lineage if this one ever goes stale:
+          https://hg.savannah.gnu.org/hgweb/octave/file/tip/libgui/qterminal/libqterminal/
+    #491  https://github.com/lxqt/qtermwidget/issues/491
+    #494  https://github.com/lxqt/qtermwidget/issues/494
+          Two later "is there a Windows plan?" reports, both closed as no.
+
+    KangLin's fork, which tracks the PR and asked for CI:
+          https://github.com/KangLin/qtermwidget
+
+KNOWN GAPS -- none of these are regressions this patch introduces, but they are
+what is still wrong after it:
+
+  - startTerminalTeletype() / Session::runEmptyPTY() is reported non-working on
+    Windows and the report is unanswered:
+    https://github.com/lxqt/qtermwidget/pull/578#issuecomment-3009278241
+    ConPTY has no pty-without-a-process concept, so there is nothing obvious for
+    setEmptyPTYProperties() to do. Public API that silently does nothing.
+  - Character::character is a wchar_t, 16 bits on Windows, so every code point
+    above the BMP is truncated before it reaches the renderer. Making the
+    terminal actually run only makes this visible. See 0002 for the narrow part
+    of it that could be fixed cheaply.
+  - No Windows CI exists upstream or in the fork (KangLin's runs ubuntu-20.04),
+    and nothing here had been built with mingw-w64 before this package did it.
+
+Upstream: submitted as PR #578 by its author; declined for maintenance reasons
+Applies-to: all environments (inert off Windows -- every hunk is behind WIN32)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 87d75947..72f33684 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -59,9 +59,29 @@ set(QTERMWIDGET_LIBRARY_NAME qtermwidget6)
+ 
+ 
+ # main library
++if(WIN32)
++    set(WIN_SRCS
++        lib/ptyqt/conptyprocess.cpp
++        lib/ptyqt/iptyprocess.cpp
++    )
++    set(WIN_HDRS
++        lib/ptyqt/conptyprocess.h
++        lib/ptyqt/iptyprocess.h
++    )
++else()
++    set(UNIX_SRCS
++        lib/kpty.cpp
++        lib/kptydevice.cpp
++        lib/kptyprocess.cpp
++        lib/BlockArray.cpp
++    )
++    set(UNIX_HDRS
++        lib/kptydevice.h
++        lib/kptyprocess.h
++    )
++endif()
+ 
+ set(SRCS
+-    lib/BlockArray.cpp
+     lib/ColorScheme.cpp
+     lib/Emulation.cpp
+     lib/Filter.cpp
+@@ -70,9 +90,6 @@ set(SRCS
+     lib/KeyboardTranslator.cpp
+     lib/konsole_wcwidth.cpp
+     lib/kprocess.cpp
+-    lib/kpty.cpp
+-    lib/kptydevice.cpp
+-    lib/kptyprocess.cpp
+     lib/Pty.cpp
+     lib/qtermwidget.cpp
+     lib/Screen.cpp
+@@ -84,6 +101,8 @@ set(SRCS
+     lib/TerminalDisplay.cpp
+     lib/tools.cpp
+     lib/Vt102Emulation.cpp
++    ${WIN_SRCS}
++    ${UNIX_SRCS}
+ )
+ 
+ # Only the Headers that need to be moc'd go here
+@@ -92,8 +111,6 @@ set(HDRS
+     lib/Filter.h
+     lib/HistorySearch.h
+     lib/kprocess.h
+-    lib/kptydevice.h
+-    lib/kptyprocess.h
+     lib/Pty.h
+     lib/qtermwidget.h
+     lib/ScreenWindow.h
+@@ -101,6 +118,8 @@ set(HDRS
+     lib/Session.h
+     lib/TerminalDisplay.h
+     lib/Vt102Emulation.h
++    ${WIN_HDRS}
++    ${UNIX_HDRS}
+ )
+ 
+ set(UI
+diff --git a/README.md b/README.md
+index fa21f5ad..9d82fd5a 100644
+--- a/README.md
++++ b/README.md
+@@ -35,6 +35,20 @@ Copyright: Author Adriaan de Groot <groot@kde.org>
+            2022, Francesc Martinez <info@francescmm.com>
+ License: LGPL-2+
+ 
++Files: lib/wcwidth.c
++Copyright: Markus Kuhn
++License: MIT
++
++Files: lib/ptyqt/conptyprocess.cpp
++       lib/ptyqt/conptyprocess.h
++Copyright: Vitaly Petrov <v31337@gmail.com>
++License: MIT
++
++Files: lib/ptyqt/iptyprocess.cpp
++       lib/ptyqt/iptyprocess.h
++Copyright: Waqar Ahmed <waqar.17a@gmail.com>
++License: MIT
++
+ Files: cmake/FindUtf8Proc.cmake
+ Copyright: 2009-2011, Kitware, Inc
+            2009-2011, Philip Lowman <philip@yhbt.com>
+diff --git a/examples/cpp/main.cpp b/examples/cpp/main.cpp
+index ea085ccb..b2a8847e 100644
+--- a/examples/cpp/main.cpp
++++ b/examples/cpp/main.cpp
+@@ -50,6 +50,8 @@ int main(int argc, char *argv[])
+     font.setFamily(QStringLiteral("Monaco"));
+ #elif defined(Q_WS_QWS)
+     font.setFamily(QStringLiteral("fixed"));
++#elif defined(Q_OS_WIN)
++    font.setFamily(QStringLiteral("Courier New"));
+ #else
+     font.setFamily(QStringLiteral("Monospace"));
+ #endif
+diff --git a/lib/Emulation.cpp b/lib/Emulation.cpp
+index 111994dc..567f12a2 100644
+--- a/lib/Emulation.cpp
++++ b/lib/Emulation.cpp
+@@ -25,7 +25,6 @@
+ // System
+ #include <cstdio>
+ #include <cstdlib>
+-#include <unistd.h>
+ #include <string>
+ 
+ // Qt
+diff --git a/lib/History.cpp b/lib/History.cpp
+index a72caf1c..52d168c4 100644
+--- a/lib/History.cpp
++++ b/lib/History.cpp
+@@ -27,10 +27,13 @@
+ #include <cstdlib>
+ #include <cstdio>
+ #include <sys/types.h>
+-#include <sys/mman.h>
+-#include <unistd.h>
+ #include <cerrno>
+ 
++#ifndef Q_OS_WIN
++#include <unistd.h>
++#include <sys/mman.h>
++#endif
++
+ #include <QtDebug>
+ 
+ // KDE
+@@ -88,16 +91,30 @@ FIXME: There is noticeable decrease in speed, also. Perhaps,
+ */
+ 
+ HistoryFile::HistoryFile()
+-  : ion(-1),
+-    length(0),
+-    fileMap(nullptr),
+-    readWriteBalance(0)
+-{
+-  if (tmpFile.open())
+-  {
+-    tmpFile.setAutoRemove(true);
+-    ion = tmpFile.handle();
+-  }
++    : length(0)
++    , fileMap(nullptr)
++    , readWriteBalance(0)
++{
++    if (tmpFile.open()) {
++#if defined(Q_OS_LINUX)
++// TODO:
++        // qWarning(KonsoleDebug, "HistoryFile: /proc/%lld/fd/%d", qApp->applicationPid(), _tmpFile.handle());
++#endif
++        // On some systems QTemporaryFile creates unnamed file.
++        // Do not interfere in such cases.
++        if (tmpFile.exists()) {
++            // Remove file entry from filesystem. Since the file
++            // is opened, it will still be available for reading
++            // and writing. This guarantees the file won't remain
++            // in filesystem after process termination, even when
++            // there was a crash.
++#ifndef Q_OS_WIN
++            unlink(QFile::encodeName(tmpFile.fileName()).constData());
++#else
++            // TODO Windows
++#endif
++        }
++    }
+ }
+ 
+ HistoryFile::~HistoryFile()
+@@ -111,25 +128,28 @@ HistoryFile::~HistoryFile()
+ //to avoid this.
+ void HistoryFile::map()
+ {
+-    Q_ASSERT( fileMap == nullptr );
++    Q_ASSERT(fileMap == nullptr);
+ 
+-    fileMap = (char*)mmap( nullptr , length , PROT_READ , MAP_PRIVATE , ion , 0 );
++    if (tmpFile.flush()) {
++        Q_ASSERT(tmpFile.size() >= length);
++        fileMap = tmpFile.map(0, length);
++    }
+ 
+-    //if mmap'ing fails, fall back to the read-lseek combination
+-    if ( fileMap == MAP_FAILED )
+-    {
+-            readWriteBalance = 0;
+-            fileMap = nullptr;
+-            //qDebug() << __FILE__ << __LINE__ << ": mmap'ing history failed.  errno = " << errno;
++    // if mmap'ing fails, fall back to the read-lseek combination
++    if (fileMap == nullptr) {
++        readWriteBalance = 0;
++        qWarning() << "mmap'ing history failed.  errno = " << errno;
+     }
+ }
+ 
+ void HistoryFile::unmap()
+ {
+-    int result = munmap( fileMap , length );
+-    Q_ASSERT( result == 0 ); Q_UNUSED( result )
++    Q_ASSERT(fileMap);
++
++    if (tmpFile.unmap(fileMap))
++        fileMap = nullptr;
+ 
+-    fileMap = nullptr;
++    Q_ASSERT(fileMap == nullptr);
+ }
+ 
+ bool HistoryFile::isMapped() const
+@@ -137,47 +157,62 @@ bool HistoryFile::isMapped() const
+     return (fileMap != nullptr);
+ }
+ 
+-void HistoryFile::add(const unsigned char* bytes, int len)
++void HistoryFile::add(const char* bytes, qint64 len)
+ {
+-  if ( fileMap )
+-          unmap();
++    if (fileMap != nullptr)
++        unmap();
+ 
+-  readWriteBalance++;
++    if (readWriteBalance < INT_MAX)
++        readWriteBalance++;
+ 
+-  int rc = 0;
++    qint64 rc = 0;
+ 
+-  rc = KDE_lseek(ion,length,SEEK_SET); if (rc < 0) { perror("HistoryFile::add.seek"); return; }
+-  rc = write(ion,bytes,len);       if (rc < 0) { perror("HistoryFile::add.write"); return; }
+-  length += rc;
++    if (!tmpFile.seek(length)) {
++        perror("HistoryFile::add.seek");
++        return;
++    }
++    rc = tmpFile.write(bytes, len);
++    if (rc < 0) {
++        perror("HistoryFile::add.write");
++        return;
++    }
++    length += rc;
+ }
+ 
+-void HistoryFile::get(unsigned char* bytes, int len, int loc)
++void HistoryFile::get(char* bytes, int len, int loc)
+ {
+-  //count number of get() calls vs. number of add() calls.
+-  //If there are many more get() calls compared with add()
+-  //calls (decided by using MAP_THRESHOLD) then mmap the log
+-  //file to improve performance.
+-  readWriteBalance--;
+-  if ( !fileMap && readWriteBalance < MAP_THRESHOLD )
+-          map();
+-
+-  if ( fileMap )
+-  {
+-    for (int i=0;i<len;i++)
+-            bytes[i]=fileMap[loc+i];
+-  }
+-  else
+-  {
+-      int rc = 0;
++    if (loc < 0 || len < 0 || loc + len > (qint64)(length * sizeof(LineProperty))) {
++        fprintf(stderr, "getHist(...,%d,%d): invalid args.\n", len, loc);
++        return;
++    }
+ 
+-      if (loc < 0 || len < 0 || loc + len > length)
+-        fprintf(stderr,"getHist(...,%d,%d): invalid args.\n",len,loc);
+-      rc = KDE_lseek(ion,loc,SEEK_SET); if (rc < 0) { perror("HistoryFile::get.seek"); return; }
+-      rc = read(ion,bytes,len);     if (rc < 0) { perror("HistoryFile::get.read"); return; }
+-  }
++    // count number of get() calls vs. number of add() calls.
++    // If there are many more get() calls compared with add()
++    // calls (decided by using MAP_THRESHOLD) then mmap the log
++    // file to improve performance.
++    if (readWriteBalance > INT_MIN)
++        readWriteBalance--;
++    if ((fileMap == nullptr) && readWriteBalance < MAP_THRESHOLD)
++        map();
++
++    if (fileMap != nullptr)
++        memcpy(bytes, fileMap + loc, len);
++    else {
++        qint64 rc = 0;
++
++        if (!tmpFile.seek(loc)) {
++            perror("HistoryFile::get.seek");
++            return;
++        }
++        rc = tmpFile.read(bytes, len);
++        if (rc < 0) {
++            perror("HistoryFile::get.read");
++            return;
++        }
++    }
+ }
+ 
+-int HistoryFile::len() const
++qint64 HistoryFile::len() const
+ {
+   return length;
+ }
+@@ -238,7 +273,7 @@ bool HistoryScrollFile::isWrappedLine(int lineno) const
+ {
+   if (lineno>=0 && lineno <= getLines()) {
+     unsigned char flag;
+-    lineflags.get((unsigned char*)&flag,sizeof(unsigned char),(lineno)*sizeof(unsigned char));
++    lineflags.get((char*)&flag, sizeof(unsigned char), (lineno) * sizeof(unsigned char));
+     return flag;
+   }
+   return false;
+@@ -254,7 +289,7 @@ int HistoryScrollFile::startOfLine(int lineno) const
+             index.map();
+ 
+     int res = 0;
+-    index.get((unsigned char*)&res,sizeof(int),(lineno-1)*sizeof(int));
++    index.get((char*)&res, sizeof(int), (lineno - 1) * sizeof(int));
+     return res;
+     }
+   return cells.len();
+@@ -262,12 +297,12 @@ int HistoryScrollFile::startOfLine(int lineno) const
+ 
+ void HistoryScrollFile::getCells(int lineno, int colno, int count, Character res[]) const
+ {
+-  cells.get((unsigned char*)res,count*sizeof(Character),startOfLine(lineno)+colno*sizeof(Character));
++  cells.get((char*)res, count * sizeof(Character), startOfLine(lineno) + colno * sizeof(Character));
+ }
+ 
+ void HistoryScrollFile::addCells(const Character text[], int count)
+ {
+-  cells.add((unsigned char*)text,count*sizeof(Character));
++  cells.add((char*)text, count * sizeof(Character));
+ }
+ 
+ void HistoryScrollFile::addLine(bool previousWrapped)
+@@ -276,9 +311,9 @@ void HistoryScrollFile::addLine(bool previousWrapped)
+           index.unmap();
+ 
+   int locn = cells.len();
+-  index.add((unsigned char*)&locn,sizeof(int));
++  index.add((char*)&locn,sizeof(int));
+   unsigned char flags = previousWrapped ? 0x01 : 0x00;
+-  lineflags.add((unsigned char*)&flags,sizeof(unsigned char));
++  lineflags.add((char*)&flags, sizeof(unsigned char));
+ }
+ 
+ 
+@@ -461,8 +496,9 @@ void HistoryScrollNone::addLine(bool)
+ {
+ }
+ 
+-// History Scroll BlockArray //////////////////////////////////////
++#ifndef Q_OS_WIN
+ 
++// History Scroll BlockArray //////////////////////////////////////
+ HistoryScrollBlockArray::HistoryScrollBlockArray(size_t size)
+   : HistoryScroll(new HistoryTypeBlockArray(size))
+ {
+@@ -478,7 +514,7 @@ int  HistoryScrollBlockArray::getLines() const
+   return m_lineLengths.count();
+ }
+ 
+-int  HistoryScrollBlockArray::getLineLen(int lineno) const
++int HistoryScrollBlockArray::getLineLen(int lineno) const
+ {
+     if ( m_lineLengths.contains(lineno) )
+         return m_lineLengths[lineno];
+@@ -701,6 +737,7 @@ void CompactHistoryLine::getCharacters ( Character* array, int length, int start
+   }
+ }
+ 
++
+ CompactHistoryScroll::CompactHistoryScroll ( unsigned int maxLineCount )
+     : HistoryScroll ( new CompactHistoryType ( maxLineCount ) )
+     ,lines()
+@@ -782,6 +819,7 @@ bool CompactHistoryScroll::isWrappedLine ( int lineNumber ) const
+   return lines[lineNumber]->isWrapped();
+ }
+ 
++#endif
+ 
+ //////////////////////////////////////////////////////////////////////
+ // History Types
+@@ -819,6 +857,8 @@ int HistoryTypeNone::maximumLineCount() const
+ 
+ //////////////////////////////
+ 
++#ifndef Q_OS_WIN
++
+ HistoryTypeBlockArray::HistoryTypeBlockArray(size_t size)
+   : m_size(size)
+ {
+@@ -840,6 +880,7 @@ HistoryScroll* HistoryTypeBlockArray::scroll(HistoryScroll *old) const
+   return new HistoryScrollBlockArray(m_size);
+ }
+ 
++#endif
+ 
+ //////////////////////////////
+ 
+@@ -956,6 +997,9 @@ int HistoryTypeFile::maximumLineCount() const
+ 
+ //////////////////////////////
+ 
++#ifndef Q_OS_WIN
++
++
+ CompactHistoryType::CompactHistoryType ( unsigned int nbLines )
+     : m_nbLines ( nbLines )
+ {
+@@ -985,3 +1029,5 @@ HistoryScroll* CompactHistoryType::scroll ( HistoryScroll *old ) const
+   }
+   return new CompactHistoryScroll ( m_nbLines );
+ }
++
++#endif
+\ No newline at end of file
+diff --git a/lib/History.h b/lib/History.h
+index fcb9b044..9b81e689 100644
+--- a/lib/History.h
++++ b/lib/History.h
+@@ -31,11 +31,14 @@
+ //#include <ktemporaryfile.h>
+ 
+ // Konsole
+-#include "BlockArray.h"
+ #include "Character.h"
++#ifndef Q_OS_WIN
++#include "BlockArray.h"
+ 
+ // map
+ #include <sys/mman.h>
++#endif
++
+ 
+ namespace Konsole
+ {
+@@ -51,9 +54,9 @@ class HistoryFile
+   HistoryFile();
+   virtual ~HistoryFile();
+ 
+-  virtual void add(const unsigned char* bytes, int len);
+-  virtual void get(unsigned char* bytes, int len, int loc);
+-  virtual int  len() const;
++  virtual void add(const char* bytes, qint64 len);
++  virtual void get(char* bytes, int len, int loc);
++  virtual qint64 len() const;
+ 
+   //mmaps the file in read-only mode
+   void map();
+@@ -64,12 +67,11 @@ class HistoryFile
+ 
+ 
+ private:
+-  int  ion;
+-  int  length;
++  qint64 length;
+   QTemporaryFile tmpFile;
+ 
+   //pointer to start of mmap'ed file data, or 0 if the file is not mmap'ed
+-  char* fileMap;
++  uchar* fileMap;
+ 
+   //incremented whenever 'add' is called and decremented whenever
+   //'get' is called.
+@@ -236,6 +238,8 @@ class HistoryScrollNone : public HistoryScroll
+   void addLine(bool previousWrapped=false) override;
+ };
+ 
++#ifndef Q_OS_WIN
++
+ //////////////////////////////////////////////////////////////////////
+ // BlockArray-based history
+ //////////////////////////////////////////////////////////////////////
+@@ -258,6 +262,8 @@ class HistoryScrollBlockArray : public HistoryScroll
+   QHash<int,size_t> m_lineLengths;
+ };
+ 
++#endif
++
+ //////////////////////////////////////////////////////////////////////
+ // History using compact storage
+ // This implementation uses a list of fixed-sized blocks
+@@ -287,6 +293,8 @@ class CharacterFormat
+   quint8 rendition;
+ };
+ 
++#ifndef Q_OS_WIN
++
+ class CompactHistoryBlock
+ {
+ public:
+@@ -385,6 +393,8 @@ class CompactHistoryScroll : public HistoryScroll
+   unsigned int _maxLineCount;
+ };
+ 
++#endif
++
+ //////////////////////////////////////////////////////////////////////
+ // History type
+ //////////////////////////////////////////////////////////////////////
+@@ -424,6 +434,8 @@ class HistoryTypeNone : public HistoryType
+   HistoryScroll* scroll(HistoryScroll *) const override;
+ };
+ 
++#ifndef Q_OS_WIN
++
+ class HistoryTypeBlockArray : public HistoryType
+ {
+ public:
+@@ -437,8 +449,8 @@ class HistoryTypeBlockArray : public HistoryType
+ protected:
+   size_t m_size;
+ };
++#endif
+ 
+-#if 1
+ class HistoryTypeFile : public HistoryType
+ {
+ public:
+@@ -471,6 +483,8 @@ class HistoryTypeBuffer : public HistoryType
+   unsigned int m_nbLines;
+ };
+ 
++#ifndef Q_OS_WIN
++
+ class CompactHistoryType : public HistoryType
+ {
+ public:
+@@ -485,7 +499,6 @@ class CompactHistoryType : public HistoryType
+   unsigned int m_nbLines;
+ };
+ 
+-
+ #endif
+ 
+ }
+diff --git a/lib/Pty.cpp b/lib/Pty.cpp
+index 47965b18..01aa3684 100644
+--- a/lib/Pty.cpp
++++ b/lib/Pty.cpp
+@@ -29,6 +29,12 @@
+ // Own
+ #include "Pty.h"
+ 
++// Qt
++#include <QStringList>
++#include <qplatformdefs.h>
++
++#ifndef Q_OS_WIN // Unix backend
++
+ // System
+ #include <sys/types.h>
+ #include <sys/stat.h>
+@@ -163,9 +169,9 @@ void Pty::addEnvironmentVariables(const QStringList& environment)
+ 
+ int Pty::start(const QString& program,
+                const QStringList& programArguments,
+-               const QStringList& environment,
+-               ulong winid,
+-               bool addToUtmp
++               const QStringList& environment
++            //    ulong winid,
++            //    bool addToUtmp
+                //const QString& dbusService,
+                //const QString& dbusSession
+                )
+@@ -180,7 +186,7 @@ int Pty::start(const QString& program,
+ 
+   addEnvironmentVariables(environment);
+ 
+-  setEnv(QLatin1String("WINDOWID"), QString::number(winid));
++//   setEnv(QLatin1String("WINDOWID"), QString::number(winid));
+   setEnv(QLatin1String("COLORTERM"), QLatin1String("truecolor"));
+ 
+   // unless the LANGUAGE environment variable has been set explicitly
+@@ -196,8 +202,6 @@ int Pty::start(const QString& program,
+   // BR:149300
+   setEnv(QLatin1String("LANGUAGE"),QString(),false /* do not overwrite existing value if any */);
+ 
+-  setUseUtmp(addToUtmp);
+-
+   struct ::termios ttmode;
+   pty()->tcGetAttr(&ttmode);
+   if (!_xonXoff)
+@@ -327,17 +331,6 @@ void Pty::dataReceived()
+     emit receivedData(data.constData(),data.size());
+ }
+ 
+-void Pty::lockPty(bool lock)
+-{
+-    Q_UNUSED(lock)
+-
+-// TODO: Support for locking the Pty
+-  //if (lock)
+-    //suspend();
+-  //else
+-    //resume();
+-}
+-
+ int Pty::foregroundProcessGroup() const
+ {
+     const int master_fd = pty()->masterFd();
+@@ -359,3 +352,152 @@ void Pty::closePty()
+     pty()->close();
+ }
+ 
++#else // Windows backend
++
++#include "ptyqt/conptyprocess.h"
++
++using Konsole::Pty;
++
++Pty::Pty(QObject *aParent)
++    : Pty(-1, aParent)
++{
++}
++
++Pty::Pty(int masterFd, QObject *aParent)
++    : QObject(aParent)
++{
++    Q_UNUSED(masterFd)
++
++    m_proc = std::make_unique<ConPtyProcess>();
++    if (!m_proc->isAvailable()) {
++        m_proc.reset();
++    }
++
++    _windowColumns = 0;
++    _windowLines = 0;
++    _eraseChar = 0;
++    _xonXoff = true;
++    _utf8 = true;
++
++    setErase(_eraseChar);
++}
++
++Pty::~Pty() = default;
++
++void Pty::sendData(const char* buffer, int length)
++{
++    if (m_proc) {
++        m_proc->write(buffer, length);
++    }
++}
++
++void Pty::dataReceived()
++{
++    if (m_proc) {
++        auto data = m_proc->readAll();
++        Q_EMIT receivedData(data.constData(), data.length());
++    }
++}
++
++void Pty::setWindowSize(int lines, int columns)
++{
++    if (m_proc && isRunning())
++        m_proc->resize(columns, lines);
++}
++
++QSize Pty::windowSize() const
++{
++    if (!m_proc) {
++        return {};
++    }
++    auto s = m_proc->size();
++    return QSize(s.first, s.second);
++}
++
++void Pty::setFlowControlEnabled(bool enable)
++{
++    _xonXoff = enable;
++}
++
++bool Pty::flowControlEnabled() const
++{
++    return false;
++}
++
++void Pty::setUtf8Mode(bool)
++{
++}
++
++void Pty::setErase(char eChar)
++{
++    _eraseChar = eChar;
++}
++
++char Pty::erase() const
++{
++    return _eraseChar;
++}
++
++void Pty::setWorkingDirectory(const QString & /*dir*/)
++{
++}
++
++void Pty::addEnvironmentVariables(const QStringList & /*environmentVariables*/)
++{
++}
++
++int Pty::start(const QString &program, const QStringList &arguments, const QString &workingDir, const QStringList &environment, int cols, int lines)
++{
++    if (!m_proc || !m_proc->isAvailable()) {
++        return -1;
++    }
++    bool res = m_proc->startProcess(program, arguments, workingDir, environment, cols, lines);
++    if (!res) {
++        return -1;
++    } else {
++        auto n = m_proc->notifier();
++        connect(n, &QIODevice::readyRead, this, &Pty::dataReceived);
++        connect(m_proc.get(), &IPtyProcess::exited, this, [this] {
++            Q_EMIT finished(exitCode(), QProcess::NormalExit);
++        });
++        connect(n, &QIODevice::aboutToClose, this, [this] {
++            Q_EMIT finished(exitCode(), QProcess::NormalExit);
++        });
++    }
++    return 0;
++}
++
++void Pty::setWriteable(bool)
++{
++}
++
++void Pty::closePty()
++{
++    if (m_proc) {
++        m_proc->kill();
++    }
++}
++
++int Pty::foregroundProcessGroup() const
++{
++    return 0;
++}
++
++
++void Pty::setEmptyPTYProperties() {
++  
++}
++
++
++#endif
++
++void Pty::lockPty(bool lock)
++{
++    Q_UNUSED(lock)
++
++// TODO: Support for locking the Pty
++//   if (lock)
++    // suspend();
++  //else
++    //resume();
++}
+\ No newline at end of file
+diff --git a/lib/Pty.h b/lib/Pty.h
+index 6da9e284..5cb20dcd 100644
+--- a/lib/Pty.h
++++ b/lib/Pty.h
+@@ -36,12 +36,25 @@
+ #include <QVector>
+ #include <QList>
+ #include <QSize>
++#include <QProcess>
+ 
++#ifndef WIN32
+ // KDE
+ #include "kptyprocess.h"
++#else
++#include <QObject>
++
++#include "ptyqt/iptyprocess.h"
++#endif
+ 
+ namespace Konsole {
+ 
++#ifdef WIN32
++#define ParentClass QObject
++#else
++#define ParentClass KPtyProcess
++#endif
++
+ /**
+  * The Pty class is used to start the terminal process,
+  * send data to it, receive data from it and manipulate
+@@ -55,7 +68,7 @@ namespace Konsole {
+  * To start the terminal process, call the start() method
+  * with the program name and appropriate arguments.
+  */
+-class Pty: public KPtyProcess
++class Pty: public ParentClass
+ {
+ Q_OBJECT
+ 
+@@ -80,6 +93,27 @@ Q_OBJECT
+ 
+     ~Pty() override;
+ 
++#ifdef Q_OS_WIN
++    /**
++     * Starts the terminal process.
++     *
++     * Returns 0 if the process was started successfully or non-zero
++     * otherwise.
++     *
++     * @param program Path to the program to start
++     * @param arguments Arguments to pass to the program being started
++     * @param workingDir initial working directory
++     * @param environment A list of key=value pairs which will be added
++     * to the environment for the new process.  At the very least this
++     * should include an assignment for the TERM environment variable.
++     */
++    int start(const QString &program, const QStringList &arguments, const QString &workingDir, const QStringList &environment, int cols, int lines);
++
++    /**
++     * Sets the working directory.
++     */
++    void setWorkingDirectory(const QString &dir);
++#else
+     /**
+      * Starts the terminal process.
+      *
+@@ -91,21 +125,10 @@ Q_OBJECT
+      * @param environment A list of key=value pairs which will be added
+      * to the environment for the new process.  At the very least this
+      * should include an assignment for the TERM environment variable.
+-     * @param winid Specifies the value of the WINDOWID environment variable
+-     * in the process's environment.
+-     * @param addToUtmp Specifies whether a utmp entry should be created for
+-     * the pty used.  See K3Process::setUsePty()
+-     * @param dbusService Specifies the value of the KONSOLE_DBUS_SERVICE
+-     * environment variable in the process's environment.
+-     * @param dbusSession Specifies the value of the KONSOLE_DBUS_SESSION
+-     * environment variable in the process's environment.
+      */
+-    int start( const QString& program,
+-               const QStringList& arguments,
+-               const QStringList& environment,
+-               ulong winid,
+-               bool addToUtmp
+-             );
++    int start(const QString &program, const QStringList &arguments, const QStringList &environment);
++
++#endif
+ 
+     /**
+      * set properties for "EmptyPTY"
+@@ -155,6 +178,45 @@ Q_OBJECT
+      */
+     void closePty();
+ 
++#ifdef Q_OS_WIN
++    int processId() const
++    {
++        if (m_proc && m_proc->isAvailable()) {
++            return m_proc->pid();
++        }
++        return 0;
++    }
++
++    bool isRunning() const
++    {
++        return processId() > 0;
++    }
++
++    QString errorString() const
++    {
++        if (m_proc) {
++            return m_proc->lastError();
++        }
++        return QStringLiteral("Conhost failed to start");
++    }
++
++    bool kill()
++    {
++        if (m_proc) {
++            return m_proc->kill();
++        }
++        return false;
++    }
++
++    int exitCode() const
++    {
++        if (m_proc) {
++            return m_proc->exitCode();
++        }
++        return -1;
++    }
++
++#endif
+   public slots:
+ 
+     /**
+@@ -192,7 +254,10 @@ Q_OBJECT
+      * @param length Length of @p buffer
+      */
+     void receivedData(const char* buffer, int length);
+-
++#ifdef WIN32
++  signals:
++    void finished(int exitCode, QProcess::ExitStatus);
++#endif
+   private slots:
+     // called when data is received from the terminal process
+     void dataReceived();
+@@ -209,6 +274,9 @@ Q_OBJECT
+     char _eraseChar;
+     bool _xonXoff;
+     bool _utf8;
++#ifdef Q_OS_WIN
++    std::unique_ptr<IPtyProcess> m_proc;
++#endif
+ };
+ 
+ }
+diff --git a/lib/Screen.cpp b/lib/Screen.cpp
+index f4c8a258..9a5ff471 100644
+--- a/lib/Screen.cpp
++++ b/lib/Screen.cpp
+@@ -26,7 +26,6 @@
+ // Standard
+ #include <cstdio>
+ #include <cstdlib>
+-#include <unistd.h>
+ #include <cstring>
+ #include <cctype>
+ 
+@@ -1350,6 +1349,8 @@ int Screen::copyLineToStream(int line ,
+         }
+ 
+         // count cannot be any greater than length
++        if(count > length - start)
++            return 0;
+         count = qBound(0,count,length-start);
+ 
+         Q_ASSERT( screenLine < lineProperties.count() );
+diff --git a/lib/Session.cpp b/lib/Session.cpp
+index 6a5a0daa..d550fc59 100644
+--- a/lib/Session.cpp
++++ b/lib/Session.cpp
+@@ -36,6 +36,7 @@
+ #include <QFile>
+ #include <QtDebug>
+ #include <QRegularExpression>
++#include <QThread>
+ 
+ #include "Pty.h"
+ //#include "kptyprocess.h"
+@@ -76,10 +77,6 @@ Session::Session(QObject* parent) :
+     _sessionId = ++lastSessionId;
+ //    QDBusConnection::sessionBus().registerObject(QLatin1String("/Sessions/")+QString::number(_sessionId), this);
+ 
+-    //create teletype for I/O with shell process
+-    _shellProcess = new Pty();
+-    ptySlaveFd = _shellProcess->pty()->slaveFd();
+-
+     //create emulation backend
+     _emulation = new Vt102Emulation();
+ 
+@@ -101,17 +98,26 @@ Session::Session(QObject* parent) :
+     connect(_emulation, &Vt102Emulation::cursorChanged,
+             this, &Session::cursorChanged);
+ 
++    //create teletype for I/O with shell process
++    _shellProcess = new Pty();
++#ifndef Q_OS_WIN
++    ptySlaveFd = _shellProcess->pty()->slaveFd();
++#else
++    ptySlaveFd = -1;
++#endif
++    
++    // connect the I/O between emulator and pty process
++    connect(_shellProcess, &Konsole::Pty::receivedData, this, &Konsole::Session::onReceiveBlock);
++    connect(_emulation, &Konsole::Emulation::sendData, _shellProcess, &Konsole::Pty::sendData);
++
+     //connect teletype to emulation backend
+     _shellProcess->setUtf8Mode(true);
+-
+-    connect( _shellProcess,SIGNAL(receivedData(const char *,int)),this,
+-             SLOT(onReceiveBlock(const char *,int)) );
+-    connect( _emulation,SIGNAL(sendData(const char *,int)),_shellProcess,
+-             SLOT(sendData(const char *,int)) );
+-    connect( _emulation,SIGNAL(lockPtyRequest(bool)),_shellProcess,SLOT(lockPty(bool)) );
+-    connect( _emulation,SIGNAL(useUtf8Request(bool)),_shellProcess,SLOT(setUtf8Mode(bool)) );
+-
+-    connect( _shellProcess,SIGNAL(finished(int,QProcess::ExitStatus)), this, SLOT(done(int,QProcess::ExitStatus)) );
++    connect(_shellProcess, &Konsole::Pty::finished, this, &Konsole::Session::done);
++    connect(_emulation, &Konsole::Emulation::useUtf8Request, _shellProcess, &Konsole::Pty::setUtf8Mode);
++    connect( _emulation,&Konsole::Emulation::lockPtyRequest, _shellProcess, &Konsole::Pty::lockPty);
++    connect(_emulation, &Konsole::Emulation::imageSizeChanged, this, &Konsole::Session::onViewSizeChange);
++    connect(_emulation, &Konsole::Emulation::imageSizeInitialized, this, &Konsole::Session::run, Qt::QueuedConnection);
++    connect(_emulation, &Konsole::Emulation::imageSizeInitialized, this, &Konsole::Session::refresh, Qt::QueuedConnection);
+     // not in kprocess anymore connect( _shellProcess,SIGNAL(done(int)), this, SLOT(done(int)) );
+ 
+     //setup timer for monitoring session activity
+@@ -139,7 +145,11 @@ bool Session::hasDarkBackground() const
+ }
+ bool Session::isRunning() const
+ {
++#ifdef Q_OS_WIN
++    return (_shellProcess != nullptr) && _shellProcess->isRunning();
++#else
+     return (_shellProcess != nullptr && _shellProcess->state() == QProcess::Running);
++#endif
+ }
+ 
+ void Session::setProgram(const QString & program)
+@@ -237,6 +247,7 @@ void Session::removeView(TerminalDisplay * widget)
+ 
+ void Session::run()
+ {
++#ifndef Q_OS_WIN
+     // Upon a KPty error, there is no description on what that error was...
+     // Check to see if the given program is executable.
+ 
+@@ -267,6 +278,12 @@ void Session::run()
+             exec = defaultShell;
+         }
+     }
++#else
++    QString exec = QStringLiteral("C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
++    // Change shell to cmd.exe if we don't have powershell
++    if(!QFile(exec).exists())
++        exec = QStringLiteral("C:\\WINDOWS\\system32\\cmd.exe");
++#endif
+ 
+     // _arguments sometimes contain ("") so isEmpty()
+     // or count() does not work as expected...
+@@ -285,6 +302,9 @@ void Session::run()
+ 
+     _shellProcess->setFlowControlEnabled(_flowControl);
+     _shellProcess->setErase(_emulation->eraseChar());
++#ifndef Q_OS_WIN
++    _shellProcess->setUseUtmp(_addToUtmp);
++#endif
+ 
+     // this is not strictly accurate use of the COLORFGBG variable.  This does not
+     // tell the terminal exactly which colors are being used, but instead approximates
+@@ -292,15 +312,20 @@ void Session::run()
+     // the background color is deemed dark or not
+     QString backgroundColorHint = _hasDarkBackground ? QLatin1String("COLORFGBG=15;0") : QLatin1String("COLORFGBG=0;15");
+ 
+-    /* if we do all the checking if this shell exists then we use it ;)
+-     * Dont know about the arguments though.. maybe youll need some more checking im not sure
+-     * However this works on Arch and FreeBSD now.
+-     */
+-    int result = _shellProcess->start(exec,
+-                                      arguments,
+-                                      _environment << backgroundColorHint,
+-                                      windowId(),
+-                                      _addToUtmp);
++#ifndef Q_OS_WIN
++    const auto originalEnvironment = _shellProcess->environment();
++    _shellProcess->setProgram(exec);
++    _shellProcess->setEnvironment(originalEnvironment + _environment);
++    // const auto context = KSandbox::makeHostContext(*_shellProcess);
++    // arguments = postProcessArgs(context.arguments, arguments);
++    _shellProcess->setEnvironment(originalEnvironment);
++    const auto result = _shellProcess->start(exec, arguments, _environment);
++#else // Q_OS_WIN
++    const auto size = _emulation->imageSize();
++    const int lines = size.height();
++    const int cols = size.width();
++    int result = _shellProcess->start(exec, arguments, _initialWorkingDir.isEmpty() ? QDir::currentPath() : _initialWorkingDir, _environment, cols, lines);
++#endif
+ 
+     if (result < 0) {
+         qDebug() << "CRASHED! result: " << result;
+@@ -527,60 +552,92 @@ void Session::refresh()
+     // send an email with method or patches to konsole-devel@kde.org
+ 
+     const QSize existingSize = _shellProcess->windowSize();
+-    _shellProcess->setWindowSize(existingSize.height(),existingSize.width()+1);
+-    _shellProcess->setWindowSize(existingSize.height(),existingSize.width());
++    _shellProcess->setWindowSize(existingSize.height() + 1,existingSize.width() + 1);
++    // introduce small delay to avoid changing size too quickly
++    QThread::usleep(500);
++    _shellProcess->setWindowSize(existingSize.height(), existingSize.width());
+ }
+ 
+ bool Session::sendSignal(int signal)
+ {
++#ifndef Q_OS_WIN
++
+     if (processId() <= 0)
+-    {
+         return false;
+-    }
+ 
+     int result = ::kill(static_cast<pid_t>(_shellProcess->processId()), signal);
+ 
+-     if ( result == 0 )
+-     {
++     if (result == 0)
+          return _shellProcess->waitForFinished(1000);
+-     }
+-     else
+-     {
+-         return false;
+-     }
++#else
++    // FIXME: Can we do this on windows?
++    qWarning() << "Session::sendSignal is not supported on Windows platform";
++#endif
++    return false;
+ }
+ 
+ void Session::close()
+ {
+-    _autoClose = true;
+-    _wantedClose = true;
+-
+-    if (isRunning())
+-    {
+-        // Try SIGHUP, and if unsuccessful, do a hard kill.
+-        // This is the sequence used by most other terminal emulators like xterm, gnome-terminal, ...
+-        if (sendSignal(SIGHUP))
+-        {
+-            return;
++    if (isRunning()) {
++        if (!closeInNormalWay()) {
++            closeInForceWay();
+         }
++    } else {
++        // terminal process has finished, just close the session
++        QTimer::singleShot(1, this, [this]() {
++            Q_EMIT finished();
++        });
++    }
++}
+ 
+-        qWarning() << "Process " << processId() << " did not die with SIGHUP";
+-        _shellProcess->closePty();
+-        if (!_shellProcess->waitForFinished(1000))
+-        {
+-            if (!sendSignal(SIGKILL))
+-            {
+-                qWarning() << "Process " << processId() << " did not die with SIGKILL";
+-                // Forced close.
+-                QTimer::singleShot(1, this, SIGNAL(finished()));
+-            }
+-        }
++bool Session::closeInNormalWay()
++{
++#ifdef Q_OS_WIN
++    _shellProcess->closePty();
++    return true;
++#else
++    _autoClose = true;
++    // _closePerUserRequest = true;
++
++    // for the possible case where following events happen in sequence:
++    //
++    // 1). the terminal process crashes
++    // 2). the tab stays open and displays warning message
++    // 3). the user closes the tab explicitly
++    //
++    if (!isRunning()) {
++        Q_EMIT finished();
++        return true;
+     }
+-    else
+-    {
+-        // terminal process has finished, just close the session
+-        QTimer::singleShot(1, this, SIGNAL(finished()));
++
++    // try SIGHUP, afterwards do hard kill
++    // this is the sequence used by most other terminal emulators like xterm, gnome-terminal, ...
++    // see bug 401898 for details about tries to have some "soft-terminate" via EOF character
++    pid_t pid = static_cast<pid_t>(_shellProcess->processId());
++    if (::kill(pid, SIGHUP)) {
++        return true;
+     }
++
++    qWarning() << "Process " << processId() << " did not die with SIGHUP";
++    _shellProcess->closePty();
++    return (_shellProcess->waitForFinished(1000));
++#endif
++}
++
++bool Session::closeInForceWay()
++{
++    _autoClose = true;
++    // _closePerUserRequest = true;
++
++#ifdef Q_OS_WIN
++    return _shellProcess->kill();
++#else
++    pid_t pid = static_cast<pid_t>(_shellProcess->processId());
++    if (kill(pid, SIGKILL))
++        return true;
++    qWarning() << "Process " << processId() << " did not die with SIGKILL";
++#endif
++    return false;
+ }
+ 
+ void Session::sendText(const QString & text) const
+@@ -613,6 +670,7 @@ QString Session::profileKey() const
+ 
+ void Session::done(int exitCode, QProcess::ExitStatus exitStatus)
+ {
++    disconnect(_shellProcess, &Konsole::Pty::finished, this, &Konsole::Session::done);
+     if (!_autoClose) {
+         _userTitle = QString::fromLatin1("This session is done. Finished");
+         emit titleChanged();
+@@ -626,7 +684,7 @@ void Session::done(int exitCode, QProcess::ExitStatus exitStatus)
+     QString message;
+     if (!_wantedClose || exitCode != 0) {
+ 
+-        if (_shellProcess->exitStatus() == QProcess::NormalExit) {
++        if (exitStatus == QProcess::NormalExit) {
+             message = tr("Session '%1' exited with code %2.").arg(_nameTitle).arg(exitCode);
+         } else {
+             message = tr("Session '%1' crashed.").arg(_nameTitle);
+@@ -956,6 +1014,9 @@ int Session::processId() const
+ }
+ int Session::getPtySlaveFd() const
+ {
++#ifdef Q_OS_WIN
++    qWarning() << "Windows does support getting fd of the slave PTY";
++#endif
+     return ptySlaveFd;
+ }
+ 
+diff --git a/lib/Session.h b/lib/Session.h
+index 96fea0a8..eab3c152 100644
+--- a/lib/Session.h
++++ b/lib/Session.h
+@@ -396,6 +396,24 @@ public slots:
+      */
+     void close();
+ 
++    /**
++     * Kill the terminal process in normal way. This sends a hangup signal
++     * (SIGHUP) to the terminal process and causes the finished() signal to
++     * be emitted. If the process does not respond to the SIGHUP signal then
++     * the terminal connection (the pty) is closed and Konsole waits for the
++     * process to exit. This method works most of the time, but fails with some
++     * programs which respond to SIGHUP signal in special way, such as autossh
++     * and irssi.
++     */
++    bool closeInNormalWay();
++
++    /**
++     * kill terminal process in force way. This send a SIGKILL signal to the
++     * terminal process. It should be called only after closeInNormalWay() has
++     * failed. Take it as last resort.
++     */
++    bool closeInForceWay();
++
+     /**
+      * Changes the session title or other customizable aspects of the terminal
+      * emulation display. For a list of what may be changed see the
+diff --git a/lib/Vt102Emulation.cpp b/lib/Vt102Emulation.cpp
+index 93063505..a8130e9c 100644
+--- a/lib/Vt102Emulation.cpp
++++ b/lib/Vt102Emulation.cpp
+@@ -26,7 +26,6 @@
+ 
+ // Standard
+ #include <cstdio>
+-#include <unistd.h>
+ 
+ // Qt
+ #include <QEvent>
+diff --git a/lib/konsole_wcwidth.cpp b/lib/konsole_wcwidth.cpp
+index cfb6c07a..650f101c 100644
+--- a/lib/konsole_wcwidth.cpp
++++ b/lib/konsole_wcwidth.cpp
+@@ -9,10 +9,12 @@
+ 
+ #include <QString>
+ 
++#include <cwchar>
++
+ #ifdef HAVE_UTF8PROC
+ #include <utf8proc.h>
+-#else
+-#include <cwchar>
++#elif defined(WIN32)
++#include "wcwidth.c"
+ #endif
+ 
+ #include "konsole_wcwidth.h"
+@@ -27,6 +29,8 @@ int konsole_wcwidth(wchar_t ucs)
+         return 1;
+     }
+     return utf8proc_charwidth( ucs );
++#elif defined(WIN32)
++    return mk_wcwidth(ucs);
+ #else
+     return wcwidth( ucs );
+ #endif
+diff --git a/lib/ptyqt/conptyprocess.cpp b/lib/ptyqt/conptyprocess.cpp
+new file mode 100644
+index 00000000..2801a577
+--- /dev/null
++++ b/lib/ptyqt/conptyprocess.cpp
+@@ -0,0 +1,336 @@
++/*
++    SPDX-FileCopyrightText: 2019 Vitaly Petrov <v31337@gmail.com>
++    SPDX-License-Identifier: MIT
++*/
++#include "conptyprocess.h"
++#include <QCoreApplication>
++#include <QDebug>
++#include <QFile>
++#include <QFileInfo>
++#include <QMutexLocker>
++#include <QThread>
++#include <QTimer>
++#include <sstream>
++#include <iostream>
++#define READ_INTERVAL_MSEC 500
++
++HRESULT ConPtyProcess::createPseudoConsoleAndPipes(HPCON *phPC, HANDLE *phPipeIn, HANDLE *phPipeOut, qint16 cols, qint16 rows)
++{
++    HRESULT hr{E_UNEXPECTED};
++    HANDLE hPipePTYIn{INVALID_HANDLE_VALUE};
++    HANDLE hPipePTYOut{INVALID_HANDLE_VALUE};
++
++    // Create the pipes to which the ConPTY will connect
++    if (CreatePipe(&hPipePTYIn, phPipeOut, NULL, 0) && CreatePipe(phPipeIn, &hPipePTYOut, NULL, 0)) {
++        // Create the Pseudo Console of the required size, attached to the PTY-end
++        // of the pipes
++        hr = m_winContext.createPseudoConsole({cols, rows}, hPipePTYIn, hPipePTYOut, 0, phPC);
++
++        // Note: We can close the handles to the PTY-end of the pipes here
++        // because the handles are dup'ed into the ConHost and will be released
++        // when the ConPTY is destroyed.
++        if (INVALID_HANDLE_VALUE != hPipePTYOut)
++            CloseHandle(hPipePTYOut);
++        if (INVALID_HANDLE_VALUE != hPipePTYIn)
++            CloseHandle(hPipePTYIn);
++    }
++
++    return hr;
++}
++
++// Initializes the specified startup info struct with the required properties
++// and updates its thread attribute list with the specified ConPTY handle
++HRESULT ConPtyProcess::initializeStartupInfoAttachedToPseudoConsole(STARTUPINFOEX *pStartupInfo, HPCON hPC)
++{
++    HRESULT hr{E_UNEXPECTED};
++
++    if (pStartupInfo) {
++        SIZE_T attrListSize{};
++
++        pStartupInfo->StartupInfo.hStdInput = m_hPipeIn;
++        pStartupInfo->StartupInfo.hStdError = m_hPipeOut;
++        pStartupInfo->StartupInfo.hStdOutput = m_hPipeOut;
++        pStartupInfo->StartupInfo.dwFlags |= STARTF_USESTDHANDLES;
++
++        pStartupInfo->StartupInfo.cb = sizeof(STARTUPINFOEX);
++
++        // Get the size of the thread attribute list.
++        InitializeProcThreadAttributeList(NULL, 1, 0, &attrListSize);
++
++        // Allocate a thread attribute list of the correct size
++        pStartupInfo->lpAttributeList = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(HeapAlloc(GetProcessHeap(), 0, attrListSize));
++
++        // Initialize thread attribute list
++        if (pStartupInfo->lpAttributeList && InitializeProcThreadAttributeList(pStartupInfo->lpAttributeList, 1, 0, &attrListSize)) {
++            // Set Pseudo Console attribute
++            hr = UpdateProcThreadAttribute(pStartupInfo->lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, hPC, sizeof(HPCON), NULL, NULL)
++                ? S_OK
++                : HRESULT_FROM_WIN32(GetLastError());
++        } else {
++            hr = HRESULT_FROM_WIN32(GetLastError());
++        }
++    }
++    return hr;
++}
++
++ConPtyProcess::ConPtyProcess()
++    : IPtyProcess()
++    , m_ptyHandler{INVALID_HANDLE_VALUE}
++    , m_hPipeIn{INVALID_HANDLE_VALUE}
++    , m_hPipeOut{INVALID_HANDLE_VALUE}
++    , m_readThread(nullptr)
++{
++}
++
++ConPtyProcess::~ConPtyProcess()
++{
++    kill();
++}
++
++bool ConPtyProcess::startProcess(const QString &shellPath,
++                                 const QStringList &arguments,
++                                 const QString &workingDir,
++                                 QStringList environment,
++                                 qint16 cols,
++                                 qint16 rows)
++{
++    if (!isAvailable()) {
++        m_lastError = m_winContext.lastError();
++        return false;
++    }
++
++    // already running
++    if (m_ptyHandler != INVALID_HANDLE_VALUE)
++        return false;
++
++    QFileInfo fi(shellPath);
++    if (fi.isRelative() || !QFile::exists(shellPath)) {
++        // todo add auto-find executable in PATH env var
++        m_lastError = QStringLiteral("ConPty Error: shell file path must be absolute");
++        return false;
++    }
++
++    m_shellPath = shellPath;
++    m_size = QPair<qint16, qint16>(cols, rows);
++
++    // env
++    std::wstringstream envBlock;
++    for (const QString &line : std::as_const(environment)) {
++        envBlock << line.toStdWString() << '\0';
++    }
++    envBlock << '\0';
++    std::wstring env = envBlock.str();
++    auto envV = vectorFromString(env);
++    LPWSTR envArg = envV.empty() ? nullptr : envV.data();
++
++    QStringList exeAndArgs = arguments;
++    exeAndArgs.prepend(m_shellPath);
++    auto cmdArg = exeAndArgs.join(QLatin1String(" ")).toStdWString();
++
++    HRESULT hr{E_UNEXPECTED};
++
++    //  Create the Pseudo Console and pipes to it
++    hr = createPseudoConsoleAndPipes(&m_ptyHandler, &m_hPipeIn, &m_hPipeOut, cols, rows);
++
++    if (S_OK != hr) {
++        m_lastError = QStringLiteral("ConPty Error: CreatePseudoConsoleAndPipes fail");
++        return false;
++    }
++
++    // Initialize the necessary startup info struct
++    if (S_OK != initializeStartupInfoAttachedToPseudoConsole(&m_shellStartupInfo, m_ptyHandler)) {
++        m_lastError = QStringLiteral("ConPty Error: InitializeStartupInfoAttachedToPseudoConsole fail");
++        return false;
++    }
++
++    // Launch ping to Q_EMIT some text back via the pipe
++    hr = CreateProcessW(NULL, // No module name - use Command Line
++                       cmdArg.data(), // Command Line
++                       NULL, // Process handle not inheritable
++                       NULL, // Thread handle not inheritable
++                       FALSE, // Inherit handles
++                       EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT, // Creation flags
++                       NULL, // envArg, // Environment block
++                       NULL, // workingDir.toStdWString().data(), // Use parent's starting directory
++                       &m_shellStartupInfo.StartupInfo, // Pointer to STARTUPINFO
++                       &m_shellProcessInformation) // Pointer to PROCESS_INFORMATION
++        ? S_OK
++        : GetLastError();
++
++    if (hr != S_OK) {
++        qDebug() << "cmdArg.data():" << cmdArg.data();
++        std::cout << std::string(cmdArg.begin(), cmdArg.end()) << std::endl;
++
++
++        m_lastError = QStringLiteral("ConPty Error: Cannot create process -> %1").arg(hr);
++        return false;
++    }
++    m_pid = m_shellProcessInformation.dwProcessId;
++
++    // Notify when the shell process has been terminated
++    RegisterWaitForSingleObject(
++        &m_shellCloseWaitHandle,
++        m_shellProcessInformation.hProcess,
++        [](PVOID data, BOOLEAN) {
++            auto self = static_cast<ConPtyProcess *>(data);
++            DWORD exitCode = 0;
++            GetExitCodeProcess(self->m_shellProcessInformation.hProcess, &exitCode);
++            self->m_exitCode = exitCode;
++            // Do not respawn if the object is about to be destructed
++            if (!self->m_aboutToDestruct)
++                Q_EMIT self->notifier()->aboutToClose();
++            Q_EMIT self->exited();
++        },
++        this,
++        INFINITE,
++        WT_EXECUTEONLYONCE);
++
++    // this code runned in separate thread
++    m_readThread = QThread::create([this]() {
++        // buffers
++        const DWORD BUFF_SIZE{1024};
++        char szBuffer[BUFF_SIZE]{};
++
++        while (true) {
++            DWORD dwBytesRead{};
++
++            // Read from the pipe
++            BOOL result = ReadFile(m_hPipeIn, szBuffer, BUFF_SIZE, &dwBytesRead, NULL);
++
++            const bool needMoreData = !result && GetLastError() == ERROR_MORE_DATA;
++            if (result || needMoreData) {
++                QMutexLocker locker(&m_bufferMutex);
++                m_buffer.m_readBuffer.append(szBuffer, dwBytesRead);
++                m_buffer.emitReadyRead();
++            }
++
++            const bool brokenPipe = !result && GetLastError() == ERROR_BROKEN_PIPE;
++            if (QThread::currentThread()->isInterruptionRequested() || brokenPipe)
++                break;
++        }
++    });
++
++    // start read thread
++    m_readThread->start();
++
++    return true;
++}
++
++bool ConPtyProcess::resize(qint16 cols, qint16 rows)
++{
++    if (m_ptyHandler == nullptr) {
++        return false;
++    }
++
++    bool res = SUCCEEDED(m_winContext.resizePseudoConsole(m_ptyHandler, {cols, rows}));
++
++    if (res) {
++        m_size = QPair<qint16, qint16>(cols, rows);
++    }
++
++    return res;
++}
++
++bool ConPtyProcess::kill()
++{
++    bool exitCode = false;
++
++    if (m_ptyHandler != INVALID_HANDLE_VALUE) {
++        m_aboutToDestruct = true;
++
++        // Close ConPTY - this will terminate client process if running
++        m_winContext.closePseudoConsole(m_ptyHandler);
++
++        // Clean-up the pipes
++        if (INVALID_HANDLE_VALUE != m_hPipeOut)
++            CloseHandle(m_hPipeOut);
++        if (INVALID_HANDLE_VALUE != m_hPipeIn)
++            CloseHandle(m_hPipeIn);
++
++        m_readThread->requestInterruption();
++        if (!m_readThread->wait(1000))
++            m_readThread->terminate();
++        m_readThread->deleteLater();
++        m_readThread = nullptr;
++
++        m_pid = 0;
++        m_ptyHandler = INVALID_HANDLE_VALUE;
++        m_hPipeIn = INVALID_HANDLE_VALUE;
++        m_hPipeOut = INVALID_HANDLE_VALUE;
++
++        CloseHandle(m_shellProcessInformation.hThread);
++        CloseHandle(m_shellProcessInformation.hProcess);
++        UnregisterWait(m_shellCloseWaitHandle);
++
++        // Cleanup attribute list
++        if (m_shellStartupInfo.lpAttributeList) {
++            DeleteProcThreadAttributeList(m_shellStartupInfo.lpAttributeList);
++            HeapFree(GetProcessHeap(), 0, m_shellStartupInfo.lpAttributeList);
++        }
++
++        exitCode = true;
++    }
++
++    return exitCode;
++}
++
++IPtyProcess::PtyType ConPtyProcess::type()
++{
++    return PtyType::ConPty;
++}
++
++QString ConPtyProcess::dumpDebugInfo()
++{
++#ifdef PTYQT_DEBUG
++    return QStringLiteral("PID: %1, Type: %2, Cols: %3, Rows: %4").arg(m_pid).arg(type()).arg(m_size.first).arg(m_size.second);
++#else
++    return QStringLiteral("Nothing...");
++#endif
++}
++
++QIODevice *ConPtyProcess::notifier()
++{
++    return &m_buffer;
++}
++
++QByteArray ConPtyProcess::readAll()
++{
++    QByteArray result;
++    {
++        QMutexLocker locker(&m_bufferMutex);
++        result.swap(m_buffer.m_readBuffer);
++    }
++    return result;
++}
++
++qint64 ConPtyProcess::write(const char *data, int size)
++{
++    DWORD dwBytesWritten{};
++    WriteFile(m_hPipeOut, data, size, &dwBytesWritten, NULL);
++    return dwBytesWritten;
++}
++
++bool ConPtyProcess::isAvailable()
++{
++    // #ifdef TOO_OLD_WINSDK
++    // return false; // very importnant! ConPty can be built, but it doesn't work
++    // if built with old sdk and Win10 < 1903
++    // #endif
++
++    qint32 buildNumber = QSysInfo::kernelVersion().split(QLatin1String(".")).last().toInt();
++    if (buildNumber < CONPTY_MINIMAL_WINDOWS_VERSION)
++        return false;
++    return m_winContext.init();
++}
++
++void ConPtyProcess::moveToThread(QThread *targetThread)
++{
++    // nothing for now...
++}
++
++int ConPtyProcess::processList() const
++{
++    return 0;
++}
++
++// #include "moc_conptyprocess.cpp"
+diff --git a/lib/ptyqt/conptyprocess.h b/lib/ptyqt/conptyprocess.h
+new file mode 100644
+index 00000000..0d310b19
+--- /dev/null
++++ b/lib/ptyqt/conptyprocess.h
+@@ -0,0 +1,182 @@
++/*
++    SPDX-FileCopyrightText: 2019 Vitaly Petrov <v31337@gmail.com>
++    SPDX-License-Identifier: MIT
++*/
++#ifndef CONPTYPROCESS_H
++#define CONPTYPROCESS_H
++
++#include "iptyprocess.h"
++#include <QLibrary>
++#include <QMutex>
++#include <QThread>
++#include <QTimer>
++#include <process.h>
++#include <stdio.h>
++#include <windows.h>
++
++// Taken from the RS5 Windows SDK, but redefined here in case we're targeting <=
++// 17733 Just for compile, ConPty doesn't work with Windows SDK < 17733
++#ifndef PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE
++#define PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE ProcThreadAttributeValue(22, FALSE, TRUE, FALSE)
++
++typedef VOID *HPCON;
++
++#define TOO_OLD_WINSDK 0
++#endif
++
++template<typename T>
++std::vector<T> vectorFromString(const std::basic_string<T> &str)
++{
++    return std::vector<T>(str.begin(), str.end());
++}
++
++// ConPTY available only on Windows 10 releazed after 1903 (19H1) Windows
++// release
++class WindowsContext
++{
++public:
++    typedef HRESULT (*CreatePseudoConsolePtr)(COORD size, // ConPty Dimensions
++                                              HANDLE hInput, // ConPty Input
++                                              HANDLE hOutput, // ConPty Output
++                                              DWORD dwFlags, // ConPty Flags
++                                              HPCON *phPC); // ConPty Reference
++
++    typedef HRESULT (*ResizePseudoConsolePtr)(HPCON hPC, COORD size);
++
++    typedef VOID (*ClosePseudoConsolePtr)(HPCON hPC);
++
++    WindowsContext()
++        : createPseudoConsole(nullptr)
++        , resizePseudoConsole(nullptr)
++        , closePseudoConsole(nullptr)
++    {
++    }
++
++    bool init()
++    {
++        // already initialized
++        if (createPseudoConsole)
++            return true;
++
++        // try to load symbols from library
++        // if it fails -> we can't use ConPty API
++        HANDLE kernel32Handle = LoadLibraryExW(L"kernel32.dll", 0, 0);
++
++        if (kernel32Handle != nullptr) {
++            createPseudoConsole = (CreatePseudoConsolePtr)GetProcAddress((HMODULE)kernel32Handle, "CreatePseudoConsole");
++            resizePseudoConsole = (ResizePseudoConsolePtr)GetProcAddress((HMODULE)kernel32Handle, "ResizePseudoConsole");
++            closePseudoConsole = (ClosePseudoConsolePtr)GetProcAddress((HMODULE)kernel32Handle, "ClosePseudoConsole");
++            if (createPseudoConsole == nullptr || resizePseudoConsole == nullptr || closePseudoConsole == nullptr) {
++                m_lastError = QStringLiteral("WindowsContext/ConPty error: %1").arg(QStringLiteral("Invalid on load API functions"));
++                return false;
++            }
++        } else {
++            m_lastError = QStringLiteral("WindowsContext/ConPty error: %1").arg(QStringLiteral("Unable to load kernel32"));
++            return false;
++        }
++
++        return true;
++    }
++
++    QString lastError()
++    {
++        return m_lastError;
++    }
++
++public:
++    // vars
++    CreatePseudoConsolePtr createPseudoConsole;
++    ResizePseudoConsolePtr resizePseudoConsole;
++    ClosePseudoConsolePtr closePseudoConsole;
++
++private:
++    QString m_lastError;
++};
++
++class PtyBuffer : public QIODevice
++{
++    friend class ConPtyProcess;
++    Q_OBJECT
++public:
++    PtyBuffer()
++    {
++    }
++    ~PtyBuffer()
++    {
++    }
++
++    // just empty realization, we need only 'readyRead' signal of this class
++    qint64 readData(char *data, qint64 maxlen) override
++    {
++        return 0;
++    }
++    qint64 writeData(const char *data, qint64 len) override
++    {
++        return 0;
++    }
++
++    bool isSequential()
++    {
++        return true;
++    }
++    qint64 bytesAvailable()
++    {
++        return m_readBuffer.size();
++    }
++    qint64 size()
++    {
++        return m_readBuffer.size();
++    }
++
++    void emitReadyRead()
++    {
++        // for Q_EMIT signal from PtyBuffer own thread
++        QTimer::singleShot(1, this, [this]() {
++            Q_EMIT readyRead();
++        });
++    }
++
++private:
++    QByteArray m_readBuffer;
++};
++
++class ConPtyProcess : public IPtyProcess
++{
++public:
++    ConPtyProcess();
++    ~ConPtyProcess();
++
++    bool
++    startProcess(const QString &shellPath, const QStringList &arguments, const QString &workingDirectory, QStringList environment, qint16 cols, qint16 rows);
++    bool resize(qint16 cols, qint16 rows);
++    bool kill();
++    PtyType type();
++    QString dumpDebugInfo();
++    virtual QIODevice *notifier();
++    virtual QByteArray readAll();
++    virtual qint64 write(const char *data, int size);
++    bool isAvailable();
++    void moveToThread(QThread *targetThread);
++    virtual int processList() const;
++
++private:
++    HRESULT createPseudoConsoleAndPipes(HPCON *phPC, HANDLE *phPipeIn, HANDLE *phPipeOut, qint16 cols, qint16 rows);
++    HRESULT
++    initializeStartupInfoAttachedToPseudoConsole(STARTUPINFOEX *pStartupInfo, HPCON hPC);
++
++private:
++    WindowsContext m_winContext;
++    HPCON m_ptyHandler;
++    HANDLE m_hPipeIn, m_hPipeOut;
++
++    QThread *m_readThread;
++    QMutex m_bufferMutex;
++    PtyBuffer m_buffer;
++
++    bool m_aboutToDestruct{false};
++    PROCESS_INFORMATION m_shellProcessInformation{};
++    HANDLE m_shellCloseWaitHandle{INVALID_HANDLE_VALUE};
++    STARTUPINFOEX m_shellStartupInfo{};
++};
++
++#endif // CONPTYPROCESS_H
+diff --git a/lib/ptyqt/iptyprocess.cpp b/lib/ptyqt/iptyprocess.cpp
+new file mode 100644
+index 00000000..f8a5cdef
+--- /dev/null
++++ b/lib/ptyqt/iptyprocess.cpp
+@@ -0,0 +1,9 @@
++/*
++    SPDX-FileCopyrightText: 2023 Waqar Ahmed <waqar.17a@gmail.com>
++    SPDX-License-Identifier: MIT
++*/
++#include "iptyprocess.h"
++
++IPtyProcess::~IPtyProcess() = default;
++
++// #include "moc_iptyprocess.cpp"
+diff --git a/lib/ptyqt/iptyprocess.h b/lib/ptyqt/iptyprocess.h
+new file mode 100644
+index 00000000..2bc1f92d
+--- /dev/null
++++ b/lib/ptyqt/iptyprocess.h
+@@ -0,0 +1,80 @@
++/*
++    SPDX-FileCopyrightText: 2019 Vitaly Petrov <v31337@gmail.com>
++    SPDX-License-Identifier: MIT
++*/
++#ifndef IPTYPROCESS_H
++#define IPTYPROCESS_H
++
++#include <QDebug>
++#include <QIODevice>
++#include <QObject>
++#include <QString>
++#include <QStringList>
++#include <QTimer>
++
++#define CONPTY_MINIMAL_WINDOWS_VERSION 18309
++
++class IPtyProcess : public QObject
++{
++    Q_OBJECT
++public:
++    enum PtyType { UnixPty = 0, WinPty = 1, ConPty = 2, AutoPty = 3 };
++
++    IPtyProcess()
++        : m_pid(0)
++        , m_trace(false)
++    {
++    }
++    virtual ~IPtyProcess();
++
++    virtual bool startProcess(const QString &shellPath,
++                              const QStringList &arguments,
++                              const QString &workingDirectory,
++                              QStringList environment,
++                              qint16 cols,
++                              qint16 rows) = 0;
++    virtual bool resize(qint16 cols, qint16 rows) = 0;
++    virtual bool kill() = 0;
++    virtual PtyType type() = 0;
++    virtual QString dumpDebugInfo() = 0;
++    virtual QIODevice *notifier() = 0;
++    virtual QByteArray readAll() = 0;
++    virtual qint64 write(const char *data, int size) = 0;
++    virtual bool isAvailable() = 0;
++    virtual void moveToThread(QThread *targetThread) = 0;
++    virtual int processList() const = 0; // 0 - unsupported, 1 - no process , 2 - run process
++    qint64 pid()
++    {
++        return m_pid;
++    }
++    QPair<qint16, qint16> size()
++    {
++        return m_size;
++    }
++    const QString lastError()
++    {
++        return m_lastError;
++    }
++    bool toggleTrace()
++    {
++        m_trace = !m_trace;
++        return m_trace;
++    }
++    int exitCode() const
++    {
++        return m_exitCode;
++    }
++Q_SIGNALS:
++    void started();
++    void exited();
++
++protected:
++    QString m_shellPath;
++    QString m_lastError;
++    qint64 m_pid;
++    QPair<qint16, qint16> m_size; // cols / rows
++    bool m_trace;
++    int m_exitCode = -1;
++};
++
++#endif // IPTYPROCESS_H
+diff --git a/lib/qtermwidget.cpp b/lib/qtermwidget.cpp
+index 6f7e707e..ca192d16 100644
+--- a/lib/qtermwidget.cpp
++++ b/lib/qtermwidget.cpp
+@@ -84,7 +84,11 @@ Session *TermWidgetImpl::createSession(QWidget* parent)
+      */
+     //session->setProgram("/bin/bash");
+ 
++#ifdef Q_OS_WIN
++    session->setProgram(QStringLiteral("C:\\WINDOWS\\system32\\cmd.exe"));
++#else
+     session->setProgram(QString::fromLocal8Bit(qgetenv("SHELL")));
++#endif
+ 
+ 
+ 
+@@ -211,6 +215,10 @@ int QTermWidget::getForegroundProcessId()
+ 
+ void QTermWidget::changeDir(const QString & dir)
+ {
++#ifdef Q_OS_WIN
++    qWarning() << "QTermWidget::changeDir is not supported on Windows";
++    return;
++#endif
+     /*
+        this is a very hackish way of trying to determine if the shell is in
+        the foreground before attempting to change the directory.  It may not
+@@ -273,13 +281,18 @@ void QTermWidget::init(int startnow)
+     setLayout(m_layout);
+ 
+     // translations
++    QStringList dirs;
++#ifndef Q_OS_WIN
+     // First check $XDG_DATA_DIRS. This follows the implementation in libqtxdg
+     QString d = QFile::decodeName(qgetenv("XDG_DATA_DIRS"));
+-    QStringList dirs = d.split(QLatin1Char(':'), Qt::SkipEmptyParts);
++    dirs = d.split(QLatin1Char(':'), Qt::SkipEmptyParts);
+     if (dirs.isEmpty()) {
+         dirs.append(QString::fromLatin1("/usr/local/share"));
+         dirs.append(QString::fromLatin1("/usr/share"));
+     }
++#else
++    dirs.append(QCoreApplication::applicationDirPath() + QStringLiteral("/translations/"));
++#endif
+     dirs.append(QFile::decodeName(TRANSLATIONS_DIR));
+ 
+     m_translator = new QTranslator(this);
+diff --git a/lib/tools.cpp b/lib/tools.cpp
+index 7ca9236c..9a8d6c35 100644
+--- a/lib/tools.cpp
++++ b/lib/tools.cpp
+@@ -27,13 +27,14 @@ QString get_kb_layout_dir()
+         return rval;
+     }
+ 
+-#ifdef Q_OS_MAC
++#if defined(Q_OS_MAC) || defined(Q_OS_WIN)
+     // subdir in the app location
+     d.setPath(QCoreApplication::applicationDirPath() + QLatin1String("/kb-layouts/"));
+     //qDebug() << d.path();
+     if (d.exists())
+         return QCoreApplication::applicationDirPath() + QLatin1String("/kb-layouts/");
+-
++#endif
++#ifdef Q_OS_MAC
+     d.setPath(QCoreApplication::applicationDirPath() + QLatin1String("/../Resources/kb-layouts/"));
+     if (d.exists())
+         return QCoreApplication::applicationDirPath() + QLatin1String("/../Resources/kb-layouts/");
+@@ -70,7 +71,7 @@ const QStringList get_color_schemes_dirs()
+     if (d.exists())
+         rval << k.append(QLatin1Char('/'));
+ 
+-#ifdef Q_OS_MAC
++#if defined(Q_OS_MAC) || defined(Q_OS_WIN)
+     // subdir in the app location
+     d.setPath(QCoreApplication::applicationDirPath() + QLatin1String("/color-schemes/"));
+     //qDebug() << d.path();
+@@ -80,6 +81,8 @@ const QStringList get_color_schemes_dirs()
+             rval.clear();
+         rval << (QCoreApplication::applicationDirPath() + QLatin1String("/color-schemes/"));
+     }
++#endif
++#ifdef Q_OS_MAC
+     d.setPath(QCoreApplication::applicationDirPath() + QLatin1String("/../Resources/color-schemes/"));
+     if (d.exists())
+     {
+diff --git a/lib/wcwidth.c b/lib/wcwidth.c
+new file mode 100644
+index 00000000..1c08ddab
+--- /dev/null
++++ b/lib/wcwidth.c
+@@ -0,0 +1,204 @@
++/*
++ * This is an implementation of wcwidth() and wcswidth() (defined in
++ * IEEE Std 1002.1-2001) for Unicode.
++ *
++ * http://www.opengroup.org/onlinepubs/007904975/functions/wcwidth.html
++ * http://www.opengroup.org/onlinepubs/007904975/functions/wcswidth.html
++ *
++ * In fixed-width output devices, Latin characters all occupy a single
++ * "cell" position of equal width, whereas ideographic CJK characters
++ * occupy two such cells. Interoperability between terminal-line
++ * applications and (teletype-style) character terminals using the
++ * UTF-8 encoding requires agreement on which character should advance
++ * the cursor by how many cell positions. No established formal
++ * standards exist at present on which Unicode character shall occupy
++ * how many cell positions on character terminals. These routines are
++ * a first attempt of defining such behavior based on simple rules
++ * applied to data provided by the Unicode Consortium.
++ *
++ * For some graphical characters, the Unicode standard explicitly
++ * defines a character-cell width via the definition of the East Asian
++ * FullWidth (F), Wide (W), Half-width (H), and Narrow (Na) classes.
++ * In all these cases, there is no ambiguity about which width a
++ * terminal shall use. For characters in the East Asian Ambiguous (A)
++ * class, the width choice depends purely on a preference of backward
++ * compatibility with either historic CJK or Western practice.
++ * Choosing single-width for these characters is easy to justify as
++ * the appropriate long-term solution, as the CJK practice of
++ * displaying these characters as double-width comes from historic
++ * implementation simplicity (8-bit encoded characters were displayed
++ * single-width and 16-bit ones double-width, even for Greek,
++ * Cyrillic, etc.) and not any typographic considerations.
++ *
++ * Much less clear is the choice of width for the Not East Asian
++ * (Neutral) class. Existing practice does not dictate a width for any
++ * of these characters. It would nevertheless make sense
++ * typographically to allocate two character cells to characters such
++ * as for instance EM SPACE or VOLUME INTEGRAL, which cannot be
++ * represented adequately with a single-width glyph. The following
++ * routines at present merely assign a single-cell width to all
++ * neutral characters, in the interest of simplicity. This is not
++ * entirely satisfactory and should be reconsidered before
++ * establishing a formal standard in this area. At the moment, the
++ * decision which Not East Asian (Neutral) characters should be
++ * represented by double-width glyphs cannot yet be answered by
++ * applying a simple rule from the Unicode database content. Setting
++ * up a proper standard for the behavior of UTF-8 character terminals
++ * will require a careful analysis not only of each Unicode character,
++ * but also of each presentation form, something the author of these
++ * routines has avoided to do so far.
++ *
++ * http://www.unicode.org/unicode/reports/tr11/
++ *
++ * Markus Kuhn -- 2007-05-26 (Unicode 5.0)
++ *
++ * Permission to use, copy, modify, and distribute this software
++ * for any purpose and without fee is hereby granted. The author
++ * disclaims all warranties with regard to this software.
++ *
++ * Latest version: http://www.cl.cam.ac.uk/~mgk25/ucs/wcwidth.c
++ */
++
++#include <wchar.h>
++
++struct interval {
++  int first;
++  int last;
++};
++
++/* auxiliary function for binary search in interval table */
++static int bisearch(wchar_t ucs, const struct interval *table, int max) {
++  int min = 0;
++  int mid;
++
++  if (ucs < table[0].first || ucs > table[max].last)
++    return 0;
++  while (max >= min) {
++    mid = (min + max) / 2;
++    if (ucs > table[mid].last)
++      min = mid + 1;
++    else if (ucs < table[mid].first)
++      max = mid - 1;
++    else
++      return 1;
++  }
++
++  return 0;
++}
++
++
++/* The following two functions define the column width of an ISO 10646
++ * character as follows:
++ *
++ *    - The null character (U+0000) has a column width of 0.
++ *
++ *    - Other C0/C1 control characters and DEL will lead to a return
++ *      value of -1.
++ *
++ *    - Non-spacing and enclosing combining characters (general
++ *      category code Mn or Me in the Unicode database) have a
++ *      column width of 0.
++ *
++ *    - SOFT HYPHEN (U+00AD) has a column width of 1.
++ *
++ *    - Other format characters (general category code Cf in the Unicode
++ *      database) and ZERO WIDTH SPACE (U+200B) have a column width of 0.
++ *
++ *    - Hangul Jamo medial vowels and final consonants (U+1160-U+11FF)
++ *      have a column width of 0.
++ *
++ *    - Spacing characters in the East Asian Wide (W) or East Asian
++ *      Full-width (F) category as defined in Unicode Technical
++ *      Report #11 have a column width of 2.
++ *
++ *    - All remaining characters (including all printable
++ *      ISO 8859-1 and WGL4 characters, Unicode control characters,
++ *      etc.) have a column width of 1.
++ *
++ * This implementation assumes that wchar_t characters are encoded
++ * in ISO 10646.
++ */
++
++int mk_wcwidth(wchar_t ucs)
++{
++  /* sorted list of non-overlapping intervals of non-spacing characters */
++  /* generated by "uniset +cat=Me +cat=Mn +cat=Cf -00AD +1160-11FF +200B c" */
++  static const struct interval combining[] = {
++    { 0x0300, 0x036F }, { 0x0483, 0x0486 }, { 0x0488, 0x0489 },
++    { 0x0591, 0x05BD }, { 0x05BF, 0x05BF }, { 0x05C1, 0x05C2 },
++    { 0x05C4, 0x05C5 }, { 0x05C7, 0x05C7 }, { 0x0600, 0x0603 },
++    { 0x0610, 0x0615 }, { 0x064B, 0x065E }, { 0x0670, 0x0670 },
++    { 0x06D6, 0x06E4 }, { 0x06E7, 0x06E8 }, { 0x06EA, 0x06ED },
++    { 0x070F, 0x070F }, { 0x0711, 0x0711 }, { 0x0730, 0x074A },
++    { 0x07A6, 0x07B0 }, { 0x07EB, 0x07F3 }, { 0x0901, 0x0902 },
++    { 0x093C, 0x093C }, { 0x0941, 0x0948 }, { 0x094D, 0x094D },
++    { 0x0951, 0x0954 }, { 0x0962, 0x0963 }, { 0x0981, 0x0981 },
++    { 0x09BC, 0x09BC }, { 0x09C1, 0x09C4 }, { 0x09CD, 0x09CD },
++    { 0x09E2, 0x09E3 }, { 0x0A01, 0x0A02 }, { 0x0A3C, 0x0A3C },
++    { 0x0A41, 0x0A42 }, { 0x0A47, 0x0A48 }, { 0x0A4B, 0x0A4D },
++    { 0x0A70, 0x0A71 }, { 0x0A81, 0x0A82 }, { 0x0ABC, 0x0ABC },
++    { 0x0AC1, 0x0AC5 }, { 0x0AC7, 0x0AC8 }, { 0x0ACD, 0x0ACD },
++    { 0x0AE2, 0x0AE3 }, { 0x0B01, 0x0B01 }, { 0x0B3C, 0x0B3C },
++    { 0x0B3F, 0x0B3F }, { 0x0B41, 0x0B43 }, { 0x0B4D, 0x0B4D },
++    { 0x0B56, 0x0B56 }, { 0x0B82, 0x0B82 }, { 0x0BC0, 0x0BC0 },
++    { 0x0BCD, 0x0BCD }, { 0x0C3E, 0x0C40 }, { 0x0C46, 0x0C48 },
++    { 0x0C4A, 0x0C4D }, { 0x0C55, 0x0C56 }, { 0x0CBC, 0x0CBC },
++    { 0x0CBF, 0x0CBF }, { 0x0CC6, 0x0CC6 }, { 0x0CCC, 0x0CCD },
++    { 0x0CE2, 0x0CE3 }, { 0x0D41, 0x0D43 }, { 0x0D4D, 0x0D4D },
++    { 0x0DCA, 0x0DCA }, { 0x0DD2, 0x0DD4 }, { 0x0DD6, 0x0DD6 },
++    { 0x0E31, 0x0E31 }, { 0x0E34, 0x0E3A }, { 0x0E47, 0x0E4E },
++    { 0x0EB1, 0x0EB1 }, { 0x0EB4, 0x0EB9 }, { 0x0EBB, 0x0EBC },
++    { 0x0EC8, 0x0ECD }, { 0x0F18, 0x0F19 }, { 0x0F35, 0x0F35 },
++    { 0x0F37, 0x0F37 }, { 0x0F39, 0x0F39 }, { 0x0F71, 0x0F7E },
++    { 0x0F80, 0x0F84 }, { 0x0F86, 0x0F87 }, { 0x0F90, 0x0F97 },
++    { 0x0F99, 0x0FBC }, { 0x0FC6, 0x0FC6 }, { 0x102D, 0x1030 },
++    { 0x1032, 0x1032 }, { 0x1036, 0x1037 }, { 0x1039, 0x1039 },
++    { 0x1058, 0x1059 }, { 0x1160, 0x11FF }, { 0x135F, 0x135F },
++    { 0x1712, 0x1714 }, { 0x1732, 0x1734 }, { 0x1752, 0x1753 },
++    { 0x1772, 0x1773 }, { 0x17B4, 0x17B5 }, { 0x17B7, 0x17BD },
++    { 0x17C6, 0x17C6 }, { 0x17C9, 0x17D3 }, { 0x17DD, 0x17DD },
++    { 0x180B, 0x180D }, { 0x18A9, 0x18A9 }, { 0x1920, 0x1922 },
++    { 0x1927, 0x1928 }, { 0x1932, 0x1932 }, { 0x1939, 0x193B },
++    { 0x1A17, 0x1A18 }, { 0x1B00, 0x1B03 }, { 0x1B34, 0x1B34 },
++    { 0x1B36, 0x1B3A }, { 0x1B3C, 0x1B3C }, { 0x1B42, 0x1B42 },
++    { 0x1B6B, 0x1B73 }, { 0x1DC0, 0x1DCA }, { 0x1DFE, 0x1DFF },
++    { 0x200B, 0x200F }, { 0x202A, 0x202E }, { 0x2060, 0x2063 },
++    { 0x206A, 0x206F }, { 0x20D0, 0x20EF }, { 0x302A, 0x302F },
++    { 0x3099, 0x309A }, { 0xA806, 0xA806 }, { 0xA80B, 0xA80B },
++    { 0xA825, 0xA826 }, { 0xFB1E, 0xFB1E }, { 0xFE00, 0xFE0F },
++    { 0xFE20, 0xFE23 }, { 0xFEFF, 0xFEFF }, { 0xFFF9, 0xFFFB },
++    { 0x10A01, 0x10A03 }, { 0x10A05, 0x10A06 }, { 0x10A0C, 0x10A0F },
++    { 0x10A38, 0x10A3A }, { 0x10A3F, 0x10A3F }, { 0x1D167, 0x1D169 },
++    { 0x1D173, 0x1D182 }, { 0x1D185, 0x1D18B }, { 0x1D1AA, 0x1D1AD },
++    { 0x1D242, 0x1D244 }, { 0xE0001, 0xE0001 }, { 0xE0020, 0xE007F },
++    { 0xE0100, 0xE01EF }
++  };
++
++  /* test for 8-bit control characters */
++  if (ucs == 0)
++    return 0;
++  if (ucs < 32 || (ucs >= 0x7f && ucs < 0xa0))
++    return -1;
++
++  /* binary search in table of non-spacing characters */
++  if (bisearch(ucs, combining,
++	       sizeof(combining) / sizeof(struct interval) - 1))
++    return 0;
++
++  /* if we arrive here, ucs is not a combining or C0/C1 control character */
++
++  return 1 + 
++    (ucs >= 0x1100 &&
++     (ucs <= 0x115f ||                    /* Hangul Jamo init. consonants */
++      ucs == 0x2329 || ucs == 0x232a ||
++      (ucs >= 0x2e80 && ucs <= 0xa4cf &&
++       ucs != 0x303f) ||                  /* CJK ... Yi */
++      (ucs >= 0xac00 && ucs <= 0xd7a3) || /* Hangul Syllables */
++      (ucs >= 0xf900 && ucs <= 0xfaff) || /* CJK Compatibility Ideographs */
++      (ucs >= 0xfe10 && ucs <= 0xfe19) || /* Vertical forms */
++      (ucs >= 0xfe30 && ucs <= 0xfe6f) || /* CJK Compatibility Forms */
++      (ucs >= 0xff00 && ucs <= 0xff60) || /* Fullwidth Forms */
++      (ucs >= 0xffe0 && ucs <= 0xffe6) ||
++      (ucs >= 0x20000 && ucs <= 0x2fffd) ||
++      (ucs >= 0x30000 && ucs <= 0x3fffd)));
++}
+\ No newline at end of file
