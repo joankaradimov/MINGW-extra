@@ -1,0 +1,198 @@
+# Build every package whose current version is not published yet, then publish.
+#
+# The schedule is what makes this reliable rather than merely automatic: the
+# planner compares each PKGBUILD against the live pacman database, so a build
+# that crashed or an upload that got lost is retried on the next run without
+# anyone having to notice it.
+name: build
+
+on:
+  push:
+    branches: [master]
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: 'Only consider these package directories (space separated). Empty = everything.'
+        required: false
+        default: ''
+
+# One publisher at a time. Two runs rebuilding the same pacman database
+# concurrently would have the loser silently drop the winner's packages.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions: {}
+
+env:
+  MINGW_EXTRA_URL: ${{ vars.MINGW_EXTRA_URL }}
+  PYTHONUNBUFFERED: 1
+
+jobs:
+  plan:
+    name: plan
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Checked before anything slow runs. Without the live database the planner
+      # rebuilds everything, and vars.* never reads secrets, so a URL saved under
+      # Secrets instead of Variables arrives here empty.
+      - name: Check configuration
+        shell: bash
+        run: |
+          if [ -z "$MINGW_EXTRA_URL" ]; then
+            echo "::error::The MINGW_EXTRA_URL repository variable is not set (Settings > Secrets and variables > Actions > Variables)"
+            exit 1
+          fi
+
+      # Reading a PKGBUILD means letting bash expand it, which means MSYS2 --
+      # even though this job compiles nothing.
+      - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
+        with:
+          msystem: MSYS
+          update: true
+          install: base-devel git python
+          cache: true
+
+      - id: plan
+        shell: msys2 {0}
+        env:
+          PACKAGES: ${{ inputs.packages }}
+        run: |
+          args=()
+          for package in $PACKAGES; do args+=(--package "$package"); done
+          PYTHONPATH=ci python -m autobuild plan "${args[@]}"
+
+  build:
+    name: ${{ matrix.environment }}
+    needs: plan
+    if: needs.plan.outputs.matrix != '[]'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 300
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.plan.outputs.matrix) }}
+    steps:
+      # qt5 and bitcoin will exhaust the default pagefile and fail with errors
+      # that look nothing like "out of memory".
+      - name: Configure pagefile
+        if: matrix.runner != 'windows-11-arm'
+        continue-on-error: true
+        uses: al-cheb/configure-pagefile-action@9b6da52fb72a3c6147c1aad2df22d8d905681adc # v1.5
+        with:
+          minimum-size: 4GB
+          maximum-size: 16GB
+          disk-root: "C:"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
+        with:
+          msystem: MSYS
+          update: true
+          install: base-devel git python
+          cache: true
+
+      # No secrets are available to this job on purpose: makepkg runs upstream
+      # build scripts, and the deploy key lives in the publish job instead.
+      - name: Build
+        shell: msys2 {0}
+        env:
+          ENVIRONMENT: ${{ matrix.environment }}
+          PACKAGES: ${{ matrix.packages }}
+        run: |
+          PYTHONPATH=ci python -m autobuild build \
+            --environment "$ENVIRONMENT" \
+            --build-root /c/_b \
+            --output artifacts \
+            $PACKAGES
+
+      - name: Upload packages
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: packages-${{ matrix.environment }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 7
+
+  publish:
+    name: publish
+    needs: [plan, build]
+    # Deliberately not "needs.build.result == 'success'": if clang64 fails and
+    # ucrt64 succeeds, the ucrt64 packages should still reach users. The next
+    # scheduled run picks clang64 back up.
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.matrix != '[]' }}
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    environment: publish
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install tools
+        run: pacman -Syu --noconfirm --needed rsync openssh curl git
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: artifacts
+          pattern: packages-*
+          merge-multiple: true
+
+      # Every path is handed to ssh explicitly. A container job sets HOME to
+      # /github/home, but ssh finds ~/.ssh through the passwd entry (/root), so
+      # a key or known_hosts written under ~/.ssh would never be read.
+      # BatchMode turns a passphrase-protected key into an immediate error
+      # instead of a prompt nobody can answer. DEPLOY_PORT is optional; a
+      # missing secret arrives as an empty string and means port 22.
+      - name: Configure SSH
+        shell: bash
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          for name in DEPLOY_KEY DEPLOY_KNOWN_HOSTS; do
+            if [ -z "${!name}" ]; then
+              echo "::error::The $name secret is empty or missing"
+              exit 1
+            fi
+          done
+          ssh_dir="$RUNNER_TEMP/ssh"
+          mkdir -p "$ssh_dir" && chmod 700 "$ssh_dir"
+          printf '%s\n' "$DEPLOY_KEY" > "$ssh_dir/id_deploy"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+          chmod 600 "$ssh_dir/id_deploy" "$ssh_dir/known_hosts"
+          # Digits only: the value is spliced into RSYNC_RSH, which rsync splits
+          # into arguments, so anything else could smuggle in extra ssh options.
+          port="${DEPLOY_PORT:-22}"
+          case "$port" in
+            *[!0-9]*)
+              echo "::error::The DEPLOY_PORT secret must be a port number"
+              exit 1
+              ;;
+          esac
+          echo "RSYNC_RSH=ssh -p $port -i $ssh_dir/id_deploy -o IdentitiesOnly=yes -o UserKnownHostsFile=$ssh_dir/known_hosts -o StrictHostKeyChecking=yes -o BatchMode=yes" >> "$GITHUB_ENV"
+
+      - name: Publish
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: ci/publish.sh artifacts

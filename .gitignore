@@ -20,3 +20,8 @@
 /*/*-git/
 /*/*-svn/
 /*/*-hg/
+
+# autobuilder
+__pycache__/
+*.py[co]
+/artifacts/
