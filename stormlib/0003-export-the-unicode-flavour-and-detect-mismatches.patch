@@ -1,0 +1,64 @@
+Export the UNICODE flavour and detect mismatches
+
+On Windows StormLib takes every local file name as a TCHAR string, and
+STORM_UNICODE only adds UNICODE and _UNICODE to the library's own PRIVATE
+compile definitions. A consumer compiles against StormLib.h with whatever
+UNICODE setting it happens to have, so a UNICODE StormLib used from an ANSI
+program -- or the reverse -- compiles and links cleanly, then hands narrow
+strings to wide parameters at run time. Nothing in the header can tell.
+
+CascLib, by the same author, already solves this: its CMake target exports
+CASCLIB_UNICODE for a UNICODE build and CASCLIB_DETECT_UNICODE_MISMATCHES on
+Windows, and CascLib.h stops with #error when the consumer disagrees. Do the
+same here with STORMLIB_UNICODE and STORMLIB_DETECT_UNICODE_MISMATCHES. The
+check requires UNICODE and _UNICODE to both match: winnt.h picks the width of
+TCHAR and LPCTSTR from UNICODE, while StormPort.h and <tchar.h> look at
+_UNICODE as well.
+
+Both definitions are INTERFACE-only, so the library's own sources, which
+include StormLib.h too, are not affected. Consumers that bypass the CMake
+package get no check; StormLib ships no pkg-config file, so CMake is the
+supported way in.
+
+Upstream: not submitted yet
+Applies-to: all environments (the definitions only exist on Windows)
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -359,9 +359,11 @@
+     if(STORM_UNICODE)
+         message(STATUS "Build UNICODE version")
+         target_compile_definitions(${LIBRARY_NAME} PRIVATE UNICODE _UNICODE)
++        target_compile_definitions(${LIBRARY_NAME} INTERFACE STORMLIB_UNICODE)
+     else()
+         message(STATUS "Build ANSI version")
+     endif()
++    target_compile_definitions(${LIBRARY_NAME} INTERFACE STORMLIB_DETECT_UNICODE_MISMATCHES)
+ endif()
+ 
+ target_link_libraries(${LIBRARY_NAME} PRIVATE ${LINK_LIBS})
+--- a/src/StormLib.h
++++ b/src/StormLib.h
+@@ -88,6 +88,22 @@
+ 
+ #include "StormPort.h"
+ 
++//-----------------------------------------------------------------------------
++// The consumer has to use the UNICODE setting the library was built with
++//
++// On Windows every local file name crosses this API as a TCHAR string, and
++// the width of TCHAR follows the UNICODE setting of whoever includes this
++// header, not the one the library was compiled with. The CMake package
++// exports STORMLIB_DETECT_UNICODE_MISMATCHES on Windows, and STORMLIB_UNICODE
++// for a UNICODE build, so that a mismatch stops the compile instead of
++// handing narrow strings to wide parameters, or the reverse, at run time.
++
++#if defined(STORMLIB_DETECT_UNICODE_MISMATCHES)
++#if defined(UNICODE) != defined(STORMLIB_UNICODE) || defined(_UNICODE) != defined(STORMLIB_UNICODE)
++#error StormLib was not built with the same UNICODE setting as your project
++#endif
++#endif
++
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
