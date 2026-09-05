@@ -1,0 +1,38 @@
+Keep archive names as paths until they are encoded
+
+AddFiles computes the name a file gets inside the archive by calling
+u8string() on its relative path and handing the result to
+WindowsifyFilePath(const fs::path &). The std::string does not match that
+parameter, so it is quietly turned back into a path through the narrow-string
+constructor -- and on Windows the C++ runtimes read a narrow string
+differently: libstdc++ as UTF-8, libc++ (like MSVC's STL) in the ANSI code
+page. Under libc++ the UTF-8 bytes of a non-ASCII name are therefore decoded
+as, say, Windows-1251 and encoded again, and "日本語.txt" is stored in the
+archive as "ж—Ґжњ¬иЄћ.txt".
+
+Pass the path itself; WindowsifyFilePath already does the one u8string()
+conversion. Nothing changes where a narrow string is UTF-8 anyway (libstdc++,
+every non-Windows platform).
+
+The bug used to stay hidden: with an ANSI StormLib, adding a file with a
+non-ASCII name failed outright. Now that 0002 hands StormLib the native wide
+path the add succeeds, so the name has to be right.
+
+Upstream: not submitted yet
+Applies-to: all environments (behaviour changes only on Windows with libc++ or MSVC)
+
+--- a/src/mpq.cpp
++++ b/src/mpq.cpp
+@@ -250,10 +250,10 @@
+         std::string archive_file_path;
+ 
+         if (path_prefix.empty()) {
+-            archive_file_path = WindowsifyFilePath(input_file_path.u8string());
++            archive_file_path = WindowsifyFilePath(input_file_path);
+         } else {
+             archive_file_path =
+-                WindowsifyFilePath((fs::path(path_prefix) / input_file_path).u8string());
++                WindowsifyFilePath(fs::path(path_prefix) / input_file_path);
+         }
+ 
+         if (std::find(special_mpq_files.begin(), special_mpq_files.end(), archive_file_path) !=

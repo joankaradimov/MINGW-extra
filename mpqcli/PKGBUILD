@@ -4,7 +4,7 @@ _realname=mpqcli
 pkgbase=mingw-w64-${_realname}
 pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
 pkgver=0.10.2
-pkgrel=1
+pkgrel=2
 pkgdesc="A command line tool to create, read and modify MPQ archives (mingw-w64)"
 arch=('any')
 # mingw32 is missing on purpose: the library side builds and passes there, but
@@ -19,21 +19,29 @@ msys2_repository_url='https://github.com/TheGrayDot/mpqcli'
 # repository happens to contain the build tree -- this one. Passing it
 # explicitly keeps `mpqcli version` honest and the build reproducible.
 _commit=4bd21908966bafbafc55c6dd293c68488684d212
+# stormlib 9.40-3 is the first UNICODE build; built against it, mpqcli passes
+# wide paths, which an older ANSI libStormLib.dll would misread.
 depends=("${MINGW_PACKAGE_PREFIX}-cc-libs"
-         "${MINGW_PACKAGE_PREFIX}-stormlib")
+         "${MINGW_PACKAGE_PREFIX}-stormlib>=9.40-3")
 makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
              "${MINGW_PACKAGE_PREFIX}-cli11"
              "${MINGW_PACKAGE_PREFIX}-cmake"
              "${MINGW_PACKAGE_PREFIX}-ninja")
 source=("${_realname}-${pkgver}.tar.gz::https://github.com/TheGrayDot/${_realname}/archive/v${pkgver}.tar.gz"
-        "0001-build-against-system-stormlib-and-cli11.patch")
+        "0001-build-against-system-stormlib-and-cli11.patch"
+        "0002-pass-native-local-paths-to-a-unicode-stormlib.patch"
+        "0003-keep-archive-names-as-paths-until-they-are-encoded.patch")
 sha256sums=('68a678697fe778cd0c6cda4adf9fa7cb93f114ee1d68c81bd0164ca5d7eb6c1a'
-            'f841f0d0a509cb376924baf19a2cddbabbb3781d2894a88dba0e0d9a5d7f92c9')
+            'f841f0d0a509cb376924baf19a2cddbabbb3781d2894a88dba0e0d9a5d7f92c9'
+            '59760fd3fe0ce683abab2d855d40c1353656d08f13ad3e271f43f6987d17fcfd'
+            '912fe792339490ec4456405bea0509f23bb79db4f64e663900768a2798dcd1cf')
 
 prepare() {
   cd "${_realname}-${pkgver}"
 
   patch -Np1 -i "${srcdir}/0001-build-against-system-stormlib-and-cli11.patch"
+  patch -Np1 -i "${srcdir}/0002-pass-native-local-paths-to-a-unicode-stormlib.patch"
+  patch -Np1 -i "${srcdir}/0003-keep-archive-names-as-paths-until-they-are-encoded.patch"
 }
 
 build() {

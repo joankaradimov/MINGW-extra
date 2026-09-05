@@ -1,0 +1,160 @@
+Pass native local paths to a UNICODE StormLib
+
+StormLib takes local file names as TCHAR strings, which on Windows are wide
+when it is built with UNICODE -- and this repository builds it that way from
+stormlib 9.40-3 on. Its CMake target then exports STORMLIB_UNICODE, and
+StormLib.h rejects a consumer compiled without UNICODE. mpqcli therefore
+builds with UNICODE and _UNICODE whenever the StormLib it finds is a UNICODE
+one, and exactly as before otherwise.
+
+The seven places that hand StormLib a local path go through two helpers
+instead of passing std::string::c_str() straight through:
+
+  - StormArgPath() for paths typed on the command line. They reach main() in
+    the ANSI code page, so they are converted with CP_ACP -- what the ANSI
+    StormLib's CreateFileA did internally, so any path that opened before
+    still opens. std::filesystem::path cannot do this conversion portably:
+    built from a narrow string, libstdc++ decodes it as UTF-8 and libc++ as
+    ANSI.
+
+  - StormFsPath() for paths that already are std::filesystem::path objects
+    (the directory walk behind "add", the resolved destination of
+    "extract"). Those were flattened with u8string() and handed to the ANSI
+    API as if they were in the ANSI code page, which garbled any non-ASCII
+    name; a UNICODE build now passes the native wide path.
+
+Without a UNICODE StormLib -- other platforms, or an ANSI build on Windows --
+both helpers return exactly what was passed before.
+
+Upstream: not submitted yet
+Applies-to: all environments
+
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -44,6 +44,14 @@
+ # Link libraries
+ target_link_libraries(mpqcli PRIVATE StormLib::storm CLI11::CLI11)
+ 
++# StormLib takes local file names as TCHAR strings. A UNICODE build exports
++# STORMLIB_UNICODE, and StormLib.h rejects a consumer compiled for the other
++# flavour, so build for whichever one was found.
++get_target_property(STORMLIB_DEFINITIONS StormLib::storm INTERFACE_COMPILE_DEFINITIONS)
++if (WIN32 AND "STORMLIB_UNICODE" IN_LIST STORMLIB_DEFINITIONS)
++    target_compile_definitions(mpqcli PRIVATE UNICODE _UNICODE)
++endif()
++
+ # Install
+ include(GNUInstallDirs)
+ install(TARGETS mpqcli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+--- a/src/mpq.cpp
++++ b/src/mpq.cpp
+@@ -18,11 +18,47 @@
+ 
+ namespace fs = std::filesystem;
+ 
++// StormLib takes local file names as TCHAR strings: wchar_t when it was built
++// with UNICODE on Windows (StormPort.h then defines STORMLIB_WIDE_CHAR), char
++// everywhere else.
++#ifdef STORMLIB_WIDE_CHAR
++using StormString = std::wstring;
++
++// Paths typed on the command line reach main() in the ANSI code page. Convert
++// them the way the ANSI StormLib's CreateFileA did. std::filesystem cannot be
++// used for this: constructed from a narrow string, libstdc++ decodes a path as
++// UTF-8 and libc++ as ANSI.
++static StormString StormArgPath(const std::string &path) {
++    if (path.empty()) {
++        return StormString();
++    }
++    const int length = static_cast<int>(path.size());
++    const int size = MultiByteToWideChar(CP_ACP, 0, path.data(), length, nullptr, 0);
++    StormString wide(static_cast<size_t>(size), L'\0');
++    MultiByteToWideChar(CP_ACP, 0, path.data(), length, &wide[0], size);
++    return wide;
++}
++
++static StormString StormFsPath(const fs::path &path) {
++    return path.wstring();
++}
++#else
++using StormString = std::string;
++
++static StormString StormArgPath(const std::string &path) {
++    return path;
++}
++
++static StormString StormFsPath(const fs::path &path) {
++    return path.u8string();
++}
++#endif
++
+ static const std::vector<std::string> special_mpq_files = {"(listfile)", "(signature)",
+                                                            "(attributes)"};
+ 
+ bool OpenMpqArchive(const std::string &filename, HANDLE *archive, int32_t flags) {
+-    if (!SFileOpenArchive(filename.c_str(), 0, flags, archive)) {
++    if (!SFileOpenArchive(StormArgPath(filename).c_str(), 0, flags, archive)) {
+         const auto error = SErrGetLastError();
+         std::cerr << "[!] Failed to open MPQ archive: " << filename << ": (" << error << ") "
+                   << StormErrorString(error) << std::endl;
+@@ -70,7 +106,9 @@
+                  const std::optional<std::string> &listfile_name, LCID preferred_locale) {
+     SFileSetLocale(preferred_locale);
+     // Check if the user provided a listfile input
+-    const char *listfile = listfile_name.has_value() ? listfile_name->c_str() : nullptr;
++    const StormString listfile_path =
++        listfile_name.has_value() ? StormArgPath(*listfile_name) : StormString();
++    const auto *listfile = listfile_name.has_value() ? listfile_path.c_str() : nullptr;
+ 
+     SFILE_FIND_DATA find_data;
+     HANDLE find_handle = SFileFindFirstFile(archive, "*", &find_data, listfile);
+@@ -133,7 +171,7 @@
+         return 1;
+     }
+ 
+-    std::string output_file_name{resolved_output.u8string()};
++    const StormString output_file_name = StormFsPath(resolved_output);
+ 
+     if (SFileExtractFile(archive, file_name.c_str(), output_file_name.c_str(), 0)) {
+         std::cout << "[*] Extracted: " << file_name_string << std::endl;
+@@ -174,7 +212,8 @@
+     create_info.dwRawChunkSize = settings.raw_chunk_size;
+     create_info.dwMaxFileCount = file_count;
+ 
+-    const bool result = SFileCreateArchive2(output_archive_name.c_str(), &create_info, &archive);
++    const bool result =
++        SFileCreateArchive2(StormArgPath(output_archive_name).c_str(), &create_info, &archive);
+ 
+     if (!result) {
+         const auto error = SErrGetLastError();
+@@ -329,7 +368,7 @@
+     }
+ 
+     bool added_file =
+-        SFileAddFileEx(archive, local_file.u8string().c_str(), archive_file_path.c_str(), flags,
++        SFileAddFileEx(archive, StormFsPath(local_file).c_str(), archive_file_path.c_str(), flags,
+                        compression, compression_next);
+ 
+     if (!added_file) {
+@@ -390,7 +429,9 @@
+ int ListFiles(HANDLE archive, const std::optional<std::string> &listfile_name, bool list_all,
+               bool list_detailed, const std::vector<std::string> &properties) {
+     // Check if the user provided a listfile input
+-    const char *listfile = listfile_name.has_value() ? listfile_name->c_str() : nullptr;
++    const StormString listfile_path =
++        listfile_name.has_value() ? StormArgPath(*listfile_name) : StormString();
++    const auto *listfile = listfile_name.has_value() ? listfile_path.c_str() : nullptr;
+ 
+     SFILE_FIND_DATA find_data;
+     HANDLE find_handle = SFileFindFirstFile(archive, "*", &find_data, listfile);
+@@ -658,7 +699,9 @@
+ int CompactMpqArchive(HANDLE archive, const std::optional<std::string> &listfile_name) {
+     std::cout << "[*] Compacting archive. This may take some time..." << std::endl;
+     // Check if the user provided a listfile input
+-    const char *listfile = listfile_name.has_value() ? listfile_name->c_str() : nullptr;
++    const StormString listfile_path =
++        listfile_name.has_value() ? StormArgPath(*listfile_name) : StormString();
++    const auto *listfile = listfile_name.has_value() ? listfile_path.c_str() : nullptr;
+ 
+     if (!SFileCompactArchive(archive, listfile, false)) {
+         const auto error = SErrGetLastError();
