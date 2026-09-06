@@ -1,0 +1,30 @@
+Link ws2_32 on Windows
+
+CascFiles.cpp asks for Winsock with #pragma comment(lib, "ws2_32.lib"), which
+only MSVC honours, and common/Sockets.cpp calls socket(), connect(), send(),
+recv(), closesocket(), getaddrinfo(), WSAStartup() and WSAGetLastError().
+Under MinGW nothing links ws2_32, so those references stay unresolved:
+CascLib.dll cannot link, and a program linking the static library fails with
+
+    undefined reference to `__imp_closesocket'
+
+and the rest of those calls. Add ws2_32 to LINK_LIBS next to wininet, which is
+already listed there for Windows.
+
+CascLib distributes this file with CRLF line endings; the PKGBUILD strips them
+before applying the patch.
+
+Upstream: not submitted yet
+Applies-to: all environments
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -79,7 +79,7 @@
+ 
+ set(PUBLIC_COMPILE_DEFINITIONS CASCLIB_NO_AUTO_LINK_LIBRARY CASCLIB_NODEBUG)
+ if(WIN32)
+-    list(APPEND LINK_LIBS wininet)
++    list(APPEND LINK_LIBS wininet ws2_32)
+     if(CASC_UNICODE)
+         message(STATUS "Build UNICODE version")
+         add_definitions(-DUNICODE -D_UNICODE)

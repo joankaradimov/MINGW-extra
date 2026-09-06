@@ -1,0 +1,34 @@
+Report the release version in the CMake package
+
+project() carries no version, and the package version file is written with a
+hard-coded VERSION 2.1 -- still, in the 3.0 release. With
+COMPATIBILITY SameMajorVersion that makes a version-qualified lookup of the
+release refuse the package it is looking at:
+
+    find_package(CascLib 3.0 CONFIG REQUIRED)
+
+src/CascLib.h is authoritative (CASCLIB_VERSION_STRING "3.0"), so give
+project() that version and generate the version file from PROJECT_VERSION.
+Unversioned find_package(CascLib) lookups are unaffected.
+
+Upstream: not submitted yet
+Applies-to: all environments
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,5 +1,5 @@
+ cmake_minimum_required(VERSION 3.2)
+-project(CascLib)
++project(CascLib VERSION 3.0)
+ include(GNUInstallDirs)
+ 
+ set(HEADER_FILES
+@@ -184,7 +184,7 @@
+ 
+ include(CMakePackageConfigHelpers)
+ 
+-write_basic_package_version_file("${VERSION_CONFIG}" VERSION 2.1 COMPATIBILITY SameMajorVersion)
++write_basic_package_version_file("${VERSION_CONFIG}" VERSION ${PROJECT_VERSION} COMPATIBILITY SameMajorVersion)
+ configure_package_config_file("Config.cmake.in"
+                               "${PROJECT_CONFIG}"
+                               INSTALL_DESTINATION "${INSTALL_DIR}")

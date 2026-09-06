@@ -1,0 +1,79 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=casclib
+_upstreamname=CascLib
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=3.0
+pkgrel=1
+pkgdesc="A C/C++ library for reading CASC storages from Blizzard games (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64' 'mingw32')
+url='https://github.com/ladislav-zezula/CascLib'
+license=('spdx:MIT')
+msys2_repository_url='https://github.com/ladislav-zezula/CascLib'
+msys2_references=(
+  'aur: casclib'
+)
+depends=("${MINGW_PACKAGE_PREFIX}-cc-libs"
+         "${MINGW_PACKAGE_PREFIX}-zlib")
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-cmake"
+             "${MINGW_PACKAGE_PREFIX}-ninja")
+source=("${_realname}-${pkgver}.tar.gz::https://github.com/ladislav-zezula/${_upstreamname}/archive/refs/tags/${pkgver}.tar.gz"
+        "0001-link-ws2_32-on-windows.patch"
+        "0002-report-the-release-version-in-the-cmake-package.patch"
+        "0003-name-the-dll-after-its-def-file.patch")
+sha256sums=('2bbd1b62c3e161a7204345d89afdcf5160649c220e1a043460ba72ff0ab1b070'
+            '8dca06a542cceea6a6de0806aad0e3632aa56574d13e4f339113b3809e899112'
+            '16b9c6a2c1d6150b0baa6279428b34dffb2aa13f37c20763f398bda328ab8d8c'
+            '135eb9a305b5cdbb9151728971a170d58ba3288c5ad8b2b682815e75389d281a')
+
+prepare() {
+  cd "${_upstreamname}-${pkgver}"
+
+  # Distributed with CRLF line endings; strip them so the patches can stay LF.
+  sed -i 's/\r$//' CMakeLists.txt
+
+  patch -Np1 -i "${srcdir}/0001-link-ws2_32-on-windows.patch"
+  patch -Np1 -i "${srcdir}/0002-report-the-release-version-in-the-cmake-package.patch"
+  patch -Np1 -i "${srcdir}/0003-name-the-dll-after-its-def-file.patch"
+}
+
+build() {
+  # CASC_UNICODE is ON: the storage-path parameters are TCHAR on Windows, and
+  # only the UNICODE flavour can open paths outside the ANSI code page. The
+  # choice cannot go unnoticed by a consumer: the CMake target exports
+  # CASCLIB_UNICODE and CASCLIB_DETECT_UNICODE_MISMATCHES, and CascLib.h stops
+  # with #error when the consumer's _UNICODE setting disagrees.
+  #
+  # CMAKE_POLICY_VERSION_MINIMUM: CascLib still declares
+  # cmake_minimum_required(VERSION 3.2), which CMake 4 refuses.
+  # CMAKE_REQUIRE_FIND_PACKAGE_ZLIB: fail instead of quietly compiling the zlib
+  # copy under src/zlib.
+  #
+  # CASC_BUILD_TESTS stays OFF: CascTest reads real game storages whose paths
+  # it takes from the command line.
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
+    "${MINGW_PREFIX}"/bin/cmake.exe \
+      -G Ninja \
+      -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+      -DCMAKE_REQUIRE_FIND_PACKAGE_ZLIB=ON \
+      -DCASC_BUILD_SHARED_LIB=ON \
+      -DCASC_BUILD_STATIC_LIB=OFF \
+      -DCASC_UNICODE=ON \
+      -DCASC_BUILD_TESTS=OFF \
+      -B "build-${MSYSTEM}" \
+      -S "${_upstreamname}-${pkgver}"
+
+  "${MINGW_PREFIX}"/bin/cmake.exe --build "build-${MSYSTEM}"
+}
+
+package() {
+  DESTDIR="${pkgdir}" "${MINGW_PREFIX}"/bin/cmake.exe --install "build-${MSYSTEM}"
+
+  install -Dm644 "${_upstreamname}-${pkgver}/LICENSE" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/LICENSE"
+}

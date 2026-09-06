@@ -1,0 +1,28 @@
+Name the DLL after its .def file
+
+src/DllMain.def declares LIBRARY CascLib.dll, so the DLL's export directory
+and the import library GNU ld generates from it both name CascLib.dll. CMake,
+however, calls a MinGW shared library lib<OUTPUT_NAME>.dll, and the file is
+installed as libCascLib.dll. Every consumer then imports a DLL that does not
+exist and cannot start -- launched from an MSYS2 shell it exits with status
+127.
+
+Drop the prefix from the runtime DLL, which is what the comment above the
+property already intends ("On Win32, build CascLib.dll"). The import library
+keeps its lib prefix (libCascLib.dll.a), and MSVC builds, whose prefix is
+empty anyway, are unaffected.
+
+Upstream: not submitted yet
+Applies-to: all environments
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -128,7 +128,7 @@
+     )
+     # On Win32, build CascLib.dll
+     if(WIN32)
+-        set_target_properties(casc PROPERTIES OUTPUT_NAME CascLib)
++        set_target_properties(casc PROPERTIES OUTPUT_NAME CascLib PREFIX "")
+     endif()
+     target_compile_definitions(casc PUBLIC ${PUBLIC_COMPILE_DEFINITIONS})
+ endif()
