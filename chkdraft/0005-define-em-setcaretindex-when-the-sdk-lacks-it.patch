@@ -1,0 +1,30 @@
+Define EM_SETCARETINDEX when the SDK headers lack it
+
+EM_SETCARETINDEX is one of the edit-control messages Windows 10 added to
+CommCtrl.h. mingw-w64's commctrl.h does not define it -- neither the headers
+this was built with (mingw-w64-headers 14.0.0.r353) nor mingw-w64 master as
+of 2026-09 -- so edit_control.cpp stops with
+
+    'EM_SETCARETINDEX' was not declared in this scope
+
+Define it when it is missing, as ECM_FIRST + 17, the value Wine's commctrl.h
+gives it.
+
+Upstream: not submitted yet; mingw-w64 is the better home for the define
+Applies-to: all environments
+
+diff --git a/src/windows/edit_control.cpp b/src/windows/edit_control.cpp
+index 92b6b25..c86ea8b 100644
+--- a/src/windows/edit_control.cpp
++++ b/src/windows/edit_control.cpp
+@@ -5,6 +5,10 @@
+ #include <type_traits>
+ #include <memory>
+ 
++#ifndef EM_SETCARETINDEX
++#define EM_SETCARETINDEX (ECM_FIRST + 17)
++#endif
++
+ namespace WinLib {
+ 
+     EditControl::EditControl() : isMultiLine(false), forwardArrowKeys(false), stopFowardingOnClick(false), autoExpand(false), hBuddy(NULL)

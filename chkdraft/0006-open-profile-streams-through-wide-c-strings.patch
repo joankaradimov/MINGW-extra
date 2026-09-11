@@ -1,0 +1,38 @@
+Open profile streams through wide C strings
+
+icux::filestring is std::wstring on Windows. Constructing std::ifstream or
+std::ofstream from a std::wstring is an MSVC extension; libstdc++ on Windows
+provides the const wchar_t* constructors but no std::wstring ones, so
+chkd_profiles.cpp stops with
+
+    no matching function for call to
+    'std::basic_ofstream<char>::basic_ofstream(icux::filestring, std::_Ios_Openmode)'
+
+Pass .c_str() instead. map_file.cpp and lite_map_file.cpp already open their
+output streams exactly this way, and MSVC accepts it too.
+
+Upstream: not submitted yet
+Applies-to: all environments
+
+diff --git a/src/chkdraft/mapping/chkd_profiles.cpp b/src/chkdraft/mapping/chkd_profiles.cpp
+index ec61f3b..987ad00 100644
+--- a/src/chkdraft/mapping/chkd_profiles.cpp
++++ b/src/chkdraft/mapping/chkd_profiles.cpp
+@@ -112,7 +112,7 @@ void ChkdProfile::saveProfile()
+     sprites.parsedCustomTree.serialize(sprites.customTree);
+ 
+     fixPathsToForwardSlash();
+-    std::ofstream outFile(icux::toFilestring(this->profilePath), std::ios_base::out | std::ios_base::binary);
++    std::ofstream outFile(icux::toFilestring(this->profilePath).c_str(), std::ios_base::out | std::ios_base::binary);
+     outFile << Json::pretty(*this);
+     if ( !outFile.good() )
+         Error("Failed to save profile \"" + this->profilePath + "\"");
+@@ -130,7 +130,7 @@ void ChkdProfiles::saveCurrProfile()
+ 
+ ChkdProfile* ChkdProfiles::loadProfile(const std::string & filePath)
+ {
+-    std::ifstream inFile(icux::toFilestring(filePath), std::ios_base::in | std::ios_base::binary);
++    std::ifstream inFile(icux::toFilestring(filePath).c_str(), std::ios_base::in | std::ios_base::binary);
+     auto & chkdProfile = this->profiles.emplace_back(std::make_unique<ChkdProfile>());
+     chkdProfile->profilePath = filePath;
+     try {

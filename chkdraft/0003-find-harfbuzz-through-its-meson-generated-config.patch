@@ -1,0 +1,74 @@
+Find HarfBuzz through its meson-generated CMake config
+
+The harfbuzz-config.cmake that HarfBuzz's meson build installs (MSYS2's
+package ships it; upstream's template is src/harfbuzz-config.cmake.in) has no
+guard against being read twice: every find_package(harfbuzz CONFIG) runs
+add_library(harfbuzz::harfbuzz IMPORTED) again. The top-level CMakeLists.txt,
+src/ and src/chkdraft/ each look HarfBuzz up, so configuration fails at the
+second lookup with
+
+    add_library cannot create imported target "harfbuzz::harfbuzz" because
+    another target with the same name already exists.
+
+Skip the lookup when the target is already visible from an enclosing
+directory.
+
+That config also names the subset library harfbuzz::subset rather than
+harfbuzz::harfbuzz-subset. Nothing in the Chkdraft executable calls an
+hb_subset_* function, so the item is dropped from its link line instead of
+being renamed.
+
+Upstream: not submitted yet
+Applies-to: all environments
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index fe68f32..4be63e7 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -28,7 +28,9 @@ find_package(Freetype REQUIRED)
+ get_target_property(FREETYPE_INCLUDE_DIRS Freetype::Freetype INTERFACE_INCLUDE_DIRECTORIES)
+ include_directories(${FREETYPE_INCLUDE_DIRS})
+ 
+-find_package(harfbuzz CONFIG REQUIRED)
++if ( NOT TARGET harfbuzz::harfbuzz )
++  find_package(harfbuzz CONFIG REQUIRED)
++endif ()
+ get_target_property(HARFBUZZ_INCLUDE_DIRS harfbuzz::harfbuzz INTERFACE_INCLUDE_DIRECTORIES)
+ include_directories(${HARFBUZZ_INCLUDE_DIRS})
+ 
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 9422e66..64a5b52 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -34,7 +34,9 @@ find_package(Freetype REQUIRED)
+ get_target_property(FREETYPE_INCLUDE_DIRS Freetype::Freetype INTERFACE_INCLUDE_DIRECTORIES)
+ include_directories(${FREETYPE_INCLUDE_DIRS})
+ 
+-find_package(harfbuzz CONFIG REQUIRED)
++if ( NOT TARGET harfbuzz::harfbuzz )
++  find_package(harfbuzz CONFIG REQUIRED)
++endif ()
+ get_target_property(HARFBUZZ_INCLUDE_DIRS harfbuzz::harfbuzz INTERFACE_INCLUDE_DIRECTORIES)
+ include_directories(${HARFBUZZ_INCLUDE_DIRS})
+ 
+@@ -55,4 +57,4 @@ add_subdirectory(chkdraft)
+ 
+ add_executable(${This} WIN32 ${Sources} ${Headers})
+ target_sources(${This} PRIVATE ../res/resource.rc)
+-target_link_libraries(Chkdraft CrossCut MappingCore WindowsLib ChkdraftLib Freetype::Freetype harfbuzz::harfbuzz harfbuzz::harfbuzz-subset glm::glm opengl32.lib Comctl32.lib Winmm.lib Msimg32.lib)
++target_link_libraries(Chkdraft CrossCut MappingCore WindowsLib ChkdraftLib Freetype::Freetype harfbuzz::harfbuzz glm::glm opengl32.lib Comctl32.lib Winmm.lib Msimg32.lib)
+diff --git a/src/chkdraft/CMakeLists.txt b/src/chkdraft/CMakeLists.txt
+index c56dc86..3840eb6 100644
+--- a/src/chkdraft/CMakeLists.txt
++++ b/src/chkdraft/CMakeLists.txt
+@@ -40,7 +40,9 @@ find_package(Freetype REQUIRED)
+ get_target_property(FREETYPE_INCLUDE_DIRS Freetype::Freetype INTERFACE_INCLUDE_DIRECTORIES)
+ include_directories(${FREETYPE_INCLUDE_DIRS})
+ 
+-find_package(harfbuzz CONFIG REQUIRED)
++if ( NOT TARGET harfbuzz::harfbuzz )
++  find_package(harfbuzz CONFIG REQUIRED)
++endif ()
+ get_target_property(HARFBUZZ_INCLUDE_DIRS harfbuzz::harfbuzz INTERFACE_INCLUDE_DIRECTORIES)
+ include_directories(${HARFBUZZ_INCLUDE_DIRS})
+ 

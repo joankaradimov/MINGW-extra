@@ -1,0 +1,61 @@
+Keep user data in %LOCALAPPDATA%\Chkdraft, not beside the executable
+
+Unless CHKD_DIR is set, Chkdraft keeps its profiles, logs, map backups and
+pre-save files in a chkd folder next to Chkdraft.exe. That suits upstream's
+portable download, but an installed copy writes into the package-managed
+prefix (/ucrt64/bin/chkd and so on): pacman does not know those files,
+removing the package leaves them behind, and the prefix need not be writable.
+
+Use %LOCALAPPDATA%\Chkdraft instead, with the same subfolders. Local rather
+than roaming AppData: a profile centres on where StarCraft is installed on
+this machine, and logs and backups pile up without limit, so none of it should
+follow the user to another computer. The folder comes from
+SHGetKnownFolderPath rather than the LOCALAPPDATA variable, so a process
+started without that variable finds it too.
+
+CHKD_DIR still takes precedence, and is now read with _wgetenv: std::getenv
+returns the value in the ANSI code page while Chkdraft treats every path as
+UTF-8, so a CHKD_DIR containing a non-ASCII character was misread.
+
+Upstream: not submitted yet; the location is a packaging choice, the CHKD_DIR decoding fix is not
+Applies-to: all environments
+
+diff --git a/src/chkdraft/mapping/chkd_profiles.cpp b/src/chkdraft/mapping/chkd_profiles.cpp
+index 987ad00..41b9df4 100644
+--- a/src/chkdraft/mapping/chkd_profiles.cpp
++++ b/src/chkdraft/mapping/chkd_profiles.cpp
+@@ -3,19 +3,27 @@
+ #include <cross_cut/simple_icu.h>
+ #include <mapping_core/sc.h>
+ #include <mapping_core/system_io.h>
++#include <cstdlib>
+ #include <filesystem>
+ #include <fstream>
++#include <shlobj.h>
+ 
+ std::optional<std::string> GetChkdPath()
+ {
+-    char* cChkdDir = std::getenv("CHKD_DIR");
+-    std::string chkdDir(cChkdDir != nullptr ? cChkdDir : "");
+-    if ( !chkdDir.empty() )
+-        return chkdDir;
+-    else if ( auto moduleDirectory = getModuleDirectory() )
++    const wchar_t* chkdDir = _wgetenv(L"CHKD_DIR"); // Not std::getenv, which gives the ANSI code page rather than UTF-8
++    if ( chkdDir != nullptr && chkdDir[0] != L'\0' )
++        return icux::toUtf8(std::wstring(chkdDir));
++
++    // Keep per-user data in %LOCALAPPDATA%\Chkdraft rather than beside the executable
++    PWSTR localAppData = nullptr;
++    HRESULT result = SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_CREATE, NULL, &localAppData);
++    std::wstring localAppDataPath(SUCCEEDED(result) && localAppData != nullptr ? localAppData : L"");
++    CoTaskMemFree(localAppData);
++    if ( !localAppDataPath.empty() )
+     {
+-        if ( makeDirectory(*moduleDirectory + "\\chkd") )
+-            return *moduleDirectory + "\\chkd";
++        std::string chkdPath = icux::toUtf8(localAppDataPath) + "\\Chkdraft";
++        if ( makeDirectory(chkdPath) )
++            return chkdPath;
+     }
+     return std::nullopt;
+ }

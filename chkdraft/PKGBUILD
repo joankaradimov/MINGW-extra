@@ -1,0 +1,130 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=chkdraft
+_upstreamname=Chkdraft
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=2.12
+pkgrel=1
+pkgdesc="A StarCraft map editor based on Scmdraft (mingw-w64)"
+arch=('any')
+# mingw32 is missing on purpose: MSYS2 ships neither icu nor glm for i686.
+mingw_arch=('ucrt64' 'clang64')
+url='https://github.com/TheNitesWhoSay/Chkdraft'
+license=('spdx:MIT')
+msys2_repository_url='https://github.com/TheNitesWhoSay/Chkdraft'
+# Header-only. Upstream's CMake fetches this exact tag with FetchContent; it is
+# supplied from source=() instead so the build never reaches the network.
+_rarecppver=2.6.2
+# Chkdraft defines UNICODE and hands wchar_t paths to StormLib and CascLib, so
+# it needs both in their UNICODE flavour: stormlib is built that way from 9.40-3
+# on, casclib always has been here. Both reject a mismatch at compile time.
+depends=("${MINGW_PACKAGE_PREFIX}-bzip2"
+         "${MINGW_PACKAGE_PREFIX}-casclib"
+         "${MINGW_PACKAGE_PREFIX}-cc-libs"
+         "${MINGW_PACKAGE_PREFIX}-freetype"
+         "${MINGW_PACKAGE_PREFIX}-harfbuzz"
+         "${MINGW_PACKAGE_PREFIX}-icu"
+         "${MINGW_PACKAGE_PREFIX}-stormlib>=9.40-3")
+# gtest is needed to configure, not only to check: the top-level CMakeLists.txt
+# adds test/ unconditionally and its find_package(GTest) is REQUIRED.
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-cmake"
+             "${MINGW_PACKAGE_PREFIX}-glm"
+             "${MINGW_PACKAGE_PREFIX}-gtest"
+             "${MINGW_PACKAGE_PREFIX}-ninja"
+             "iconv")
+source=("${_realname}-${pkgver}.tar.gz::https://github.com/TheNitesWhoSay/${_upstreamname}/archive/refs/tags/${pkgver}.tar.gz"
+        "RareCpp-${_rarecppver}.tar.gz::https://github.com/TheNitesWhoSay/RareCpp/archive/refs/tags/${_rarecppver}.tar.gz"
+        "0001-guard-msvc-only-compile-options.patch"
+        "0002-use-the-findfreetype-imported-target.patch"
+        "0003-find-harfbuzz-through-its-meson-generated-config.patch"
+        "0004-include-the-standard-headers-that-are-used.patch"
+        "0005-define-em-setcaretindex-when-the-sdk-lacks-it.patch"
+        "0006-open-profile-streams-through-wide-c-strings.patch"
+        "0007-install-the-executable.patch"
+        "0008-link-the-static-libraries-in-dependency-order.patch"
+        "0009-keep-user-data-in-local-appdata.patch"
+        "0010-decode-profile-paths-as-utf-8.patch")
+sha256sums=('f65e3604152adfeaf53e89464446101c6b223d842fa92fbb60b2692f415a2c23'
+            '3e0250cf2c8a87470bd6817f5fa8fb18e995f7c3d18264543fe62e36e1094a73'
+            '584784b76287095bedf1f244707c95b8541ee79f001b824664e91159e51606af'
+            '74234d01c90d54d22be6c607e2f6aab3973b6204a0757a4feb569eebc70ac187'
+            '91a7aa258f647bcbf0a1f1e6f52c7e4e0566c6450626a919e4f30aaede9a544b'
+            'b9739ecb720fe638423dd682b000365fea6ddc92c3c32d4e67b8fde279351b3a'
+            'ae37ca81698efd955a527cdd547b56613b2dcc03cc3483be6f74daa7db702c66'
+            'd11095c6c38cb2f744c7e6bf5ad9313595bac4b397cfd2e347ab01c6abf5b154'
+            'e66afd383a12d9258f2a9c1873691ebd6bbc641cd7d31043514cb419ab17c0fc'
+            'f6c5f05ec6915973b76708e57bc352cf477c535652d748abad93d5cf8bc17138'
+            'c3df53399719317db6a6c0c7dd9a841b53f1ae9df3401160e5e76384d4ce2403'
+            'b215383c9c1e259e58261fbca1915def8ed7a20fa5749cda84c6b6fc81db478d')
+
+apply_patch_with_msg() {
+  for _patch in "$@"; do
+    msg2 "Applying ${_patch}"
+    patch -Np1 -i "${srcdir}/${_patch}"
+  done
+}
+
+prepare() {
+  cd "${srcdir}/${_upstreamname}-${pkgver}"
+
+  # Visual Studio saved the resource script as UTF-16 with a byte order mark,
+  # which GNU windres cannot read. iconv consumes the BOM.
+  iconv -f UTF-16 -t UTF-8 res/resource.rc > res/resource.rc.utf8
+  mv res/resource.rc.utf8 res/resource.rc
+
+  apply_patch_with_msg \
+    0001-guard-msvc-only-compile-options.patch \
+    0002-use-the-findfreetype-imported-target.patch \
+    0003-find-harfbuzz-through-its-meson-generated-config.patch \
+    0004-include-the-standard-headers-that-are-used.patch \
+    0005-define-em-setcaretindex-when-the-sdk-lacks-it.patch \
+    0006-open-profile-streams-through-wide-c-strings.patch \
+    0007-install-the-executable.patch \
+    0008-link-the-static-libraries-in-dependency-order.patch \
+    0009-keep-user-data-in-local-appdata.patch \
+    0010-decode-profile-paths-as-utf-8.patch
+}
+
+build() {
+  declare -a extra_config
+  if check_option "debug" "n"; then
+    extra_config+=("-DCMAKE_BUILD_TYPE=Release")
+  else
+    extra_config+=("-DCMAKE_BUILD_TYPE=Debug")
+  fi
+
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
+    "${MINGW_PREFIX}"/bin/cmake.exe \
+      -G Ninja \
+      -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
+      "${extra_config[@]}" \
+      -DFETCHCONTENT_FULLY_DISCONNECTED=ON \
+      -DFETCHCONTENT_SOURCE_DIR_RARECPP="$(cygpath -m "${srcdir}/RareCpp-${_rarecppver}")" \
+      -B "build-${MSYSTEM}" \
+      -S "${_upstreamname}-${pkgver}"
+
+  "${MINGW_PREFIX}"/bin/cmake.exe --build "build-${MSYSTEM}"
+}
+
+check() {
+  # MiniMapTest renders minimaps from StarCraft's own game data, which the
+  # suite loads from the directory named by SC_ASSET; the game files are not
+  # redistributable. Without them the test carries on with empty data and dies
+  # with an access violation (the same under GCC and Clang), so it only runs
+  # when SC_ASSET is set.
+  local _exclude=()
+  if [[ -z "${SC_ASSET:-}" ]]; then
+    _exclude=(--exclude-regex '^MiniMapTest\.')
+  fi
+  "${MINGW_PREFIX}"/bin/ctest.exe --test-dir "build-${MSYSTEM}" --output-on-failure "${_exclude[@]}"
+}
+
+package() {
+  DESTDIR="${pkgdir}" "${MINGW_PREFIX}"/bin/cmake.exe --install "build-${MSYSTEM}"
+
+  local _licenses="${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}"
+  install -Dm644 "${_upstreamname}-${pkgver}/LICENSE.txt" "${_licenses}/LICENSE"
+  install -Dm644 "RareCpp-${_rarecppver}/LICENSE" "${_licenses}/LICENSE.RareCpp"
+}

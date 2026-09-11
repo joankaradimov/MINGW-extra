@@ -1,0 +1,118 @@
+Guard MSVC-only compile options
+
+/permissive- is an MSVC switch, and so is ${ASAN} when a preset sets it
+(/fsanitize=address). Passed unconditionally through add_compile_options(),
+GCC and Clang take "/permissive-" for an input file and every compile fails.
+
+src/mapping_core, src/map_gfx_utils and test/mapping_core already wrap the
+line in a check of CMAKE_CXX_COMPILER_ID; give the seven other CMakeLists.txt
+that set it the same guard. MSVC builds are unaffected.
+
+Upstream: not submitted yet
+Applies-to: all environments
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 5bb49dc..b27a281 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -10,7 +10,9 @@ project(${This})
+ set(CMAKE_BUILD_PARALLEL_LEVEL)
+ set(CMAKE_C_STANDARD 99)
+ set(CMAKE_CXX_STANDARD 20)
+-add_compile_options(/permissive- ${ASAN})
++if ( "${CMAKE_CXX_COMPILER_ID}" MATCHES "MSVC" )
++  add_compile_options(/permissive- ${ASAN})
++endif ()
+ add_compile_definitions(_UNICODE UNICODE NOMINMAX CHKDRAFT)
+ 
+ include(FetchContent)
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index c8dd4cf..2c9660a 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -16,7 +16,9 @@ include_directories(
+ set(CMAKE_BUILD_PARALLEL_LEVEL)
+ set(CMAKE_C_STANDARD 99)
+ set(CMAKE_CXX_STANDARD 20)
+-add_compile_options(/permissive- ${ASAN})
++if ( "${CMAKE_CXX_COMPILER_ID}" MATCHES "MSVC" )
++  add_compile_options(/permissive- ${ASAN})
++endif ()
+ add_compile_definitions(_UNICODE UNICODE NOMINMAX CHKDRAFT)
+ 
+ include(FetchContent)
+diff --git a/src/chkdraft/CMakeLists.txt b/src/chkdraft/CMakeLists.txt
+index 7ba6ff8..c21637c 100644
+--- a/src/chkdraft/CMakeLists.txt
++++ b/src/chkdraft/CMakeLists.txt
+@@ -30,7 +30,9 @@ if ( PROJECT_IS_TOP_LEVEL )
+   set(CMAKE_BUILD_PARALLEL_LEVEL)
+   set(CMAKE_C_STANDARD 99)
+   set(CMAKE_CXX_STANDARD 20)
+-  add_compile_options(/permissive- ${ASAN})
++  if ( "${CMAKE_CXX_COMPILER_ID}" MATCHES "MSVC" )
++    add_compile_options(/permissive- ${ASAN})
++  endif ()
+   add_compile_definitions(_UNICODE UNICODE NOMINMAX)
+ endif()
+ 
+diff --git a/src/windows/CMakeLists.txt b/src/windows/CMakeLists.txt
+index cf9fdb7..f7ffe39 100644
+--- a/src/windows/CMakeLists.txt
++++ b/src/windows/CMakeLists.txt
+@@ -16,7 +16,9 @@ if ( PROJECT_IS_TOP_LEVEL )
+   set(CMAKE_BUILD_PARALLEL_LEVEL)
+   set(CMAKE_C_STANDARD 99)
+   set(CMAKE_CXX_STANDARD 20)
+-  add_compile_options(/permissive- ${ASAN})
++  if ( "${CMAKE_CXX_COMPILER_ID}" MATCHES "MSVC" )
++    add_compile_options(/permissive- ${ASAN})
++  endif ()
+   add_compile_definitions(_UNICODE UNICODE NOMINMAX)
+   add_subdirectory(${ChkdraftRootPath}/src/cross_cut ${CMAKE_CURRENT_BINARY_DIR}/cross_cut_lib)
+ endif()
+diff --git a/test/CMakeLists.txt b/test/CMakeLists.txt
+index 55b4818..dcaac01 100644
+--- a/test/CMakeLists.txt
++++ b/test/CMakeLists.txt
+@@ -10,7 +10,9 @@ project(${This})
+ set(CMAKE_BUILD_PARALLEL_LEVEL)
+ set(CMAKE_C_STANDARD 99)
+ set(CMAKE_CXX_STANDARD 20)
+-add_compile_options(/permissive- ${ASAN})
++if ( "${CMAKE_CXX_COMPILER_ID}" MATCHES "MSVC" )
++  add_compile_options(/permissive- ${ASAN})
++endif ()
+ add_compile_definitions(_UNICODE UNICODE NOMINMAX)
+ 
+ set(TestPath ${CMAKE_CURRENT_SOURCE_DIR})
+diff --git a/test/chkdraft/CMakeLists.txt b/test/chkdraft/CMakeLists.txt
+index a83a077..1e11363 100644
+--- a/test/chkdraft/CMakeLists.txt
++++ b/test/chkdraft/CMakeLists.txt
+@@ -15,7 +15,9 @@ include_directories(${ChkdraftRootPath}/src)
+ set(CMAKE_BUILD_PARALLEL_LEVEL)
+ set(CMAKE_C_STANDARD 99)
+ set(CMAKE_CXX_STANDARD 20)
+-add_compile_options(/permissive- ${ASAN})
++if ( "${CMAKE_CXX_COMPILER_ID}" MATCHES "MSVC" )
++  add_compile_options(/permissive- ${ASAN})
++endif ()
+ add_compile_definitions(_UNICODE UNICODE NOMINMAX)
+ 
+ if ( PROJECT_IS_TOP_LEVEL )
+diff --git a/test/windows/CMakeLists.txt b/test/windows/CMakeLists.txt
+index 5862ea0..8071f52 100644
+--- a/test/windows/CMakeLists.txt
++++ b/test/windows/CMakeLists.txt
+@@ -16,7 +16,9 @@ if ( PROJECT_IS_TOP_LEVEL )
+   set(CMAKE_BUILD_PARALLEL_LEVEL)
+   set(CMAKE_C_STANDARD 99)
+   set(CMAKE_CXX_STANDARD 20)
+-  add_compile_options(/permissive- ${ASAN})
++  if ( "${CMAKE_CXX_COMPILER_ID}" MATCHES "MSVC" )
++    add_compile_options(/permissive- ${ASAN})
++  endif ()
+   add_compile_definitions(_UNICODE UNICODE NOMINMAX)
+   add_subdirectory(${ChkdraftRootPath}/src/cross_cut ${CMAKE_CURRENT_BINARY_DIR}/cross_cut_lib)
+   add_subdirectory(${ChkdraftRootPath}/src/windows ${CMAKE_CURRENT_BINARY_DIR}/windows)

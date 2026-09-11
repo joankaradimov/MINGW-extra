@@ -1,0 +1,34 @@
+Link the static libraries in dependency order
+
+The executable names its static libraries as CrossCut, MappingCore,
+WindowsLib, ChkdraftLib -- each dependency ahead of the libraries that use it.
+MSVC's linker searches every library for every unresolved symbol, whatever the
+order, so that works there. GNU ld scans each archive once, left to right, and
+only takes members that resolve symbols already outstanding: by the time
+ChkdraftLib brings in its references, WindowsLib and MappingCore have been
+passed over, and the link fails with
+
+    undefined reference to `WinLib::WindowsItem::getHandle() const'
+
+and a few hundred more like it. Name ChkdraftLib first, then WindowsLib and
+MappingCore, then CrossCut, which both of those use. MappingCore also calls a
+handful of functions the application defines (getPreSavePath(), the open/save
+filter lists); the ChkdraftLib members providing them are already in the link
+by then, so no link group is needed.
+
+Upstream: not submitted yet
+Applies-to: all environments
+
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index e0f09ff..2d2fe82 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -57,7 +57,7 @@ add_subdirectory(chkdraft)
+ 
+ add_executable(${This} WIN32 ${Sources} ${Headers})
+ target_sources(${This} PRIVATE ../res/resource.rc)
+-target_link_libraries(Chkdraft CrossCut MappingCore WindowsLib ChkdraftLib Freetype::Freetype harfbuzz::harfbuzz glm::glm opengl32.lib Comctl32.lib Winmm.lib Msimg32.lib)
++target_link_libraries(Chkdraft ChkdraftLib WindowsLib MappingCore CrossCut Freetype::Freetype harfbuzz::harfbuzz glm::glm opengl32.lib Comctl32.lib Winmm.lib Msimg32.lib)
+ 
+ include(GNUInstallDirs)
+ install(TARGETS ${This} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

@@ -1,0 +1,161 @@
+Decode profile paths as UTF-8 when handing them to std::filesystem
+
+Chkdraft keeps file system paths in std::string as UTF-8, and most of its
+file handling says so: std::filesystem::path(asUtf8(...)) to build a path,
+u8string() to read one back (map_file.cpp, system_io.cpp). The profile code
+passes the plain std::string instead. libstdc++ decodes a narrow path as
+UTF-8, but libc++ decodes it in the ANSI code page, so on clang64 a non-ASCII
+character anywhere in the settings folder's path points Chkdraft at a folder
+that does not exist, and it terminates while loading profiles at start-up:
+
+    libc++abi: terminating due to uncaught exception of type
+    std::__1::__fs::filesystem::filesystem_error: filesystem error: in
+    directory_iterator::directory_iterator(...): The system cannot find the
+    path specified.
+
+While the folder sat beside the executable, that took an MSYS2 installation
+under a non-ASCII path. Under %LOCALAPPDATA% (0009) a user name with a
+non-ASCII letter in it is enough. Build these paths with asUtf8 and read them
+back with u8string(): listing, comparing, creating, renaming and removing
+profiles, changing into a profile's folder, and making a custom data file path
+relative to its profile.
+
+Upstream: not submitted yet
+Applies-to: all environments (the failure shows on clang64)
+
+diff --git a/src/chkdraft/chkdraft.cpp b/src/chkdraft/chkdraft.cpp
+index 796dac3..b3c5af4 100644
+--- a/src/chkdraft/chkdraft.cpp
++++ b/src/chkdraft/chkdraft.cpp
+@@ -149,7 +149,7 @@ int Chkdraft::Run(LPSTR lpCmdLine, int nCmdShow)
+     if ( profiles().autoLoadOnStart )
+     {
+         const TreeGroup* customUnitTreeGroups = profiles().units.parsedCustomTree.subGroups.empty() ? nullptr : &profiles().units.parsedCustomTree;
+-        std::filesystem::current_path(getSystemFileDirectory(profiles().profilePath));
++        std::filesystem::current_path(std::filesystem::path(asUtf8(getSystemFileDirectory(profiles().profilePath))));
+ #ifndef _DEBUG
+         try {
+ #endif
+@@ -559,7 +559,7 @@ void Chkdraft::ProfilesReload()
+         currProfilePath = currProfile->profilePath;
+         currProfileName = currProfile->profileName;
+     }
+-    std::filesystem::current_path(getSystemFileDirectory(currProfilePath));
++    std::filesystem::current_path(std::filesystem::path(asUtf8(getSystemFileDirectory(currProfilePath))));
+ 
+     profiles.loadProfiles();
+     bool currentSet = false;
+diff --git a/src/chkdraft/mapping/chkd_profiles.cpp b/src/chkdraft/mapping/chkd_profiles.cpp
+index 41b9df4..e365ef9 100644
+--- a/src/chkdraft/mapping/chkd_profiles.cpp
++++ b/src/chkdraft/mapping/chkd_profiles.cpp
+@@ -147,7 +147,7 @@ ChkdProfile* ChkdProfiles::loadProfile(const std::string & filePath)
+         for ( auto & existingProfile : profiles )
+         {
+             if ( chkdProfile.get() != existingProfile.get() &&
+-                 (std::filesystem::path(chkdProfile->profilePath) == std::filesystem::path(existingProfile->profilePath) ||
++                 (std::filesystem::path(asUtf8(chkdProfile->profilePath)) == std::filesystem::path(asUtf8(existingProfile->profilePath)) ||
+                  chkdProfile->profileName == existingProfile->profileName) )
+             {
+                 chkdProfile = nullptr;
+@@ -178,9 +178,9 @@ void ChkdProfiles::loadProfiles()
+     if ( auto settingsPath = GetSettingsPath() )
+     {
+         std::unordered_set<std::string> visitedPaths {};
+-        for ( const auto & item : std::filesystem::directory_iterator{std::filesystem::path(*settingsPath)} )
++        for ( const auto & item : std::filesystem::directory_iterator{std::filesystem::path(asUtf8(*settingsPath))} )
+         {
+-            auto pathString = item.path().string();
++            auto pathString = std::string((const char*)item.path().u8string().c_str());
+             if ( !item.is_directory() && pathString.ends_with(".profile.json") && !visitedPaths.contains(fixSystemPathSeparators(pathString)) )
+             {
+                 visitedPaths.insert(fixSystemPathSeparators(pathString));
+@@ -199,9 +199,9 @@ void ChkdProfiles::loadProfiles()
+                     if ( !visitedPaths.contains(fixSystemPathSeparators(additionalProfileDirectory)) )
+                     {
+                         visitedPaths.insert(fixSystemPathSeparators(additionalProfileDirectory));
+-                        for ( const auto & item : std::filesystem::directory_iterator{std::filesystem::path(additionalProfileDirectory)} )
++                        for ( const auto & item : std::filesystem::directory_iterator{std::filesystem::path(asUtf8(additionalProfileDirectory))} )
+                         {
+-                            auto pathString = item.path().string();
++                            auto pathString = std::string((const char*)item.path().u8string().c_str());
+                             if ( !item.is_directory() && pathString.ends_with(".profile.json") && !visitedPaths.contains(fixSystemPathSeparators(pathString)) )
+                             {
+                                 visitedPaths.insert(fixSystemPathSeparators(pathString));
+@@ -221,14 +221,14 @@ void ChkdProfiles::loadProfiles()
+             defaultProfile->isDefaultProfile = true;
+             defaultProfile->autoLoadOnStart = true;
+             this->current = this->profiles[0].get();
+-            std::filesystem::current_path(getSystemFileDirectory(this->current->profilePath));
++            std::filesystem::current_path(std::filesystem::path(asUtf8(getSystemFileDirectory(this->current->profilePath))));
+             this->saveCurrProfile();
+         }
+         else if ( this->current == nullptr ) // No default profile located, make the first profile found the default
+         {
+             this->current = this->profiles[0].get();
+             this->current->isDefaultProfile = true;
+-            std::filesystem::current_path(getSystemFileDirectory(this->current->profilePath));
++            std::filesystem::current_path(std::filesystem::path(asUtf8(getSystemFileDirectory(this->current->profilePath))));
+             this->saveCurrProfile();
+         }
+     }
+diff --git a/src/chkdraft/ui/dialog_windows/profiles/custom_dat_files.cpp b/src/chkdraft/ui/dialog_windows/profiles/custom_dat_files.cpp
+index 13b645e..7e601fe 100644
+--- a/src/chkdraft/ui/dialog_windows/profiles/custom_dat_files.cpp
++++ b/src/chkdraft/ui/dialog_windows/profiles/custom_dat_files.cpp
+@@ -208,16 +208,16 @@ void CustomDatFilesWindow::ToggleRelativePathClicked()
+         {
+             auto & editProfile = getEditProfile();
+             auto & dataFiles = editProfile.useRemastered ? editProfile.remastered.dataFiles : editProfile.classic.dataFiles;
+-            auto profileDirectory = std::filesystem::path(getSystemFileDirectory(editProfile.profilePath, true));
+-            auto dataFilePath = std::filesystem::path(selectedItem);
++            auto profileDirectory = std::filesystem::path(asUtf8(getSystemFileDirectory(editProfile.profilePath, true)));
++            auto dataFilePath = std::filesystem::path(asUtf8(selectedItem));
+             std::filesystem::current_path(profileDirectory);
+             auto result = dataFilePath.is_relative() ? std::filesystem::canonical(dataFilePath) :
+-                std::filesystem::proximate(dataFilePath, profileDirectory).string();
++                std::filesystem::proximate(dataFilePath, profileDirectory);
+ 
+             int sel = listUsedDataFiles.GetNextSelection();
+             if ( sel != -1 && sel < dataFiles.size() )
+             {
+-                dataFiles[sel] = result.string();
++                dataFiles[sel] = std::string((const char*)result.u8string().c_str());
+                 editProfile.saveProfile();
+                 RefreshWindow();
+                 listUsedDataFiles.SelectRow(sel);
+diff --git a/src/chkdraft/ui/dialog_windows/profiles/edit_profiles.cpp b/src/chkdraft/ui/dialog_windows/profiles/edit_profiles.cpp
+index ee3d4a3..57e1c9f 100644
+--- a/src/chkdraft/ui/dialog_windows/profiles/edit_profiles.cpp
++++ b/src/chkdraft/ui/dialog_windows/profiles/edit_profiles.cpp
+@@ -124,7 +124,7 @@ void EditProfilesWindow::cloneProfileClicked()
+ 
+             std::string directory = getSystemFileDirectory(newProfile->profilePath);
+             newProfile->profilePath = makeExtSystemFilePath(makeSystemFilePath(directory, newProfile->profileName), ".profile.json");
+-            for ( int i=1; std::filesystem::exists(newProfile->profilePath); ++i )
++            for ( int i=1; std::filesystem::exists(std::filesystem::path(asUtf8(newProfile->profilePath))); ++i )
+                 newProfile->profilePath = makeExtSystemFilePath(makeSystemFilePath(directory, newProfile->profileName + std::to_string(i)), ".profile.json");
+ 
+             newProfile->saveProfile();
+@@ -151,10 +151,10 @@ void EditProfilesWindow::renameProfileClicked()
+                 std::string prevPath = editProfile.profilePath;
+                 std::string directory = getSystemFileDirectory(prevPath);
+                 editProfile.profilePath = makeExtSystemFilePath(makeSystemFilePath(directory, editProfile.profileName), ".profile.json");
+-                for ( int i=1; std::filesystem::exists(editProfile.profilePath); ++i )
++                for ( int i=1; std::filesystem::exists(std::filesystem::path(asUtf8(editProfile.profilePath))); ++i )
+                     editProfile.profilePath = makeExtSystemFilePath(makeSystemFilePath(directory, editProfile.profileName + std::to_string(i)), ".profile.json");
+ 
+-                std::filesystem::rename(prevPath, editProfile.profilePath);
++                std::filesystem::rename(std::filesystem::path(asUtf8(prevPath)), std::filesystem::path(asUtf8(editProfile.profilePath)));
+                 editProfile.saveProfile();
+                 RefreshWindow();
+                 chkd.ProfileNameUpdated(editProfile);
+@@ -221,7 +221,7 @@ void EditProfilesWindow::deleteProfileClicked()
+ 
+     std::string profilePath = editProfile.profilePath;
+     chkd.profiles.profiles.erase(std::next(chkd.profiles.profiles.begin(), static_cast<std::ptrdiff_t>(editProfileIndex)));
+-    std::filesystem::remove(profilePath);
++    std::filesystem::remove(std::filesystem::path(asUtf8(profilePath)));
+     chkd.UpdateProfilesMenu();
+     if ( wasCurrentProfile )
+         chkd.OnProfileLoad();

@@ -1,0 +1,21 @@
+Install the Chkdraft executable
+
+There are no install() rules anywhere in the tree, so `cmake --install` has
+nothing to do. Add one for the Chkdraft executable. The static libraries
+(CrossCut, MappingCore, WindowsLib, ChkdraftLib) and the test programs are
+build-internal and stay uninstalled.
+
+Upstream: not submitted yet
+Applies-to: all environments
+
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 64a5b52..e0f09ff 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -58,3 +58,6 @@ add_subdirectory(chkdraft)
+ add_executable(${This} WIN32 ${Sources} ${Headers})
+ target_sources(${This} PRIVATE ../res/resource.rc)
+ target_link_libraries(Chkdraft CrossCut MappingCore WindowsLib ChkdraftLib Freetype::Freetype harfbuzz::harfbuzz glm::glm opengl32.lib Comctl32.lib Winmm.lib Msimg32.lib)
++
++include(GNUInstallDirs)
++install(TARGETS ${This} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

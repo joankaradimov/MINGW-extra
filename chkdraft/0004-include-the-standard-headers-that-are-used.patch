@@ -1,0 +1,48 @@
+Include the standard headers that are used
+
+edit_control.h calls std::strlen, std::memmove and std::memset,
+list_box_control.cpp uses std::unique_ptr and std::make_unique, and
+windows_item.cpp calls std::find, without including <cstring>, <memory> or
+<algorithm>. MSVC's standard library reaches them through other headers;
+libstdc++ does not, so GCC stops with "'memset' is not a member of 'std'" and
+its siblings -- in every translation unit that includes edit_control.h.
+
+Upstream: not submitted yet
+Applies-to: all environments
+
+diff --git a/src/windows/edit_control.h b/src/windows/edit_control.h
+index e7feb32..3db05d5 100644
+--- a/src/windows/edit_control.h
++++ b/src/windows/edit_control.h
+@@ -1,6 +1,7 @@
+ #ifndef EDITCONTROL_H
+ #define EDITCONTROL_H
+ #include "window_control.h"
++#include <cstring>
+ 
+ namespace WinLib {
+ 
+diff --git a/src/windows/list_box_control.cpp b/src/windows/list_box_control.cpp
+index 8cc0725..8d9d15b 100644
+--- a/src/windows/list_box_control.cpp
++++ b/src/windows/list_box_control.cpp
+@@ -2,6 +2,7 @@
+ #include "cross_cut/simple_icu.h"
+ #include <CommCtrl.h>
+ #include <iostream>
++#include <memory>
+ 
+ namespace WinLib {
+ 
+diff --git a/src/windows/windows_item.cpp b/src/windows/windows_item.cpp
+index 3340fe9..30d7c7e 100644
+--- a/src/windows/windows_item.cpp
++++ b/src/windows/windows_item.cpp
+@@ -1,6 +1,7 @@
+ #include "windows_item.h"
+ #include "resource_manager.h"
+ #include "cross_cut/simple_icu.h"
++#include <algorithm>
+ #include <memory>
+ #include <CommCtrl.h>
+ #include <iostream>
