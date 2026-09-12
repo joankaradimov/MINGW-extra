@@ -1,0 +1,39 @@
+Use 28-bit libtommath digits on 64-bit Windows
+
+The bundled libtommath switches to 60-bit digits whenever __x86_64__ is
+defined, and declares mp_digit as unsigned long for them. That takes a 64-bit
+long. On 64-bit Windows long has 32 bits, so under MinGW GCC and Clang every
+digit loses its upper bits, as GCC points out dozens of times:
+
+    warning: left shift count >= width of type [-Wshift-count-overflow]
+    warning: conversion from '__int128 unsigned' to 'mp_digit' {aka 'long
+    unsigned int'} changes value from '384307168202282325' to '1431655765'
+
+The RSA code built on it breaks down with no error reported to the caller.
+SFileSignArchive leaves an all-zero weak signature in the archive, which
+SFileVerifyArchive then accepts as "zeroed out", and an archive that carries a
+real weak signature fails with ERROR_VERIFY_FAILED.
+
+MSVC never defines __x86_64__, so upstream's own 64-bit Windows builds use the
+default 28-bit digits, as every 32-bit build does. Do the same for any _WIN64
+build.
+
+Upstream: not submitted yet
+Applies-to: ucrt64, clang64 (no effect on mingw32)
+
+diff --git a/src/libtommath/tommath.h b/src/libtommath/tommath.h
+index 1ead3d0..680f1cb 100644
+--- a/src/libtommath/tommath.h
++++ b/src/libtommath/tommath.h
+@@ -45,8 +45,9 @@ extern "C" {
+ #endif
+ 
+ 
+-/* detect 64-bit mode if possible */
+-#if defined(__x86_64__) 
++/* detect 64-bit mode if possible -- but not on 64-bit Windows, where long,
++ * and with it mp_digit below, is only 32 bits wide */
++#if defined(__x86_64__) && !defined(_WIN64)
+    #if !(defined(MP_64BIT) && defined(MP_16BIT) && defined(MP_8BIT))
+       #define MP_64BIT
+    #endif
