@@ -1,0 +1,44 @@
+Decode archive entry names as UTF-8 when extracting
+
+"extract" builds each output path from an entry's archived name by
+constructing std::filesystem::path from the plain std::string. mpqcli stores
+those names as UTF-8 (WindowsifyFilePath uses u8string()). libstdc++ decodes
+a narrow path as UTF-8, but libc++ decodes it in the ANSI code page, so on
+clang64 an entry with a non-ASCII name was written under a garbled local name
+while ucrt64 got it right. Use fs::u8path for the three constructions, which
+reads UTF-8 with either library -- what ucrt64 already did.
+
+Command-line paths are a different matter: they reach main() in the ANSI code
+page, and 0002's StormArgPath converts those.
+
+Upstream: not submitted yet
+Applies-to: all environments (the failure shows on clang64)
+
+diff --git a/src/mpq.cpp b/src/mpq.cpp
+index 604f99e..245e277 100644
+--- a/src/mpq.cpp
++++ b/src/mpq.cpp
+@@ -140,12 +140,12 @@ int ExtractFile(HANDLE archive, const std::string &output, const std::string &fi
+     }
+ 
+     // Change forward slashes on non-Windows systems
+-    fs::path file_name_path(file_name);
++    fs::path file_name_path = fs::u8path(file_name);
+     std::string file_name_string = NormalizeFilePath(file_name_path);
+ 
+     // Remove folder structure if keepFolderStructure is false
+     if (!keep_folder_structure) {
+-        file_name_path = fs::path(file_name_string);
++        file_name_path = fs::u8path(file_name_string);
+         file_name_string = file_name_path.filename().u8string();
+     }
+ 
+@@ -156,7 +156,7 @@ int ExtractFile(HANDLE archive, const std::string &output, const std::string &fi
+     std::filesystem::create_directories(fs::path(output_path_base).parent_path());
+ 
+     // Ensure sub-directories for folder-nested files exist before calling canonical
+-    fs::path output_file_path_name = output_path_base / file_name_string;
++    fs::path output_file_path_name = output_path_base / fs::u8path(file_name_string);
+     std::filesystem::create_directories(output_file_path_name.parent_path());
+ 
+     // Guard against path traversal attacks: resolve symlinks and ".." with canonical

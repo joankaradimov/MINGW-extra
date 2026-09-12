@@ -4,7 +4,7 @@ _realname=mpqcli
 pkgbase=mingw-w64-${_realname}
 pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
 pkgver=0.10.2
-pkgrel=2
+pkgrel=3
 pkgdesc="A command line tool to create, read and modify MPQ archives (mingw-w64)"
 arch=('any')
 # mingw32 is missing on purpose: the library side builds and passes there, but
@@ -30,11 +30,13 @@ makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
 source=("${_realname}-${pkgver}.tar.gz::https://github.com/TheGrayDot/${_realname}/archive/v${pkgver}.tar.gz"
         "0001-build-against-system-stormlib-and-cli11.patch"
         "0002-pass-native-local-paths-to-a-unicode-stormlib.patch"
-        "0003-keep-archive-names-as-paths-until-they-are-encoded.patch")
+        "0003-keep-archive-names-as-paths-until-they-are-encoded.patch"
+        "0004-decode-archive-entry-names-as-utf-8-when-extracting.patch")
 sha256sums=('68a678697fe778cd0c6cda4adf9fa7cb93f114ee1d68c81bd0164ca5d7eb6c1a'
             'f841f0d0a509cb376924baf19a2cddbabbb3781d2894a88dba0e0d9a5d7f92c9'
             '59760fd3fe0ce683abab2d855d40c1353656d08f13ad3e271f43f6987d17fcfd'
-            '912fe792339490ec4456405bea0509f23bb79db4f64e663900768a2798dcd1cf')
+            '912fe792339490ec4456405bea0509f23bb79db4f64e663900768a2798dcd1cf'
+            '984306c6d90be1e1da2b7a64942a372bb2cbf2ee0b33605524772e8281e55a2e')
 
 prepare() {
   cd "${_realname}-${pkgver}"
@@ -42,6 +44,7 @@ prepare() {
   patch -Np1 -i "${srcdir}/0001-build-against-system-stormlib-and-cli11.patch"
   patch -Np1 -i "${srcdir}/0002-pass-native-local-paths-to-a-unicode-stormlib.patch"
   patch -Np1 -i "${srcdir}/0003-keep-archive-names-as-paths-until-they-are-encoded.patch"
+  patch -Np1 -i "${srcdir}/0004-decode-archive-entry-names-as-utf-8-when-extracting.patch"
 }
 
 build() {
