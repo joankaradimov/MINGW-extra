@@ -45,7 +45,8 @@ source=("${_realname}-${pkgver}.tar.gz::https://github.com/TheNitesWhoSay/${_ups
         "0007-install-the-executable.patch"
         "0008-link-the-static-libraries-in-dependency-order.patch"
         "0009-keep-user-data-in-local-appdata.patch"
-        "0010-decode-profile-paths-as-utf-8.patch")
+        "0010-decode-profile-paths-as-utf-8.patch"
+        "0011-compare-backup-times-in-the-right-order.patch")
 sha256sums=('f65e3604152adfeaf53e89464446101c6b223d842fa92fbb60b2692f415a2c23'
             '3e0250cf2c8a87470bd6817f5fa8fb18e995f7c3d18264543fe62e36e1094a73'
             '584784b76287095bedf1f244707c95b8541ee79f001b824664e91159e51606af'
@@ -57,7 +58,8 @@ sha256sums=('f65e3604152adfeaf53e89464446101c6b223d842fa92fbb60b2692f415a2c23'
             'e66afd383a12d9258f2a9c1873691ebd6bbc641cd7d31043514cb419ab17c0fc'
             'f6c5f05ec6915973b76708e57bc352cf477c535652d748abad93d5cf8bc17138'
             'c3df53399719317db6a6c0c7dd9a841b53f1ae9df3401160e5e76384d4ce2403'
-            'b215383c9c1e259e58261fbca1915def8ed7a20fa5749cda84c6b6fc81db478d')
+            'b215383c9c1e259e58261fbca1915def8ed7a20fa5749cda84c6b6fc81db478d'
+            '13f9a89b2acb9fb534ed177b92db695a8fa85b5155d68b39c11c53918dbc1b5c')
 
 apply_patch_with_msg() {
   for _patch in "$@"; do
@@ -84,7 +86,8 @@ prepare() {
     0007-install-the-executable.patch \
     0008-link-the-static-libraries-in-dependency-order.patch \
     0009-keep-user-data-in-local-appdata.patch \
-    0010-decode-profile-paths-as-utf-8.patch
+    0010-decode-profile-paths-as-utf-8.patch \
+    0011-compare-backup-times-in-the-right-order.patch
 }
 
 build() {

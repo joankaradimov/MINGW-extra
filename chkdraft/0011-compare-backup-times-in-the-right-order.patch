@@ -1,0 +1,28 @@
+Compare backup times in the right order
+
+GuiMap::TryBackup() copies a map into the backups folder at most once every
+minSecondsBetweenBackups (1800 seconds). The interval test reads
+
+    difftime(lastBackupTime, currTime) >= minSecondsBetweenBackups
+
+but difftime(a, b) returns a - b, and lastBackupTime is never later than
+currTime, so once a map has been backed up the test cannot pass again: no
+further backup of that map is made for as long as it stays open. Swap the
+arguments.
+
+Upstream: not submitted yet
+Applies-to: all environments
+
+diff --git a/src/chkdraft/ui/main_windows/gui_map.cpp b/src/chkdraft/ui/main_windows/gui_map.cpp
+index 840f105..6ea2bb5 100644
+--- a/src/chkdraft/ui/main_windows/gui_map.cpp
++++ b/src/chkdraft/ui/main_windows/gui_map.cpp
+@@ -4070,7 +4070,7 @@ bool GuiMap::TryBackup(bool & outCopyFailed)
+     {
+         time_t currTime = time(0);
+         // If there are no previous backups or enough time has elapsed since the last...
+-        if ( (lastBackupTime == -1 || difftime(lastBackupTime, currTime) >= minSecondsBetweenBackups) )
++        if ( (lastBackupTime == -1 || difftime(currTime, lastBackupTime) >= minSecondsBetweenBackups) )
+         {
+             std::string backupPath;
+             if ( GetBackupPath(currTime, backupPath) && makeFileCopy(MapFile::getFilePath(), backupPath) )
