@@ -1,0 +1,9 @@
+# Check files out exactly as committed, on every machine.
+#
+# GitHub's Windows runners, like Git for Windows by default, set
+# core.autocrlf=true, which turns every LF into CRLF on checkout. makepkg
+# refuses to source a PKGBUILD containing CRLF, and patches have to apply byte
+# for byte. "-text" switches that conversion off whatever the local git
+# configuration says. Unlike "text eol=lf" it never rewrites a file on commit
+# either, so a patch against sources with CRLF lines keeps them.
+* -text
