@@ -30,40 +30,52 @@ its hard-won details, and several are reproduced here on purpose:
 
 ## How it works
 
-**plan** (Windows + MSYS2) runs `makepkg-mingw --printsrcinfo` for every
-PKGBUILD in every environment it declares, fetches each environment's published
-pacman database, and queues anything whose exact `pkgver-pkgrel` is not there.
-It topologically sorts each queue and emits a GitHub Actions matrix with one
-entry per environment.
+**databases** (Linux) copies each environment's published pacman database off
+the server over SSH, and hands them on as an artifact.
 
-**build** (Windows + MSYS2, one job per environment) walks its queue in order.
-After each success it `repo-add`s the result into a local staging repository and
-refreshes pacman, so `sord` installs the `serd` this job built minutes earlier.
-A package that fails does not stop the queue — the remaining ones still build,
-and the job fails at the end with all of them listed. **This job holds no
-secrets**, deliberately: `build()` runs arbitrary upstream code.
+**plan** (Windows + MSYS2) runs `makepkg-mingw --printsrcinfo` for every
+PKGBUILD in every environment it declares, reads those databases, and queues
+anything whose exact `pkgver-pkgrel` is not there. It topologically sorts each
+queue and emits a GitHub Actions matrix with one entry per environment.
+
+**mirror** (Linux, one job per environment with something to build) copies the
+package files that environment's database references, so its build can install
+already-published dependencies.
+
+**build** (Windows + MSYS2, one job per environment) walks its queue in order,
+with that copy in its pacman.conf as a `file://` repository. After each success
+it `repo-add`s the result into a local staging repository and refreshes pacman,
+so `sord` installs the `serd` this job built minutes earlier. A package that
+fails does not stop the queue — the remaining ones still build, and the job
+fails at the end with all of them listed.
 
 **publish** (Linux) collects the artifacts, rebuilds each database from the one
 currently live, and rsyncs packages first and databases last, so a client
 syncing mid-upload never sees a database referencing a package that is not there
-yet. This is the only job with the deploy key, and it runs no PKGBUILDs.
+yet.
+
+Only databases, mirror and publish hold the deploy key, and none of them runs a
+PKGBUILD. plan and build run PKGBUILDs — `build()` is arbitrary upstream code —
+and **hold no secrets**, deliberately.
+
+Nothing in CI reads the repository over HTTP. The host's bot protection answers
+requests from cloud addresses, which is where GitHub's runners are, with a
+CAPTCHA page, and pacman would store that page as a database without complaint.
+SSH is not challenged.
 
 Ordering inside a job rather than one job per package is not a compromise: a
 matrix cannot express dependencies between its own entries, and packages here
 do depend on each other.
 
+**Pull requests** build what they change, but cannot have the key and so cannot
+see the published repository. Their planner queues every package from this
+repository that a changed one depends on, and the build compiles those from
+source first.
+
 ## One-time setup
 
-A **repository variable** (Settings → Secrets and variables → Actions → Variables):
-
-| name | example |
-| --- | --- |
-| `MINGW_EXTRA_URL` | `https://packages.example.com/mingw-extra` |
-
-It has to be a variable, not a secret: the workflows read it through `vars`,
-which never sees secrets. The build stops in its first minute when it is empty.
-
-Four **secrets**, and an optional fifth, all used only by the publish job:
+Four **secrets**, and an optional fifth, used only by the databases, mirror and
+publish jobs:
 
 | name | what it is |
 | --- | --- |
@@ -74,40 +86,42 @@ Four **secrets**, and an optional fifth, all used only by the publish job:
 | `DEPLOY_PATH` | directory the per-environment subdirectories live in; `.` under rrsync |
 
 `DEPLOY_KNOWN_HOSTS` has to be scanned with the same host name and port the
-job connects to. For any port but 22 ssh looks the key up as `[host]:port`, so
-an entry scanned without `-p` never matches and the publish fails with "Host
+jobs connect to. For any port but 22 ssh looks the key up as `[host]:port`, so
+an entry scanned without `-p` never matches and every SSH job fails with "Host
 key verification failed".
 
-The publish job targets a GitHub Actions **environment** named `publish`. Create
-it and add required reviewers if you want a human between a green build and a
-live repository; leaving it unprotected is fine too.
-
-The host has to serve files ending in `.db`: that is the name pacman asks for,
-and it cannot be changed. SiteGround refuses them with a 403 by default; its
-support lifted that for this repository's subdomain on request. The autobuilder
-also identifies itself as `mingw-extra-autobuild` rather than as Python, because
-SiteGround turns away Python's default user agent on those same requests.
-
-Every environment directory also receives `ci/pacman-repo.htaccess` as its
-`.htaccess`, marking the databases `Cache-Control: no-cache`. Without it a host
-with a caching proxy in front of Apache, SiteGround included, keeps handing out
-the previous database for hours after a publish.
+All three jobs target a GitHub Actions **environment** named `publish`, so the
+secrets can live on that environment or on the repository. Leave the
+environment without required reviewers: they would ask for approval three times
+per run, and hold every scheduled run at its very first job.
 
 On the server, `DEPLOY_PATH` needs to be writable by the deploy user and served
-over HTTPS at `MINGW_EXTRA_URL`. The layout builds itself:
+to users over HTTPS. The layout builds itself:
 
 ```
-<DEPLOY_PATH>/ucrt64/mingw-extra-ucrt64.db          -> served as <MINGW_EXTRA_URL>/ucrt64/...
+<DEPLOY_PATH>/ucrt64/mingw-extra-ucrt64.db          -> https://packages.example.com/mingw-extra/ucrt64/...
 <DEPLOY_PATH>/ucrt64/mingw-extra-ucrt64.files
 <DEPLOY_PATH>/ucrt64/mingw-w64-ucrt-x86_64-serd-0.30.10-1-any.pkg.tar.zst
 <DEPLOY_PATH>/clang64/...
 <DEPLOY_PATH>/mingw32/...
 ```
 
+The host has to serve files ending in `.db`: that is the name pacman asks for,
+and it cannot be changed. SiteGround refuses them with a 403 by default; its
+support lifted that for this repository's subdomain on request. SiteGround's
+bot protection still challenges visitors from cloud addresses, so a user
+installing from a cloud VM or a CI job may get a CAPTCHA page instead of a
+database.
+
+Every environment directory also receives `ci/pacman-repo.htaccess` as its
+`.htaccess`, marking the databases `Cache-Control: no-cache`. Without it a host
+with a caching proxy in front of Apache, SiteGround included, keeps handing out
+the previous database for hours after a publish.
+
 Restrict the deploy key to that directory — `command="rrsync /srv/mingw-extra"`
-in `authorized_keys`, or the equivalent forced-command wrapper. The publish job
-only ever runs rsync (it creates the per-environment directories with
-`--mkpath`), so the key never needs a shell.
+in `authorized_keys`, or the equivalent forced-command wrapper — where the host
+allows it. The jobs only ever run rsync (publish creates the per-environment
+directories with `--mkpath`), so the key never needs a shell.
 
 rrsync resolves every path the client sends *inside* its directory, stripping
 any leading slash, so under rrsync `DEPLOY_PATH` must be `.`. An absolute
@@ -164,9 +178,16 @@ $ PYTHONPATH=ci python -m autobuild plan --package serd
 $ PYTHONPATH=ci python -m autobuild build --environment ucrt64 serd sord
 ```
 
-`plan` reads `MINGW_EXTRA_URL` from the environment; leave it unset and it
-treats the published repository as empty, which means "everything needs
-building" — handy for a dry run.
+Without `--published`, nothing counts as published, so `plan` queues
+everything — handy for a dry run. To see exactly what CI sees, copy the server
+first, with `DEPLOY_HOST` and `DEPLOY_PATH` set and SSH access to the host:
+
+```console
+$ ci/fetch-published.sh databases published
+$ PYTHONPATH=ci python -m autobuild plan --published published
+$ ci/fetch-published.sh packages ucrt64 published
+$ PYTHONPATH=ci python -m autobuild build --published published --environment ucrt64 sord
+```
 
 `build` writes packages to `artifacts/<environment>/` and scratch to
 `--build-root` (`/tmp/mingw-extra` by default; CI uses `/c/_b` to keep paths
@@ -215,3 +236,7 @@ build scripts, which is exactly what the current split avoids.
 - **Pruning old versions.** Nothing deletes superseded packages from the
   server, so the repository grows without bound. `paccache -r` over
   `DEPLOY_PATH` on a timer is the usual answer.
+- **Mirroring only what a queue needs.** The mirror job copies every current
+  package of an environment, even when the queue needs two of them. Resolving
+  the queue's dependencies against the database would cut that down, once the
+  repository is large enough for the copy to take noticeable time.

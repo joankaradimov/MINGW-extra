@@ -16,7 +16,7 @@ import os
 import subprocess
 
 from . import repodb, srcinfo
-from .config import ENVIRONMENTS, db_url
+from .config import ENVIRONMENTS
 from .srcinfo import SrcInfo
 
 
@@ -31,15 +31,18 @@ def changed_directories(root: str, ref: str) -> list[str]:
     return sorted(touched & packages)
 
 
-def unpublished(infos: list[SrcInfo]) -> list[SrcInfo]:
+def unpublished(infos: list[SrcInfo], published: str | None) -> list[SrcInfo]:
     """Filter to the builds whose exact version is not on the server yet.
+
+    `published` is the copy of the server's databases the ``databases`` job
+    made; None treats nothing as published.
 
     A split PKGBUILD counts as published only when *every* binary package it
     produces is there.  Half an upload is not a build we can skip.
     """
     queue = []
     for environment in sorted({info.environment for info in infos}):
-        database = repodb.fetch(db_url(environment))
+        database = repodb.published(published, environment)
         for info in infos:
             if info.environment != environment:
                 continue
@@ -49,12 +52,42 @@ def unpublished(infos: list[SrcInfo]) -> list[SrcInfo]:
     return queue
 
 
+def with_dependencies(selected: list[SrcInfo], candidates: list[SrcInfo]) -> list[SrcInfo]:
+    """`selected`, plus every package in `candidates` they need, transitively.
+
+    Pull requests use this.  Their builds cannot install from the published
+    repository -- only a job holding the deploy key can read it, and nothing a
+    pull request can change may hold that key -- so whatever a changed package
+    needs from this repository is built from source in the same job, ahead of
+    it.  Dependencies resolve within one environment only, and anything no
+    candidate provides is left to MSYS2's own repositories.
+    """
+    providers: dict[tuple[str, str], SrcInfo] = {}
+    for info in candidates:
+        for name in info.pkgnames + info.provides:
+            providers.setdefault((info.environment, name), info)
+
+    chosen = {(info.directory, info.environment): info for info in selected}
+    pending = list(selected)
+    while pending:
+        info = pending.pop()
+        for dependency in info.depends:
+            provider = providers.get((info.environment, dependency))
+            if provider is None:
+                continue
+            key = (provider.directory, provider.environment)
+            if key not in chosen:
+                chosen[key] = provider
+                pending.append(provider)
+    return list(chosen.values())
+
+
 def order(infos: list[SrcInfo]) -> list[SrcInfo]:
     """Topologically sort one environment's queue, dependencies first.
 
     Only edges *within the queue* matter.  A dependency that is already
-    published is not a build-order constraint, because the build job adds the
-    published repository to pacman.conf and simply installs it.
+    published is not a build-order constraint, because the build job adds its
+    copy of the published repository to pacman.conf and simply installs it.
     """
     provider: dict[str, str] = {}
     for info in infos:
@@ -85,7 +118,8 @@ def order(infos: list[SrcInfo]) -> list[SrcInfo]:
 
 
 def plan(root: str, changed_since: str | None = None,
-         only: list[str] | None = None) -> list[dict[str, str]]:
+         only: list[str] | None = None,
+         published: str | None = None) -> list[dict[str, str]]:
     """Build a GitHub Actions matrix describing everything that needs building."""
     directories = only
     if directories:
@@ -93,6 +127,7 @@ def plan(root: str, changed_since: str | None = None,
         unknown = sorted(set(directories) - known)
         if unknown:
             raise ValueError(f"no such package directory: {', '.join(unknown)}")
+
     if changed_since is not None:
         directories = changed_directories(root, changed_since)
         if not directories:
@@ -100,12 +135,18 @@ def plan(root: str, changed_since: str | None = None,
             return []
         print(f"changed since {changed_since}: {', '.join(directories)}")
 
-    infos = srcinfo.load_all(root, directories)
-
-    # A pull request builds what it touched whether or not that version is
-    # already published -- the point is to see the PKGBUILD compile, and a fix
-    # that does not bump pkgrel would otherwise be silently skipped.
-    queue = infos if changed_since is not None else unpublished(infos)
+        everything = srcinfo.load_all(root)
+        changed = [info for info in everything if info.directory in directories]
+        # A pull request builds what it touched whether or not that version is
+        # already published -- the point is to see the PKGBUILD compile, and a
+        # fix that does not bump pkgrel would otherwise be silently skipped.
+        queue = with_dependencies(changed, everything)
+        added = sorted({info.directory for info in queue} - set(directories))
+        if added:
+            print(f"and what they need from this repository: {', '.join(added)}")
+    else:
+        infos = srcinfo.load_all(root, directories)
+        queue = unpublished(infos, published)
 
     matrix = []
     for name in ENVIRONMENTS:
@@ -133,7 +174,8 @@ def report(matrix: list[dict[str, str]]) -> str:
 
 def main(args) -> int:
     root = os.path.abspath(args.root)
-    matrix = plan(root, changed_since=args.changed_since, only=args.package or None)
+    matrix = plan(root, changed_since=args.changed_since,
+                  only=args.package or None, published=args.published)
 
     print(report(matrix))
     encoded = json.dumps(matrix, separators=(",", ":"))

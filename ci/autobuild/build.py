@@ -32,7 +32,7 @@ import subprocess
 import sys
 
 from . import repodb, srcinfo
-from .config import REMOTE_URL, db_name, db_url
+from .config import db_name
 
 MAKEPKG_FLAGS = [
     "--noconfirm",
@@ -75,19 +75,22 @@ def packager() -> str:
 
 
 def write_pacman_conf(path: str, environment: str, staging: str | None,
-                      published: bool) -> None:
+                      published: str | None, stock: str = "/etc/pacman.conf") -> None:
     """Write a pacman.conf with our repositories in front of the stock ones.
 
     Order is the whole point.  Packages built moments ago in this job come
     first, then whatever is already published, then MSYS2's own repositories.
     That is what lets sord find the serd this job built.
 
-    `published` is False when the server has no database for this environment
-    yet.  Listing a repository whose database 404s makes every subsequent
+    `published` is a local copy of this environment's published repository --
+    its database next to every package file it lists, made by
+    ``ci/fetch-published.sh`` -- and reaches pacman as ``file://``, like the
+    staging repository.  It is None when nothing is published for the
+    environment yet: listing a repository that has no database makes every
     ``pacman -Sy`` fail, which on a first run would take the whole queue down.
     """
-    with open("/etc/pacman.conf", encoding="utf-8") as handle:
-        stock = handle.read()
+    with open(stock, encoding="utf-8") as handle:
+        stock_conf = handle.read()
 
     sections = []
     if staging:
@@ -99,12 +102,12 @@ def write_pacman_conf(path: str, environment: str, staging: str | None,
     if published:
         sections.append(
             f"[{db_name(environment)}]\n"
-            f"Server = {REMOTE_URL}/{environment}\n"
+            f"Server = file://{published}\n"
             "SigLevel = Optional TrustAll\n"
         )
 
     with open(path, "w", encoding="utf-8") as handle:
-        handle.write("\n".join(sections) + "\n" + stock)
+        handle.write("\n".join(sections) + "\n" + stock_conf)
 
 
 def write_pacman_wrapper(path: str, config: str) -> None:
@@ -134,7 +137,7 @@ def receive_keys(info: srcinfo.SrcInfo) -> None:
 
 
 def stage(staging: str, environment: str, packages: list[str], config: str,
-          published: bool) -> None:
+          published: str | None) -> None:
     """Add freshly built packages to the local repository this job builds against.
 
     pacman resolves package files relative to the repository's Server URL, so
@@ -233,10 +236,15 @@ def main(args) -> int:
     config = os.path.join(build_root, f"pacman-{environment}.conf")
     pacman = os.path.join(build_root, f"pacman-{environment}.sh")
 
-    published = bool(REMOTE_URL) and len(repodb.fetch(db_url(environment))) > 0
-    if REMOTE_URL and not published:
-        print(f"note: nothing published for {environment} yet, "
-              f"building against MSYS2's repositories alone")
+    # Already-published dependencies are installed from a local copy that the
+    # mirror job made over SSH, never over HTTP -- repodb explains why.
+    published = None
+    if args.published:
+        if len(repodb.published(args.published, environment)):
+            published = os.path.abspath(os.path.join(args.published, environment))
+        else:
+            print(f"note: nothing published for {environment} yet, "
+                  f"building against MSYS2's repositories alone")
 
     built: list[str] = []
     failed: list[str] = []

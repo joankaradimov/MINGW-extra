@@ -1,4 +1,4 @@
-"""Read the published pacman database, to tell what still needs building.
+"""Read published pacman databases, to tell what still needs building.
 
 Making the published repository the source of truth is deliberate, and it is
 the one idea worth taking wholesale from msys2-autobuild.  Deciding what to
@@ -8,37 +8,33 @@ Comparing PKGBUILD versions against what is actually on the server makes every
 run idempotent and self-healing: re-running fixes things, and running twice
 costs nothing.
 
+The databases reach this module as files, never over HTTP.  The host's bot
+protection answers requests from cloud addresses -- which is where CI runners
+are -- with a CAPTCHA page instead of the file.  So a job holding the deploy
+key copies them over SSH (``ci/fetch-published.sh``) and hands the copy to the
+jobs that plan and build, which run PKGBUILDs and never see the key.
+
 A ``.db`` is a gzipped tar of ``<pkgname>-<version>/desc`` files, each a
 sequence of ``%KEY%`` headers followed by their values.  Nothing else is
-needed to answer "is this exact version published".
+needed to answer "is this exact version published" and "in which file".
 """
 
 from __future__ import annotations
 
 import io
+import os
 import tarfile
-import time
-import urllib.error
-import urllib.request
 
-FETCH_TIMEOUT = 30
-FETCH_ATTEMPTS = 3
-
-USER_AGENT = "mingw-extra-autobuild (+https://github.com/joankaradimov/MINGW-extra)"
-"""Sent instead of Python's default ``Python-urllib/3.x``.
-
-SiteGround, which hosts the repository, answers script user agents with a 403
-on every request its proxy passes on to the backend -- and requests for ``.db``
-files are such requests. curl and pacman are let through, so publish.sh and the
-build jobs never notice; only this module would.
-"""
+from .config import PUBLISHED_MARKER, db_path
 
 
 class Database:
-    """Package name -> version, as currently published for one environment."""
+    """Package name -> version and file, as currently published for one environment."""
 
-    def __init__(self, versions: dict[str, str] | None = None) -> None:
+    def __init__(self, versions: dict[str, str] | None = None,
+                 filenames: dict[str, str] | None = None) -> None:
         self._versions = versions or {}
+        self._filenames = filenames or {}
 
     def __len__(self) -> int:
         return len(self._versions)
@@ -52,6 +48,10 @@ class Database:
         if published is None:
             return False
         return normalize_version(published) == normalize_version(version)
+
+    def files(self) -> list[str]:
+        """Every package file the database references, sorted."""
+        return sorted(self._filenames.values())
 
 
 def normalize_version(version: str) -> str:
@@ -72,6 +72,7 @@ def normalize_version(version: str) -> str:
 def parse(data: bytes) -> Database:
     """Parse the bytes of a ``.db`` (or ``.files``) archive."""
     versions: dict[str, str] = {}
+    filenames: dict[str, str] = {}
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as archive:
         for member in archive:
             if not member.isfile() or not member.name.endswith("/desc"):
@@ -83,7 +84,9 @@ def parse(data: bytes) -> Database:
             name, version = entry.get("NAME"), entry.get("VERSION")
             if name and version:
                 versions[name] = version
-    return Database(versions)
+                if entry.get("FILENAME"):
+                    filenames[name] = entry["FILENAME"]
+    return Database(versions, filenames)
 
 
 def _parse_desc(text: str) -> dict[str, str]:
@@ -101,49 +104,46 @@ def _parse_desc(text: str) -> dict[str, str]:
     return entry
 
 
-def _parse_download(url: str, response) -> Database:
-    """Parse a downloaded database, or say exactly what arrived instead."""
-    data = response.read()
+def load(path: str) -> Database:
+    """Read one database file.
+
+    A file that is not there is not an error -- nothing has been published for
+    that environment yet, and an empty database correctly means "build
+    everything".  A file that is there but is not a database is an error, and
+    the message says what it holds instead, because "not a gzip file" on its
+    own does not tell anyone where to look.
+    """
+    try:
+        with open(path, "rb") as handle:
+            data = handle.read()
+    except FileNotFoundError:
+        return Database()
     try:
         return parse(data)
     except tarfile.TarError as error:
-        final = response.geturl()
-        redirect = f", after a redirect to {final}" if final != url else ""
         raise RuntimeError(
-            f"{url} did not return a pacman database: HTTP {response.status}{redirect}, "
-            f"Content-Type {response.headers.get('Content-Type', 'not set')}, "
-            f"{len(data)} bytes beginning {data[:160]!r} ({error})"
+            f"{path} is not a pacman database: {len(data)} bytes beginning "
+            f"{data[:160]!r} ({error})"
         ) from None
 
 
-def fetch(url: str | None) -> Database:
-    """Download and parse a published database.
+def published(directory: str | None, environment: str) -> Database:
+    """The database published for `environment`, read from a copy of the repository.
 
-    A repository that does not exist yet is not an error -- it is the first
-    run, and an empty database correctly means "build everything".
+    `directory` is what ``ci/fetch-published.sh databases`` produced.  None
+    means there is no copy at all, which is how a local dry run says "treat
+    nothing as published".
 
-    A download that is not a database is an error, and is not retried: a web
-    server that answered with a page once will answer with the same page again.
-    The message says what arrived instead, because "not a gzip file" on its
-    own does not tell anyone which server rule to go looking for.
+    A copy without the marker file is refused rather than read.  The script
+    writes the marker only after rsync succeeded; in an interrupted copy a
+    database that does exist on the server would just be missing, and that
+    would read as "never published, rebuild everything".
     """
-    if not url:
+    if directory is None:
         return Database()
-
-    last_error: Exception | None = None
-    for attempt in range(FETCH_ATTEMPTS):
-        try:
-            request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(request, timeout=FETCH_TIMEOUT) as response:
-                return _parse_download(url, response)
-        except urllib.error.HTTPError as error:
-            if error.code == 404:
-                print(f"note: {url} does not exist yet, treating it as empty")
-                return Database()
-            last_error = error
-        except (urllib.error.URLError, OSError) as error:
-            last_error = error
-        if attempt + 1 < FETCH_ATTEMPTS:
-            time.sleep(2 * (attempt + 1))
-
-    raise RuntimeError(f"could not read {url}: {last_error}")
+    if not os.path.isfile(os.path.join(directory, PUBLISHED_MARKER)):
+        raise RuntimeError(
+            f"{directory} is not a complete copy of the published repository: "
+            f"it has no {PUBLISHED_MARKER} file"
+        )
+    return load(db_path(directory, environment))

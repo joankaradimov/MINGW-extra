@@ -1,32 +1,29 @@
 #!/bin/bash
 # Publish built packages to the pacman repository.
 #
-# This is the only part of the pipeline that knows where packages are hosted,
-# and the only job that holds the deploy key. Keeping it away from the build
-# jobs is a security boundary, not tidiness: a PKGBUILD's build() runs
-# arbitrary upstream code, and that runner has no secrets to leak.
+# Together with ci/fetch-published.sh, this is the only part of the pipeline
+# that knows where packages are hosted, and the jobs that run the two are the
+# only ones holding the deploy key. Keeping the key away from the build jobs is
+# a security boundary, not tidiness: a PKGBUILD's build() runs arbitrary
+# upstream code, and those runners have no secrets to leak.
 #
-# Swapping rsync for S3, or for anything else, means rewriting this file and
-# nothing else.
+# Swapping rsync for S3, or for anything else, means rewriting these two files
+# and nothing else.
 #
 # Usage: ci/publish.sh <artifacts-dir>
 #   <artifacts-dir>/<environment>/*.pkg.tar.zst
 #
 # Environment:
-#   MINGW_EXTRA_URL  base URL the repository is served from (to read the current db)
-#   RSYNC_RSH        optional; how rsync reaches DEPLOY_HOST (CI passes the key,
-#                    known_hosts and port here)
 #   DEPLOY_HOST      ssh destination, e.g. deploy@packages.example.com
 #   DEPLOY_PATH      directory on that host holding the per-environment subdirs
+#   RSYNC_RSH        optional; how rsync reaches DEPLOY_HOST (CI passes the key,
+#                    known_hosts and port here)
 
 set -euo pipefail
 
 artifacts=${1:?usage: ci/publish.sh <artifacts-dir>}
 : "${DEPLOY_HOST:?DEPLOY_HOST is not set}"
 : "${DEPLOY_PATH:?DEPLOY_PATH is not set}"
-# Required rather than optional: without the live database there is nothing to
-# add to, and the upload would replace it with one holding only this run.
-: "${MINGW_EXTRA_URL:?MINGW_EXTRA_URL is not set}"
 
 # Must match REPO_NAME in ci/autobuild/config.py: the planner reads the database
 # this script writes, and they find each other by name alone.
@@ -54,26 +51,29 @@ for environment_dir in "$artifacts"/*/; do
     cp "${packages[@]}" "$work/"
 
     # Start from the database that is live right now, so this run adds to the
-    # repository rather than replacing it. A 404 is the first run, not an error;
-    # anything else is not "the repository is empty". Carrying on after a 403 or
-    # a 500 would upload a database holding only this run's packages and
-    # silently unpublish everything that was there before.
+    # repository rather than replacing it. It is copied over SSH, not fetched
+    # over HTTP: the host's bot protection challenges the addresses CI runs on.
+    #
+    # Filtering from the top of DEPLOY_PATH makes an environment that was never
+    # published an empty result rather than an error. Anything that does go
+    # wrong -- a refused key, a dropped connection -- still stops this script
+    # before it uploads a database holding only this run's packages.
+    live="$work/live"
+    mkdir -p "$live"
+    rsync -a --prune-empty-dirs \
+        --include="/$environment/" \
+        --include="/$environment/${db}.db.tar.gz" \
+        --include="/$environment/${db}.files.tar.gz" \
+        --exclude='*' \
+        "$DEPLOY_HOST:$DEPLOY_PATH/" "$live/"
     for suffix in db.tar.gz files.tar.gz; do
-        url="${MINGW_EXTRA_URL%/}/${environment}/${db}.${suffix}"
-        status=$(curl -sSL --retry 3 -o "$work/${db}.${suffix}" -w '%{http_code}' "$url") \
-            || status=000
-        case "$status" in
-            200) ;;
-            404)
-                rm -f "$work/${db}.${suffix}"
-                echo "note: no existing ${db}.${suffix}, starting a new repository"
-                ;;
-            *)
-                echo "error: $url answered HTTP $status; refusing to replace the live database" >&2
-                exit 1
-                ;;
-        esac
+        if [[ -f "$live/$environment/${db}.${suffix}" ]]; then
+            mv "$live/$environment/${db}.${suffix}" "$work/"
+        else
+            echo "note: no existing ${db}.${suffix}, starting a new repository"
+        fi
     done
+    rm -rf "$live"
 
     echo "==> $environment: adding ${#packages[@]} package(s) to $db"
     repo-add "$work/${db}.db.tar.gz" "$work"/*.pkg.tar.zst

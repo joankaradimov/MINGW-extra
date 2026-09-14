@@ -11,16 +11,15 @@ not crash, it just builds sord before serd and fails hours later on a runner.
 
 from __future__ import annotations
 
-import contextlib
 import gzip
-import http.server
 import io
 import os
 import tarfile
-import threading
+import tempfile
 import unittest
 
-from autobuild import plan, repodb, srcinfo
+from autobuild import build, plan, repodb, srcinfo
+from autobuild.config import PUBLISHED_MARKER
 from autobuild.srcinfo import SrcInfo
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -114,6 +113,12 @@ class DatabaseParsing(unittest.TestCase):
         self.assertEqual(len(repodb.Database()), 0)
         self.assertFalse(repodb.Database().has("serd", "1-1"))
 
+    def test_package_files_are_listed_for_the_mirror(self):
+        database = repodb.parse(make_db([("sord", "0.16.6-1"), ("serd", "0.30.10-1")]))
+        self.assertEqual(
+            database.files(),
+            ["serd-0.30.10-1-any.pkg.tar.zst", "sord-0.16.6-1-any.pkg.tar.zst"])
+
 
 class VersionNormalisation(unittest.TestCase):
     """MSYS2 spells the epoch separator '~' because ':' cannot be in a filename."""
@@ -131,80 +136,79 @@ class VersionNormalisation(unittest.TestCase):
         self.assertFalse(database.has("qux", "1.0:rc1-1"))
 
 
-class DatabaseFetching(unittest.TestCase):
-    """What the planner makes of whatever the web server hands back."""
-
-    @classmethod
-    def setUpClass(cls):
-        database = make_db([("serd", "0.30.10-1")])
-        cls.requests = []
-        cls.agents = []
-
-        class Handler(http.server.BaseHTTPRequestHandler):
-            def do_GET(self):
-                cls.requests.append(self.path)
-                cls.agents.append(self.headers.get("User-Agent", ""))
-                if self.path == "/real.db":
-                    self.reply(200, "application/octet-stream", database)
-                elif self.path == "/page.db":
-                    # A catch-all rule answering for a file that is not there.
-                    self.reply(200, "text/html", b"<!DOCTYPE html><html>Not here</html>")
-                else:
-                    self.reply(404, "text/html", b"not found")
-
-            def reply(self, status, content_type, body):
-                self.send_response(status)
-                self.send_header("Content-Type", content_type)
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def log_message(self, *args):
-                pass
-
-        cls.server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
-        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
-        cls.base = f"http://127.0.0.1:{cls.server.server_address[1]}"
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.server.shutdown()
-        cls.server.server_close()
+class PublishedCopy(unittest.TestCase):
+    """What the planner makes of the copy ci/fetch-published.sh leaves behind."""
 
     def setUp(self):
-        self.requests.clear()
-        self.agents.clear()
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.directory = temporary.name
+
+    def write(self, relative: str, data: bytes) -> None:
+        path = os.path.join(self.directory, relative)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as handle:
+            handle.write(data)
 
     def test_a_published_database_is_read(self):
-        database = repodb.fetch(f"{self.base}/real.db")
-        self.assertTrue(database.has("serd", "0.30.10-1"))
+        self.write(PUBLISHED_MARKER, b"")
+        self.write("ucrt64/mingw-extra-ucrt64.db", make_db([("serd", "0.30.10-1")]))
+        self.assertTrue(repodb.published(self.directory, "ucrt64").has("serd", "0.30.10-1"))
 
-    def test_requests_do_not_identify_as_python(self):
-        # SiteGround answers Python-urllib with a 403 on anything its proxy
-        # passes upstream, which includes every .db file.
-        repodb.fetch(f"{self.base}/real.db")
-        self.assertEqual(self.agents, [repodb.USER_AGENT])
-        self.assertNotIn("python", repodb.USER_AGENT.lower())
+    def test_an_environment_never_published_is_empty(self):
+        self.write(PUBLISHED_MARKER, b"")
+        self.assertEqual(len(repodb.published(self.directory, "clang64")), 0)
 
-    def test_a_missing_database_is_an_empty_repository(self):
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(len(repodb.fetch(f"{self.base}/missing.db")), 0)
+    def test_no_copy_at_all_means_nothing_published(self):
+        self.assertEqual(len(repodb.published(None, "ucrt64")), 0)
 
-    def test_a_page_instead_of_a_database_says_what_arrived(self):
+    def test_a_copy_without_the_marker_is_refused(self):
+        # An interrupted copy would make a published database look missing,
+        # and missing means "rebuild everything".
+        self.write("ucrt64/mingw-extra-ucrt64.db", make_db([("serd", "0.30.10-1")]))
+        with self.assertRaisesRegex(RuntimeError, PUBLISHED_MARKER):
+            repodb.published(self.directory, "ucrt64")
+
+    def test_a_file_that_is_not_a_database_says_what_it_holds(self):
+        self.write(PUBLISHED_MARKER, b"")
+        self.write("ucrt64/mingw-extra-ucrt64.db", b"<!DOCTYPE html><html>challenge</html>")
         with self.assertRaises(RuntimeError) as caught:
-            repodb.fetch(f"{self.base}/page.db")
-        message = str(caught.exception)
-        self.assertIn("HTTP 200", message)
-        self.assertIn("text/html", message)
-        self.assertIn("<!DOCTYPE html>", message)
-        # Asking again would only fetch the same page; transport errors alone
-        # are worth a retry.
-        self.assertEqual(self.requests, ["/page.db"])
+            repodb.published(self.directory, "ucrt64")
+        self.assertIn("<!DOCTYPE html>", str(caught.exception))
+
+
+class PacmanConfiguration(unittest.TestCase):
+
+    def test_our_repositories_are_local_files_ahead_of_the_stock_ones(self):
+        with tempfile.TemporaryDirectory() as directory:
+            stock = os.path.join(directory, "stock.conf")
+            with open(stock, "w", encoding="utf-8") as handle:
+                handle.write("[options]\n\n[ucrt64]\nInclude = /etc/pacman.d/mirrorlist.ucrt64\n")
+            config = os.path.join(directory, "pacman.conf")
+            build.write_pacman_conf(config, "ucrt64", "/c/_b/staging/ucrt64",
+                                    "/d/a/published/ucrt64", stock=stock)
+            with open(config, encoding="utf-8") as handle:
+                text = handle.read()
+        self.assertLess(text.index("[mingw-extra-ucrt64-staging]"), text.index("[mingw-extra-ucrt64]"))
+        self.assertLess(text.index("[mingw-extra-ucrt64]"), text.index("[options]"))
+        self.assertIn("Server = file:///c/_b/staging/ucrt64\n", text)
+        self.assertIn("Server = file:///d/a/published/ucrt64\n", text)
+        self.assertNotIn("http", text)
+
+    def test_nothing_published_means_no_section(self):
+        with tempfile.TemporaryDirectory() as directory:
+            stock = os.path.join(directory, "stock.conf")
+            with open(stock, "w", encoding="utf-8") as handle:
+                handle.write("[options]\n")
+            config = os.path.join(directory, "pacman.conf")
+            build.write_pacman_conf(config, "ucrt64", None, None, stock=stock)
+            with open(config, encoding="utf-8") as handle:
+                self.assertNotIn("mingw-extra", handle.read())
 
 
 def fake(directory: str, pkgnames: list[str], depends: list[str],
-         provides: list[str] | None = None) -> SrcInfo:
-    return SrcInfo(directory=directory, environment="ucrt64", pkgbase=directory,
+         provides: list[str] | None = None, environment: str = "ucrt64") -> SrcInfo:
+    return SrcInfo(directory=directory, environment=environment, pkgbase=directory,
                    pkgver="1", pkgrel="1", pkgnames=pkgnames, depends=depends,
                    provides=provides or [])
 
@@ -254,6 +258,38 @@ class BuildOrder(unittest.TestCase):
         self.assertEqual([i.directory for i in plan.order(queue)], ["a", "b", "c"])
 
 
+class PullRequestDependencies(unittest.TestCase):
+    """A pull request cannot install from the published repository, so it builds
+    what a changed package needs from this repository too."""
+
+    def test_dependencies_from_this_repository_are_added_transitively(self):
+        everything = [
+            fake("sratom", ["p-sratom"], ["p-sord"]),
+            fake("sord", ["p-sord"], ["p-serd"]),
+            fake("serd", ["p-serd"], []),
+            fake("lv2", ["p-lv2"], []),
+        ]
+        chosen = plan.with_dependencies([everything[0]], everything)
+        self.assertEqual(sorted(i.directory for i in chosen), ["serd", "sord", "sratom"])
+
+    def test_dependencies_msys2_provides_are_left_alone(self):
+        everything = [fake("qjackctl", ["p-qjackctl"], ["p-qt5"])]
+        chosen = plan.with_dependencies(everything, everything)
+        self.assertEqual([i.directory for i in chosen], ["qjackctl"])
+
+    def test_provides_count_as_a_dependency(self):
+        consumer = fake("consumer", ["p-consumer"], ["virtual-thing"])
+        producer = fake("producer", ["p-producer"], [], provides=["virtual-thing"])
+        chosen = plan.with_dependencies([consumer], [consumer, producer])
+        self.assertEqual(sorted(i.directory for i in chosen), ["consumer", "producer"])
+
+    def test_dependencies_stay_within_one_environment(self):
+        consumer = fake("sord", ["p-sord"], ["p-serd"])
+        elsewhere = fake("serd", ["p-serd"], [], environment="clang64")
+        chosen = plan.with_dependencies([consumer], [consumer, elsewhere])
+        self.assertEqual([i.directory for i in chosen], ["sord"])
+
+
 class RepositoryLayout(unittest.TestCase):
     """Checks against the actual PKGBUILDs in this repository."""
 
@@ -278,15 +314,10 @@ class RepositoryLayout(unittest.TestCase):
         self.assertEqual(srcinfo.read_environments(ROOT, "bitcoin"), [])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class BrokenPkgbuild(unittest.TestCase):
     """A PKGBUILD bash cannot read must fail loudly, never fall back."""
 
     def test_unreadable_pkgbuild_is_an_error(self):
-        import tempfile
         with tempfile.TemporaryDirectory() as root:
             package = os.path.join(root, "broken")
             os.makedirs(package)
@@ -296,7 +327,6 @@ class BrokenPkgbuild(unittest.TestCase):
                 srcinfo.read_environments(root, "broken")
 
     def test_declared_environments_are_deduplicated(self):
-        import tempfile
         with tempfile.TemporaryDirectory() as root:
             package = os.path.join(root, "dup")
             os.makedirs(package)
@@ -306,7 +336,6 @@ class BrokenPkgbuild(unittest.TestCase):
                 srcinfo.read_environments(root, "dup"), ["ucrt64", "clang64"])
 
     def test_an_absent_array_is_not_an_empty_one(self):
-        import tempfile
         with tempfile.TemporaryDirectory() as root:
             for name, body in [("absent", "pkgver=1\n"), ("empty", "mingw_arch=()\n")]:
                 os.makedirs(os.path.join(root, name))
@@ -316,7 +345,6 @@ class BrokenPkgbuild(unittest.TestCase):
             self.assertEqual(srcinfo.read_environments(root, "empty"), [])
 
     def test_unknown_environment_is_rejected(self):
-        import tempfile
         with tempfile.TemporaryDirectory() as root:
             package = os.path.join(root, "typo")
             os.makedirs(package)
@@ -324,3 +352,7 @@ class BrokenPkgbuild(unittest.TestCase):
                 handle.write("mingw_arch=('ucrt65')\n")
             with self.assertRaisesRegex(ValueError, "unknown mingw_arch"):
                 srcinfo.read_environments(root, "typo")
+
+
+if __name__ == "__main__":
+    unittest.main()

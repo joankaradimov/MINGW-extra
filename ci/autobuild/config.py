@@ -1,8 +1,10 @@
 """Static configuration for the MINGW-extra autobuilder.
 
 Everything that is specific to this repository -- which MSYS2 environments we
-target, what the published pacman repository is called, and where it lives --
-is collected here so the rest of the code stays generic.
+target, what the published pacman repository is called, and how a copy of it is
+laid out -- is collected here so the rest of the code stays generic.  Where the
+repository lives is not: that is in the deploy secrets, and only the jobs that
+talk to the host know it.
 """
 
 from __future__ import annotations
@@ -15,15 +17,14 @@ REPO_NAME = "mingw-extra"
 
 Each environment gets its own database, so the pacman.conf section for e.g.
 ucrt64 is ``[mingw-extra-ucrt64]`` and its database is
-``<REMOTE_URL>/ucrt64/mingw-extra-ucrt64.db``.
+``<repository>/ucrt64/mingw-extra-ucrt64.db``.
 """
 
-REMOTE_URL = os.environ.get("MINGW_EXTRA_URL", "").rstrip("/")
-"""Base URL the published repository is served from.
+PUBLISHED_MARKER = "COMPLETE"
+"""File ``ci/fetch-published.sh`` writes into its copy once rsync has succeeded.
 
-Set via the ``MINGW_EXTRA_URL`` environment variable (a repository variable in
-CI).  When it is empty the planner treats the published repository as empty,
-which means "build everything" -- convenient for a first run or a local test.
+Must match ``marker`` in that script.  ``repodb.published`` explains why a copy
+without it is refused.
 """
 
 
@@ -75,8 +76,6 @@ def db_name(env: str) -> str:
     return f"{REPO_NAME}-{env}"
 
 
-def db_url(env: str) -> str | None:
-    """URL of the published database for `env`, or None if no host is configured."""
-    if not REMOTE_URL:
-        return None
-    return f"{REMOTE_URL}/{env}/{db_name(env)}.db"
+def db_path(directory: str, env: str) -> str:
+    """Where a copy of the published repository keeps the database for `env`."""
+    return os.path.join(directory, env, f"{db_name(env)}.db")

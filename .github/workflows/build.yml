@@ -4,6 +4,13 @@
 # planner compares each PKGBUILD against the live pacman database, so a build
 # that crashed or an upload that got lost is retried on the next run without
 # anyone having to notice it.
+#
+# Nothing in this workflow reads the repository over HTTP. The host's bot
+# protection answers requests from cloud addresses, which is where GitHub's
+# runners are, with a CAPTCHA page instead of the file. So the three jobs that
+# hold the deploy key -- databases, mirror and publish -- copy what is needed
+# over SSH, and they are exactly the jobs that run no PKGBUILDs. plan and build
+# run PKGBUILDs and never see the key.
 name: build
 
 on:
@@ -19,7 +26,8 @@ on:
         default: ''
 
 # One publisher at a time. Two runs rebuilding the same pacman database
-# concurrently would have the loser silently drop the winner's packages.
+# concurrently would have the loser silently drop the winner's packages. It also
+# keeps the databases a run copies at its start current until its publish job.
 concurrency:
   group: publish
   cancel-in-progress: false
@@ -27,12 +35,42 @@ concurrency:
 permissions: {}
 
 env:
-  MINGW_EXTRA_URL: ${{ vars.MINGW_EXTRA_URL }}
   PYTHONUNBUFFERED: 1
 
 jobs:
+  databases:
+    name: databases
+    runs-on: ubuntu-latest
+    environment: publish
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/deploy-ssh
+        with:
+          key: ${{ secrets.DEPLOY_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          port: ${{ secrets.DEPLOY_PORT }}
+
+      - name: Copy the published databases
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: bash ci/fetch-published.sh databases published
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: published-databases
+          path: published/
+          if-no-files-found: error
+          retention-days: 1
+
   plan:
     name: plan
+    needs: databases
     runs-on: windows-2022
     permissions:
       contents: read
@@ -43,16 +81,10 @@ jobs:
         with:
           persist-credentials: false
 
-      # Checked before anything slow runs. Without the live database the planner
-      # rebuilds everything, and vars.* never reads secrets, so a URL saved under
-      # Secrets instead of Variables arrives here empty.
-      - name: Check configuration
-        shell: bash
-        run: |
-          if [ -z "$MINGW_EXTRA_URL" ]; then
-            echo "::error::The MINGW_EXTRA_URL repository variable is not set (Settings > Secrets and variables > Actions > Variables)"
-            exit 1
-          fi
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: published-databases
+          path: published
 
       # Reading a PKGBUILD means letting bash expand it, which means MSYS2 --
       # even though this job compiles nothing.
@@ -70,11 +102,59 @@ jobs:
         run: |
           args=()
           for package in $PACKAGES; do args+=(--package "$package"); done
-          PYTHONPATH=ci python -m autobuild plan "${args[@]}"
+          PYTHONPATH=ci python -m autobuild plan --published published "${args[@]}"
+
+  # The builds install already-published dependencies from a local copy of the
+  # repository. Copy it only for the environments that have something to build,
+  # and only the package files their current databases reference.
+  mirror:
+    name: mirror ${{ matrix.environment }}
+    needs: plan
+    if: needs.plan.outputs.matrix != '[]'
+    runs-on: ubuntu-latest
+    environment: publish
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include: ${{ fromJson(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: published-databases
+          path: published
+
+      - uses: ./.github/actions/deploy-ssh
+        with:
+          key: ${{ secrets.DEPLOY_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          port: ${{ secrets.DEPLOY_PORT }}
+
+      - name: Copy the published packages
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          ENVIRONMENT: ${{ matrix.environment }}
+        run: bash ci/fetch-published.sh packages "$ENVIRONMENT" published
+
+      # The environment's directory is absent when nothing is published for it
+      # yet; the marker alone still makes a valid, empty copy.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: published-${{ matrix.environment }}
+          path: |
+            published/COMPLETE
+            published/${{ matrix.environment }}/
+          if-no-files-found: error
+          retention-days: 1
 
   build:
     name: ${{ matrix.environment }}
-    needs: plan
+    needs: [plan, mirror]
     if: needs.plan.outputs.matrix != '[]'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 300
@@ -100,6 +180,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: published-${{ matrix.environment }}
+          path: published
+
       - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
         with:
           msystem: MSYS
@@ -108,7 +193,8 @@ jobs:
           cache: true
 
       # No secrets are available to this job on purpose: makepkg runs upstream
-      # build scripts, and the deploy key lives in the publish job instead.
+      # build scripts. What it needs from the published repository arrives as
+      # the mirror job's artifact.
       - name: Build
         shell: msys2 {0}
         env:
@@ -119,6 +205,7 @@ jobs:
             --environment "$ENVIRONMENT" \
             --build-root /c/_b \
             --output artifacts \
+            --published published \
             $PACKAGES
 
       - name: Upload packages
@@ -148,7 +235,7 @@ jobs:
           persist-credentials: false
 
       - name: Install tools
-        run: pacman -Syu --noconfirm --needed rsync openssh curl git
+        run: pacman -Syu --noconfirm --needed rsync openssh git
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -156,40 +243,11 @@ jobs:
           pattern: packages-*
           merge-multiple: true
 
-      # Every path is handed to ssh explicitly. A container job sets HOME to
-      # /github/home, but ssh finds ~/.ssh through the passwd entry (/root), so
-      # a key or known_hosts written under ~/.ssh would never be read.
-      # BatchMode turns a passphrase-protected key into an immediate error
-      # instead of a prompt nobody can answer. DEPLOY_PORT is optional; a
-      # missing secret arrives as an empty string and means port 22.
-      - name: Configure SSH
-        shell: bash
-        env:
-          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
-        run: |
-          for name in DEPLOY_KEY DEPLOY_KNOWN_HOSTS; do
-            if [ -z "${!name}" ]; then
-              echo "::error::The $name secret is empty or missing"
-              exit 1
-            fi
-          done
-          ssh_dir="$RUNNER_TEMP/ssh"
-          mkdir -p "$ssh_dir" && chmod 700 "$ssh_dir"
-          printf '%s\n' "$DEPLOY_KEY" > "$ssh_dir/id_deploy"
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
-          chmod 600 "$ssh_dir/id_deploy" "$ssh_dir/known_hosts"
-          # Digits only: the value is spliced into RSYNC_RSH, which rsync splits
-          # into arguments, so anything else could smuggle in extra ssh options.
-          port="${DEPLOY_PORT:-22}"
-          case "$port" in
-            *[!0-9]*)
-              echo "::error::The DEPLOY_PORT secret must be a port number"
-              exit 1
-              ;;
-          esac
-          echo "RSYNC_RSH=ssh -p $port -i $ssh_dir/id_deploy -o IdentitiesOnly=yes -o UserKnownHostsFile=$ssh_dir/known_hosts -o StrictHostKeyChecking=yes -o BatchMode=yes" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/deploy-ssh
+        with:
+          key: ${{ secrets.DEPLOY_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          port: ${{ secrets.DEPLOY_PORT }}
 
       - name: Publish
         env:

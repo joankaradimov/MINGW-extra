@@ -4,6 +4,11 @@
 # database: a change that fixes build() without bumping pkgrel is still worth
 # compiling before it is merged, even though the planner on master would
 # correctly consider that version already published.
+#
+# Nothing here reads the published repository either. That takes the deploy
+# key, and no job a pull request can change may hold it. So the planner also
+# queues every package from this repository that a changed one depends on, and
+# the build compiles those from source first, in the same job.
 name: pr
 
 on:
@@ -17,7 +22,6 @@ concurrency:
 permissions: {}
 
 env:
-  MINGW_EXTRA_URL: ${{ vars.MINGW_EXTRA_URL }}
   PYTHONUNBUFFERED: 1
 
 jobs:

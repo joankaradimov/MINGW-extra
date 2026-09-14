@@ -1,0 +1,55 @@
+name: Deploy SSH
+description: >-
+  Write the deploy key and known_hosts, and point rsync at them through
+  RSYNC_RSH. Shared by every job that talks to the package host.
+
+inputs:
+  key:
+    description: Private key without a passphrase (the DEPLOY_KEY secret)
+    required: true
+  known-hosts:
+    description: ssh-keyscan output for the host and port (the DEPLOY_KNOWN_HOSTS secret)
+    required: true
+  port:
+    description: SSH port; empty means 22 (the DEPLOY_PORT secret)
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    # Every path is handed to ssh explicitly. A container job sets HOME to
+    # /github/home, but ssh finds ~/.ssh through the passwd entry (/root), so
+    # a key or known_hosts written under ~/.ssh would never be read.
+    # BatchMode turns a passphrase-protected key into an immediate error
+    # instead of a prompt nobody can answer. A missing secret arrives as an
+    # empty string, and `required` is not enforced for composite actions, so
+    # both are checked here.
+    - name: Configure SSH
+      shell: bash
+      env:
+        DEPLOY_KEY: ${{ inputs.key }}
+        DEPLOY_KNOWN_HOSTS: ${{ inputs.known-hosts }}
+        DEPLOY_PORT: ${{ inputs.port }}
+      run: |
+        for name in DEPLOY_KEY DEPLOY_KNOWN_HOSTS; do
+          if [ -z "${!name}" ]; then
+            echo "::error::The $name secret is empty or missing"
+            exit 1
+          fi
+        done
+        ssh_dir="$RUNNER_TEMP/ssh"
+        mkdir -p "$ssh_dir" && chmod 700 "$ssh_dir"
+        printf '%s\n' "$DEPLOY_KEY" > "$ssh_dir/id_deploy"
+        printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+        chmod 600 "$ssh_dir/id_deploy" "$ssh_dir/known_hosts"
+        # Digits only: the value is spliced into RSYNC_RSH, which rsync splits
+        # into arguments, so anything else could smuggle in extra ssh options.
+        port="${DEPLOY_PORT:-22}"
+        case "$port" in
+          *[!0-9]*)
+            echo "::error::The DEPLOY_PORT secret must be a port number"
+            exit 1
+            ;;
+        esac
+        echo "RSYNC_RSH=ssh -p $port -i $ssh_dir/id_deploy -o IdentitiesOnly=yes -o UserKnownHostsFile=$ssh_dir/known_hosts -o StrictHostKeyChecking=yes -o BatchMode=yes" >> "$GITHUB_ENV"
