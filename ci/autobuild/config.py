@@ -48,6 +48,9 @@ ENVIRONMENTS: dict[str, Environment] = {
         Environment("ucrt64", "UCRT64", "mingw-w64-ucrt-x86_64", "windows-2022"),
         Environment("clang64", "CLANG64", "mingw-w64-clang-x86_64", "windows-2022"),
         Environment("mingw32", "MINGW32", "mingw-w64-i686", "windows-2022"),
+        # Not a rung of the ladder, but MSYS2 still ships it, and a package that
+        # verified itself there (the DJGPP cross-toolchain) must not break the plan.
+        Environment("mingw64", "MINGW64", "mingw-w64-x86_64", "windows-2022"),
         Environment("clangarm64", "CLANGARM64", "mingw-w64-clang-aarch64", "windows-11-arm"),
     ]
 }

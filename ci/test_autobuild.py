@@ -11,10 +11,13 @@ not crash, it just builds sord before serd and fails hours later on a runner.
 
 from __future__ import annotations
 
+import contextlib
 import gzip
+import http.server
 import io
 import os
 import tarfile
+import threading
 import unittest
 
 from autobuild import plan, repodb, srcinfo
@@ -126,6 +129,77 @@ class VersionNormalisation(unittest.TestCase):
         database = repodb.parse(make_db([("qux", "1.0~rc1-1")]))
         self.assertTrue(database.has("qux", "1.0~rc1-1"))
         self.assertFalse(database.has("qux", "1.0:rc1-1"))
+
+
+class DatabaseFetching(unittest.TestCase):
+    """What the planner makes of whatever the web server hands back."""
+
+    @classmethod
+    def setUpClass(cls):
+        database = make_db([("serd", "0.30.10-1")])
+        cls.requests = []
+        cls.agents = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                cls.requests.append(self.path)
+                cls.agents.append(self.headers.get("User-Agent", ""))
+                if self.path == "/real.db":
+                    self.reply(200, "application/octet-stream", database)
+                elif self.path == "/page.db":
+                    # A catch-all rule answering for a file that is not there.
+                    self.reply(200, "text/html", b"<!DOCTYPE html><html>Not here</html>")
+                else:
+                    self.reply(404, "text/html", b"not found")
+
+            def reply(self, status, content_type, body):
+                self.send_response(status)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        cls.server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.base = f"http://127.0.0.1:{cls.server.server_address[1]}"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def setUp(self):
+        self.requests.clear()
+        self.agents.clear()
+
+    def test_a_published_database_is_read(self):
+        database = repodb.fetch(f"{self.base}/real.db")
+        self.assertTrue(database.has("serd", "0.30.10-1"))
+
+    def test_requests_do_not_identify_as_python(self):
+        # SiteGround answers Python-urllib with a 403 on anything its proxy
+        # passes upstream, which includes every .db file.
+        repodb.fetch(f"{self.base}/real.db")
+        self.assertEqual(self.agents, [repodb.USER_AGENT])
+        self.assertNotIn("python", repodb.USER_AGENT.lower())
+
+    def test_a_missing_database_is_an_empty_repository(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(len(repodb.fetch(f"{self.base}/missing.db")), 0)
+
+    def test_a_page_instead_of_a_database_says_what_arrived(self):
+        with self.assertRaises(RuntimeError) as caught:
+            repodb.fetch(f"{self.base}/page.db")
+        message = str(caught.exception)
+        self.assertIn("HTTP 200", message)
+        self.assertIn("text/html", message)
+        self.assertIn("<!DOCTYPE html>", message)
+        # Asking again would only fetch the same page; transport errors alone
+        # are worth a retry.
+        self.assertEqual(self.requests, ["/page.db"])
 
 
 def fake(directory: str, pkgnames: list[str], depends: list[str],

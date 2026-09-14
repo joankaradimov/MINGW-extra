@@ -82,6 +82,17 @@ The publish job targets a GitHub Actions **environment** named `publish`. Create
 it and add required reviewers if you want a human between a green build and a
 live repository; leaving it unprotected is fine too.
 
+The host has to serve files ending in `.db`: that is the name pacman asks for,
+and it cannot be changed. SiteGround refuses them with a 403 by default; its
+support lifted that for this repository's subdomain on request. The autobuilder
+also identifies itself as `mingw-extra-autobuild` rather than as Python, because
+SiteGround turns away Python's default user agent on those same requests.
+
+Every environment directory also receives `ci/pacman-repo.htaccess` as its
+`.htaccess`, marking the databases `Cache-Control: no-cache`. Without it a host
+with a caching proxy in front of Apache, SiteGround included, keeps handing out
+the previous database for hours after a publish.
+
 On the server, `DEPLOY_PATH` needs to be writable by the deploy user and served
 over HTTPS at `MINGW_EXTRA_URL`. The layout builds itself:
 

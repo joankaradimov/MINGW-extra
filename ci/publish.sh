@@ -32,6 +32,13 @@ artifacts=${1:?usage: ci/publish.sh <artifacts-dir>}
 # this script writes, and they find each other by name alone.
 repo_name=mingw-extra
 
+# Uploaded as .htaccess next to the databases; the file itself says why.
+htaccess="$(dirname "${BASH_SOURCE[0]}")/pacman-repo.htaccess"
+if [[ ! -f "$htaccess" ]]; then
+    echo "error: $htaccess is missing" >&2
+    exit 1
+fi
+
 shopt -s nullglob
 
 published=0
@@ -92,12 +99,15 @@ for environment_dir in "$artifacts"/*/; do
     done
 
     # Packages first, database last: a client that syncs mid-upload sees a
-    # database that only ever references packages already on the server.
+    # database that only ever references packages already on the server. The
+    # .htaccess travels with the packages, so no database is ever served before
+    # the header that keeps it out of the host's cache.
     #
     # --mkpath creates the environment directory, so the deploy key can stay
     # restricted to rsync (command="rrsync ..." in authorized_keys) instead of
     # needing a shell to run mkdir.
-    rsync -av --mkpath "$work"/*.pkg.tar.zst "$DEPLOY_HOST:$DEPLOY_PATH/$environment/"
+    cp "$htaccess" "$work/.htaccess"
+    rsync -av --mkpath "$work/.htaccess" "$work"/*.pkg.tar.zst "$DEPLOY_HOST:$DEPLOY_PATH/$environment/"
     rsync -av "${db_files[@]}" "$DEPLOY_HOST:$DEPLOY_PATH/$environment/"
 
     rm -rf "$work"

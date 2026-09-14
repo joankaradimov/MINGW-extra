@@ -1,0 +1,10 @@
+# Installed as .htaccess into every environment directory by ci/publish.sh.
+#
+# The databases change on every publish. The host's caching proxy (SiteGround's
+# Dynamic Cache keeps responses for 12 hours) would otherwise go on serving the
+# previous one, and answer pacman's If-Modified-Since with a stale 304 -- so
+# users would be told they are up to date while new packages sit on the server.
+# Packages never change once published, so they are left cacheable.
+<FilesMatch "\.(db|files)(\.sig)?$">
+    Header set Cache-Control "no-cache"
+</FilesMatch>

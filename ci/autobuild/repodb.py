@@ -24,6 +24,15 @@ import urllib.request
 FETCH_TIMEOUT = 30
 FETCH_ATTEMPTS = 3
 
+USER_AGENT = "mingw-extra-autobuild (+https://github.com/joankaradimov/MINGW-extra)"
+"""Sent instead of Python's default ``Python-urllib/3.x``.
+
+SiteGround, which hosts the repository, answers script user agents with a 403
+on every request its proxy passes on to the backend -- and requests for ``.db``
+files are such requests. curl and pacman are let through, so publish.sh and the
+build jobs never notice; only this module would.
+"""
+
 
 class Database:
     """Package name -> version, as currently published for one environment."""
@@ -92,11 +101,31 @@ def _parse_desc(text: str) -> dict[str, str]:
     return entry
 
 
+def _parse_download(url: str, response) -> Database:
+    """Parse a downloaded database, or say exactly what arrived instead."""
+    data = response.read()
+    try:
+        return parse(data)
+    except tarfile.TarError as error:
+        final = response.geturl()
+        redirect = f", after a redirect to {final}" if final != url else ""
+        raise RuntimeError(
+            f"{url} did not return a pacman database: HTTP {response.status}{redirect}, "
+            f"Content-Type {response.headers.get('Content-Type', 'not set')}, "
+            f"{len(data)} bytes beginning {data[:160]!r} ({error})"
+        ) from None
+
+
 def fetch(url: str | None) -> Database:
     """Download and parse a published database.
 
     A repository that does not exist yet is not an error -- it is the first
     run, and an empty database correctly means "build everything".
+
+    A download that is not a database is an error, and is not retried: a web
+    server that answered with a page once will answer with the same page again.
+    The message says what arrived instead, because "not a gzip file" on its
+    own does not tell anyone which server rule to go looking for.
     """
     if not url:
         return Database()
@@ -104,14 +133,15 @@ def fetch(url: str | None) -> Database:
     last_error: Exception | None = None
     for attempt in range(FETCH_ATTEMPTS):
         try:
-            with urllib.request.urlopen(url, timeout=FETCH_TIMEOUT) as response:
-                return parse(response.read())
+            request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(request, timeout=FETCH_TIMEOUT) as response:
+                return _parse_download(url, response)
         except urllib.error.HTTPError as error:
             if error.code == 404:
                 print(f"note: {url} does not exist yet, treating it as empty")
                 return Database()
             last_error = error
-        except (urllib.error.URLError, OSError, tarfile.TarError) as error:
+        except (urllib.error.URLError, OSError) as error:
             last_error = error
         if attempt + 1 < FETCH_ATTEMPTS:
             time.sleep(2 * (attempt + 1))
