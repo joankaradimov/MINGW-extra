@@ -1,0 +1,135 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=alpmrpc
+pkgname=alpmrpcd
+pkgver=r29.15499d1
+pkgrel=1
+pkgdesc="Serves MSYS2's libalpm to native mingw programs over a named pipe"
+arch=('x86_64')
+# An MSYS package in a MinGW repository. That is the point rather than an
+# oversight: libalpm only builds under Cygwin, so the half of alpmrpc that
+# links it has to be an MSYS package, and the half that native callers load --
+# mingw-w64-alpmrpc, next door -- has to be a mingw one. They are generated
+# from the same alpm.h by the same tools/gen pass and version together, so
+# splitting them across two repositories would only make it easier for them to
+# drift apart.
+#
+# The empty mingw_arch is what keeps ci/ off it. Per ci/README.md an empty
+# array means "built nowhere"; without it the autobuilder would default to
+# rung 0 and run makepkg-mingw over this PKGBUILD, publishing an MSYS package
+# into the ucrt64 repository. Building this needs an MSYS lane in ci/ that
+# does not exist yet.
+mingw_arch=()
+url='https://github.com/joankaradimov/alpmrpc'
+license=('spdx:GPL-2.0-or-later')
+depends=('libarchive'
+         'libcurl'
+         'libgpgme'
+         'libintl'
+         'libopenssl'
+         'pacman')
+makedepends=('cmake'
+             'gcc'
+             'gettext-devel'
+             'git'
+             'libarchive-devel'
+             'libcurl-devel'
+             'libgpgme-devel'
+             'ninja'
+             'openssl-devel'
+             'pacman'
+             # The generator is a mingw one, not the MSYS clang sitting right
+             # here. That is deliberate -- see the comment in build().
+             'mingw-w64-ucrt-x86_64-clang'
+             'mingw-w64-ucrt-x86_64-python')
+source=("${_realname}::git+ssh://git@github.com/joankaradimov/alpmrpc.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "${srcdir}/${_realname}"
+  printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+  # AlpmGenerate.cmake's python and libclang are a mingw pair, and this uses
+  # them rather than the MSYS clang that is already installed to compile the
+  # server. That looks backwards and is not.
+  #
+  # The superbuild generates *once* and hands the same sources to both halves,
+  # so client and server agree on the wire by construction. Packaging splits
+  # that in two, and the only thing then holding the halves together is that
+  # both parse alpm.h identically -- same clang, same arguments, including the
+  # -D__MSYS__ that makes the parse match the compiler the server is built
+  # with. Anything else and the two halves describe different libraries.
+  #
+  # MINGW_PREFIX is unset in an MSYS shell, so the pair is named by absolute
+  # path; ucrt64 is this repository's rung 0, so it is the environment the
+  # client half is built in too.
+  local _gen_prefix=/ucrt64
+  local _gendir="${srcdir}/gen"
+  local _genwin _srcwin _msys2_root _libclang _builtin
+
+  # Every path handed to that native python is a Windows path, so the MSYS2
+  # runtime has nothing left to rewrite.
+  _msys2_root="$(cygpath -m / | sed 's,/$,,')"
+  _srcwin="$(cygpath -m "${srcdir}")"
+  _genwin="${_srcwin}/gen"
+  _libclang="$(cygpath -m "${_gen_prefix}/bin/libclang.dll")"
+  _builtin="$(cygpath -m "$(ls -d "${_gen_prefix}"/lib/clang/*/include | sort -V | tail -n1)")"
+
+  # The Cygwin triple is not a workaround: alpm.h is a Cygwin header, and a
+  # Windows-targeted clang trips over __int64 in the libarchive and curl
+  # headers it includes.
+  install -d "${_gendir}"
+  MSYS2_ARG_CONV_EXCL='*' "${_gen_prefix}/bin/python.exe" \
+    "${_srcwin}/${_realname}/tools/gen/alpm_api.py" \
+    --header "${_msys2_root}/usr/include/alpm.h" \
+    --out "${_genwin}/api_model.json" \
+    --libclang "${_libclang}" \
+    --clang-arg=--target=x86_64-pc-cygwin \
+    --clang-arg=-D__MSYS__ \
+    --clang-arg=-I"${_msys2_root}/usr/include" \
+    --clang-arg=-isystem --clang-arg="${_builtin}"
+
+  MSYS2_ARG_CONV_EXCL='*' "${_gen_prefix}/bin/python.exe" \
+    "${_srcwin}/${_realname}/tools/gen/emit.py" \
+    --model "${_genwin}/api_model.json" \
+    --overlay "${_srcwin}/${_realname}/tools/gen/overlay.json" \
+    --outdir "${_genwin}"
+
+  declare -a extra_config
+  if check_option "debug" "n"; then
+    extra_config+=("-DCMAKE_BUILD_TYPE=Release")
+  else
+    extra_config+=("-DCMAKE_BUILD_TYPE=Debug")
+  fi
+
+  # No toolchain file: cmake/toolchain-msys.cmake exists so a *mingw* cmake
+  # can drive the MSYS compiler from the superbuild. In an MSYS shell the MSYS
+  # compiler is simply the compiler. MSYS2_ROOT is left unset on purpose, so
+  # the include path src/server/CMakeLists.txt builds is /usr/include and not
+  # //usr/include, which Cygwin reads as a UNC share.
+  #
+  # The prefix is / rather than /usr because that CMakeLists installs to a
+  # DESTINATION of usr/bin: per README.md a server is addressed as
+  # <prefix>/usr/bin, which is what its --root argument names.
+  cmake -B build -S "${srcdir}/${_realname}/src/server" \
+    -G Ninja \
+    -DCMAKE_INSTALL_PREFIX=/ \
+    -DALPMRPC_GEN_DIR="${_gendir}" \
+    "${extra_config[@]}"
+
+  cmake --build build
+}
+
+package() {
+  # cmake --install first asks any server already running from this prefix to
+  # retire (src/server/CMakeLists.txt), because Windows will not overwrite a
+  # running executable. Here the prefix is /, so what it retires is whatever
+  # server this machine has up -- a real side effect of building the package,
+  # and the intended one: the next client starts a fresh server on demand.
+  DESTDIR="${pkgdir}" cmake --install build
+
+  install -Dm644 "${srcdir}/${_realname}/LICENSE" \
+    "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}
