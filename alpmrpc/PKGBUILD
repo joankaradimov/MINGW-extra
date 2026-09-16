@@ -1,0 +1,138 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=alpmrpc
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=r29.15499d1
+pkgrel=1
+pkgdesc="Drop-in libalpm for native programs, served over a pipe by MSYS2's own (mingw-w64)"
+arch=('any')
+# Both verified end to end in a throwaway root: a native consumer compiled
+# against the installed alpm.h and libalpm.dll.a starts the packaged server and
+# gets real answers out of libalpm. Each environment generates the wire with
+# its own clang, and both models come out byte-identical to the one alpmrpcd
+# was built from, which is the thing that actually has to hold.
+#
+# mingw32 is untried. The client is 64-bit by assumption rather than by
+# accident: a handle id is a server pointer cast to a client pointer, which
+# needs the two to be the same width, and the id packs a root-handle tag into
+# its high bits. That is an upstream question, not a build flag.
+#
+# clangarm64 cannot be built on x86_64 hardware; CI can, so it is a one-line PR.
+mingw_arch=('ucrt64' 'clang64')
+url='https://github.com/joankaradimov/alpmrpc'
+license=('spdx:GPL-2.0-or-later')
+msys2_repository_url='https://github.com/joankaradimov/alpmrpc'
+# No -cc-libs: the DLL imports the UCRT and libarchive and nothing else in
+# either environment -- checked, not assumed.
+depends=("${MINGW_PACKAGE_PREFIX}-libarchive"
+         # The other half. A shim with no server behind it is a DLL that
+         # exports all of libalpm and can do none of it, so this is a runtime
+         # dependency rather than a suggestion -- and it is an MSYS package,
+         # which is unusual for a mingw one but correct here: what this DLL
+         # talks to is a Cygwin process in the MSYS2 root it was built against.
+         'alpmrpcd')
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-clang"
+             "${MINGW_PACKAGE_PREFIX}-cmake"
+             "${MINGW_PACKAGE_PREFIX}-ninja"
+             "${MINGW_PACKAGE_PREFIX}-python"
+             # Header-only: the client's caches are uthash tables.
+             "${MINGW_PACKAGE_PREFIX}-uthash"
+             'git'
+             # For /usr/include/alpm.h, which is what the wire is generated
+             # from and what this package installs as its own header.
+             'pacman')
+source=("${_realname}::git+ssh://git@github.com/joankaradimov/alpmrpc.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "${srcdir}/${_realname}"
+  printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+  local _gendir _srcwin _msys2_root _libclang _builtin
+
+  # Every path handed to a native python or cmake is a Windows path, so the
+  # MSYS2 runtime has nothing left to rewrite and the two toolchains cannot
+  # disagree about what a source file is called.
+  _msys2_root="$(cygpath -m / | sed 's,/$,,')"
+  _srcwin="$(cygpath -m "${srcdir}")"
+  _gendir="${_srcwin}/gen-${MSYSTEM}"
+
+  # cmake/AlpmGenerate.cmake runs these two passes, but it lives in the
+  # superbuild, which configures both halves at once through ExternalProject
+  # and would drag an MSYS compiler into a mingw package build. A package
+  # builds one half, so the generator is driven directly, with
+  # AlpmGenerate.cmake's own arguments: alpm.h is a Cygwin header, and a
+  # Windows-targeted clang trips over __int64 in the libarchive and curl
+  # headers it includes, so the parse is done under a Cygwin triple with
+  # clang's builtin headers in front of it.
+  _libclang="$(cygpath -m "${MINGW_PREFIX}/bin/libclang.dll")"
+  _builtin="$(cygpath -m "$(ls -d "${MINGW_PREFIX}"/lib/clang/*/include | sort -V | tail -n1)")"
+
+  install -d "${srcdir}/gen-${MSYSTEM}"
+  MSYS2_ARG_CONV_EXCL='*' "${MINGW_PREFIX}/bin/python.exe" \
+    "${_srcwin}/${_realname}/tools/gen/alpm_api.py" \
+    --header "${_msys2_root}/usr/include/alpm.h" \
+    --out "${_gendir}/api_model.json" \
+    --libclang "${_libclang}" \
+    --clang-arg=--target=x86_64-pc-cygwin \
+    --clang-arg=-D__MSYS__ \
+    --clang-arg=-I"${_msys2_root}/usr/include" \
+    --clang-arg=-isystem --clang-arg="${_builtin}"
+
+  MSYS2_ARG_CONV_EXCL='*' "${MINGW_PREFIX}/bin/python.exe" \
+    "${_srcwin}/${_realname}/tools/gen/emit.py" \
+    --model "${_gendir}/api_model.json" \
+    --overlay "${_srcwin}/${_realname}/tools/gen/overlay.json" \
+    --outdir "${_gendir}"
+
+  # The public headers travel with the client unmodified; ucrt64 has its own
+  # libarchive headers, so alpm.h compiles here as shipped.
+  install -Dm644 /usr/include/alpm.h "${srcdir}/gen-${MSYSTEM}/include/alpm.h"
+  install -Dm644 /usr/include/alpm_list.h "${srcdir}/gen-${MSYSTEM}/include/alpm_list.h"
+
+  declare -a extra_config
+  if check_option "debug" "n"; then
+    extra_config+=("-DCMAKE_BUILD_TYPE=Release")
+  else
+    extra_config+=("-DCMAKE_BUILD_TYPE=Debug")
+  fi
+
+  # MSYS2_ROOT is not a build input here -- nothing from that tree is linked.
+  # It is passed so src/client/CMakeLists.txt can check the installed
+  # alpm_list.h against the one vendor/alpm_list.c was taken with, which is
+  # the check that stops a list this DLL builds from being walked differently
+  # by the libalpm on the other end of the pipe.
+  #
+  # ALPMRPC_WIN32_PATHS is upstream's default, and is pinned anyway: it decides
+  # what every path this DLL returns looks like, so anything compiled against
+  # this package is compiled against that answer. A default is not the place
+  # for something a dependent's source depends on.
+  #
+  # Tests are off: they are end-to-end, so each one starts a server and talks
+  # to it, and the transaction test builds a throwaway root and installs into
+  # it for real. That belongs in a checkout, not in a package build.
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
+    "${MINGW_PREFIX}"/bin/cmake.exe \
+      -B "build-${MSYSTEM}" \
+      -S "${_srcwin}/${_realname}/src/client" \
+      -G Ninja \
+      -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
+      -DALPMRPC_GEN_DIR="${_gendir}" \
+      -DALPMRPC_BUILD_TESTS=OFF \
+      -DALPMRPC_WIN32_PATHS=ON \
+      -DMSYS2_ROOT="${_msys2_root}" \
+      "${extra_config[@]}"
+
+  "${MINGW_PREFIX}"/bin/cmake.exe --build "build-${MSYSTEM}"
+}
+
+package() {
+  DESTDIR="${pkgdir}" "${MINGW_PREFIX}"/bin/cmake.exe --install "build-${MSYSTEM}"
+
+  install -Dm644 "${srcdir}/${_realname}/LICENSE" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/LICENSE"
+}
