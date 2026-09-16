@@ -54,8 +54,12 @@ currently live, and rsyncs packages first and databases last, so a client
 syncing mid-upload never sees a database referencing a package that is not there
 yet.
 
-Only databases, mirror and publish hold the deploy key, and none of them runs a
-PKGBUILD. plan and build run PKGBUILDs — `build()` is arbitrary upstream code —
+**site** (Linux) uploads `ci/site/`, the home page users land on, to the top
+of `DEPLOY_PATH`. It runs on every run, alongside the rest; the page is small,
+and this way the one on the server never drifts from the one in the repository.
+
+Only databases, mirror, publish and site hold the deploy key, and none of them
+runs a PKGBUILD. plan and build run PKGBUILDs — `build()` is arbitrary upstream code —
 and **hold no secrets**, deliberately.
 
 Nothing in CI reads the repository over HTTP. The host's bot protection answers
@@ -74,8 +78,8 @@ source first.
 
 ## One-time setup
 
-Four **secrets**, and an optional fifth, used only by the databases, mirror and
-publish jobs:
+Four **secrets**, and an optional fifth, used only by the databases, mirror,
+publish and site jobs:
 
 | name | what it is |
 | --- | --- |
@@ -90,15 +94,16 @@ jobs connect to. For any port but 22 ssh looks the key up as `[host]:port`, so
 an entry scanned without `-p` never matches and every SSH job fails with "Host
 key verification failed".
 
-All three jobs target a GitHub Actions **environment** named `publish`, so the
+All four jobs target a GitHub Actions **environment** named `publish`, so the
 secrets can live on that environment or on the repository. Leave the
-environment without required reviewers: they would ask for approval three times
-per run, and hold every scheduled run at its very first job.
+environment without required reviewers: they would ask for approval four times
+per run, and hold every scheduled run at its very first jobs.
 
 On the server, `DEPLOY_PATH` needs to be writable by the deploy user and served
 to users over HTTPS. The layout builds itself:
 
 ```
+<DEPLOY_PATH>/index.html                            -> https://packages.example.com/mingw-extra/
 <DEPLOY_PATH>/ucrt64/mingw-extra-ucrt64.db          -> https://packages.example.com/mingw-extra/ucrt64/...
 <DEPLOY_PATH>/ucrt64/mingw-extra-ucrt64.files
 <DEPLOY_PATH>/ucrt64/mingw-w64-ucrt-x86_64-serd-0.30.10-1-any.pkg.tar.zst
@@ -127,6 +132,18 @@ rrsync resolves every path the client sends *inside* its directory, stripping
 any leading slash, so under rrsync `DEPLOY_PATH` must be `.`. An absolute
 `DEPLOY_PATH` would put packages in `/srv/mingw-extra/srv/mingw-extra/ucrt64`,
 which `--mkpath` creates without complaint and the web server never serves.
+
+## The home page
+
+`ci/site/index.html` is what a browser gets at the top of the repository: what
+MINGW-extra is, and the `pacman.conf` sections to add. `ci/publish-site.sh`
+uploads everything in `ci/site/` except dotfiles, and never deletes anything,
+since the same directory holds the repositories.
+
+The page names the host (`https://msys2pkgs.karadimov.org`) outright, so moving
+the repository means editing it. A test checks that it lists a section for
+every environment in `ci/autobuild/config.py`, so adding an environment there
+without adding it to the page fails the build.
 
 ## Using the repository
 

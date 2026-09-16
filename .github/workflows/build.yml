@@ -10,7 +10,8 @@
 # runners are, with a CAPTCHA page instead of the file. So the three jobs that
 # hold the deploy key -- databases, mirror and publish -- copy what is needed
 # over SSH, and they are exactly the jobs that run no PKGBUILDs. plan and build
-# run PKGBUILDs and never see the key.
+# run PKGBUILDs and never see the key. The fourth key-holding job, site, uploads
+# the home page and runs no PKGBUILDs either.
 name: build
 
 on:
@@ -38,6 +39,31 @@ env:
   PYTHONUNBUFFERED: 1
 
 jobs:
+  # The home page, uploaded on every run like the packages. It takes seconds,
+  # and the page on the server can never drift from the one in the repository.
+  site:
+    name: site
+    runs-on: ubuntu-latest
+    environment: publish
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/deploy-ssh
+        with:
+          key: ${{ secrets.DEPLOY_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          port: ${{ secrets.DEPLOY_PORT }}
+
+      - name: Upload the home page
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: bash ci/publish-site.sh
+
   databases:
     name: databases
     runs-on: ubuntu-latest

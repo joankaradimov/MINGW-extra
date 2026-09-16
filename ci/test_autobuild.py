@@ -19,7 +19,7 @@ import tempfile
 import unittest
 
 from autobuild import build, plan, repodb, srcinfo
-from autobuild.config import PUBLISHED_MARKER
+from autobuild.config import ENVIRONMENTS, PUBLISHED_MARKER, db_name
 from autobuild.srcinfo import SrcInfo
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -288,6 +288,25 @@ class PullRequestDependencies(unittest.TestCase):
         elsewhere = fake("serd", ["p-serd"], [], environment="clang64")
         chosen = plan.with_dependencies([consumer], [consumer, elsewhere])
         self.assertEqual([i.directory for i in chosen], ["sord"])
+
+
+class HomePage(unittest.TestCase):
+    """ci/site/index.html has to tell users about every environment CI publishes."""
+
+    def setUp(self):
+        with open(os.path.join(ROOT, "ci", "site", "index.html"), encoding="utf-8") as handle:
+            self.page = handle.read()
+
+    def test_every_environment_has_a_pacman_section(self):
+        for name in ENVIRONMENTS:
+            with self.subTest(environment=name):
+                self.assertIn(f"[{db_name(name)}]\nSigLevel = Optional TrustAll\n", self.page)
+                self.assertRegex(self.page, rf"\nServer = https://[^/\s]+/{name}\n")
+
+    def test_every_environment_has_its_package_prefix(self):
+        for name, environment in ENVIRONMENTS.items():
+            with self.subTest(environment=name):
+                self.assertIn(f"<code>{environment.prefix}-</code>", self.page)
 
 
 class RepositoryLayout(unittest.TestCase):
