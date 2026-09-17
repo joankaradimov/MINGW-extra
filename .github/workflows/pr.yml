@@ -8,7 +8,8 @@
 # Nothing here reads the published repository either. That takes the deploy
 # key, and no job a pull request can change may hold it. So the planner also
 # queues every package from this repository that a changed one depends on, and
-# the build compiles those from source first, in the same job.
+# those are compiled from source first -- MSYS ones in a job of their own,
+# ahead of the MinGW matrix, which installs what that job built.
 name: pr
 
 on:
@@ -32,6 +33,7 @@ jobs:
       contents: read
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      msys: ${{ steps.plan.outputs.msys }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -51,10 +53,50 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: PYTHONPATH=ci python -m autobuild plan --changed-since "$BASE_SHA"
 
+  build-msys:
+    name: msys
+    needs: plan
+    if: needs.plan.outputs.msys != ''
+    runs-on: windows-2022
+    timeout-minutes: 300
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
+        with:
+          msystem: MSYS
+          update: true
+          install: base-devel git python
+          cache: true
+
+      - name: Build
+        shell: msys2 {0}
+        env:
+          PACKAGES: ${{ needs.plan.outputs.msys }}
+        run: |
+          PYTHONPATH=ci python -m autobuild build \
+            --environment msys \
+            --build-root /c/_b \
+            --output artifacts \
+            $PACKAGES
+
+      - name: Upload packages
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: packages-msys
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 7
+
   build:
     name: ${{ matrix.environment }}
-    needs: plan
-    if: needs.plan.outputs.matrix != '[]'
+    needs: [plan, build-msys]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.matrix != '[]' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 300
     permissions:
@@ -77,6 +119,14 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Download the msys packages built in this run
+        if: needs.build-msys.result == 'success' || needs.build-msys.result == 'failure'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: packages-msys
+          path: prebuilt
+
       - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
         with:
           msystem: MSYS
@@ -94,6 +144,7 @@ jobs:
             --environment "$ENVIRONMENT" \
             --build-root /c/_b \
             --output artifacts \
+            --prebuilt prebuilt \
             $PACKAGES
 
       - name: Upload packages

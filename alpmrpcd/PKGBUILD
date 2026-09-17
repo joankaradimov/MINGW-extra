@@ -14,12 +14,11 @@ arch=('x86_64')
 # splitting them across two repositories would only make it easier for them to
 # drift apart.
 #
-# The empty mingw_arch is what keeps ci/ off it. Per ci/README.md an empty
-# array means "built nowhere"; without it the autobuilder would default to
-# rung 0 and run makepkg-mingw over this PKGBUILD, publishing an MSYS package
-# into the ucrt64 repository. Building this needs an MSYS lane in ci/ that
-# does not exist yet.
-mingw_arch=()
+# ci/ recognises it by its name, which carries no MINGW_PACKAGE_PREFIX: it is
+# built with plain makepkg in the msys lane, ahead of the mingw environments
+# that depend on it, and published as mingw-extra-msys. That is also why there
+# is no mingw_arch here -- for an MSYS package the only value that means
+# anything is (), which would keep it from being built at all.
 url='https://github.com/joankaradimov/alpmrpc'
 license=('spdx:GPL-2.0-or-later')
 depends=('libarchive'

@@ -49,6 +49,12 @@ so `sord` installs the `serd` this job built minutes earlier. A package that
 fails does not stop the queue — the remaining ones still build, and the job
 fails at the end with all of them listed.
 
+**msys** (Windows + MSYS2) builds the MSYS packages -- the ones whose names
+carry no `MINGW_PACKAGE_PREFIX` -- with plain `makepkg`, before any MinGW build
+starts. A MinGW package may depend on one (`alpmrpc` needs `alpmrpcd`), so every
+MinGW build installs what this job produced, and what is already published for
+msys, next to its own environment's packages.
+
 **publish** (Linux) collects the artifacts, rebuilds each database from the one
 currently live, and rsyncs packages first and databases last, so a client
 syncing mid-upload never sees a database referencing a package that is not there
@@ -109,6 +115,7 @@ to users over HTTPS. The layout builds itself:
 <DEPLOY_PATH>/ucrt64/mingw-w64-ucrt-x86_64-serd-0.30.10-1-any.pkg.tar.zst
 <DEPLOY_PATH>/clang64/...
 <DEPLOY_PATH>/mingw32/...
+<DEPLOY_PATH>/msys/mingw-extra-msys.db              -> the MSYS packages
 ```
 
 The host has to serve files ending in `.db`: that is the name pacman asks for,
@@ -156,6 +163,9 @@ SigLevel = Optional TrustAll
 Server = https://packages.example.com/mingw-extra/ucrt64
 ```
 
+Add `[mingw-extra-msys]` too, served from `.../msys`, whatever environment you
+use: some MinGW packages here depend on an MSYS package from it.
+
 `SigLevel = Optional TrustAll` is what unsigned packages require. See
 *Adding signing* below.
 
@@ -172,6 +182,11 @@ than guessing:
 | no `mingw_arch` | `ucrt64` — rung 0, and nothing else |
 | `mingw_arch=('ucrt64' 'clang64')` | exactly those |
 | `mingw_arch=()` | nothing: verified nowhere, so built nowhere |
+
+An MSYS package -- one whose `pkgname` carries no `MINGW_PACKAGE_PREFIX`, the
+same distinction MSYS2 itself draws between its two package trees -- is built
+for `msys` and nothing else. `mingw_arch=()` still keeps one from being built;
+any other `mingw_arch` in it is an error.
 
 This makes climbing a rung a pull request. Add `clang64` to `mingw_arch`, open
 the PR, and the PR workflow builds that environment and only that environment —
@@ -205,6 +220,10 @@ $ PYTHONPATH=ci python -m autobuild plan --published published
 $ ci/fetch-published.sh packages ucrt64 published
 $ PYTHONPATH=ci python -m autobuild build --published published --environment ucrt64 sord
 ```
+
+`--prebuilt DIR` makes packages another job built, laid out as
+`DIR/<environment>/*.pkg.tar.zst`, a staging repository of their own; that is how
+the MinGW builds get the msys job's output.
 
 `build` writes packages to `artifacts/<environment>/` and scratch to
 `--build-root` (`/tmp/mingw-extra` by default; CI uses `/c/_b` to keep paths

@@ -5,7 +5,8 @@ it.  ``makepkg-mingw --printsrcinfo`` sources the PKGBUILD with the
 ``MINGW_PACKAGE_PREFIX`` and ``MINGW_PREFIX`` of a single environment and
 prints a .SRCINFO.  Because those variables differ per environment, one
 PKGBUILD yields one .SRCINFO *per environment* -- which is why everything here
-is keyed on (package directory, environment).
+is keyed on (package directory, environment).  An MSYS PKGBUILD has exactly
+one, msys, and plain ``makepkg --printsrcinfo`` reads it.
 
 Never parse a PKGBUILD with a regular expression.  ``mingw-w64-${_realname}``
 does not mean anything until bash has expanded it.
@@ -17,7 +18,14 @@ import os
 import subprocess
 from dataclasses import dataclass, field
 
-from .config import DEFAULT_ENVIRONMENTS, ENVIRONMENTS
+from .config import DEFAULT_ENVIRONMENTS, ENVIRONMENTS, MSYS
+
+PREFIX_PROBE = "@mingw-package-prefix@"
+"""What MINGW_PACKAGE_PREFIX is set to while a PKGBUILD is sourced for its kind.
+
+A name that starts with it was spelled ``${MINGW_PACKAGE_PREFIX}-...``, which is
+what makes a PKGBUILD a MinGW one.
+"""
 
 
 @dataclass
@@ -67,20 +75,34 @@ def find_package_dirs(root: str) -> list[str]:
 
 
 def read_environments(root: str, directory: str) -> list[str]:
-    """Environments this package opts into, via a ``mingw_arch`` array.
+    """Environments this package is built for.
 
-    Per .claude/skills/msys2-environments the array records where a package has been
+    A MinGW PKGBUILD opts into environments through a ``mingw_arch`` array.  Per
+    .claude/skills/msys2-environments the array records where a package has been
     *verified*, not where someone hopes it works, so CI treats it as binding:
 
     * no array         -> DEFAULT_ENVIRONMENTS (rung 0, ucrt64)
     * ``mingw_arch=()``-> nothing; verified nowhere, so built nowhere
     * a list           -> exactly that list
+
+    An MSYS PKGBUILD -- none of its package names carries
+    ``MINGW_PACKAGE_PREFIX`` -- is built for msys, unless it says
+    ``mingw_arch=()``.  Any other ``mingw_arch`` in one is an error rather than
+    something to guess about.
     """
-    # The sentinel is what separates "no mingw_arch" (use the default) from
-    # "mingw_arch=()" (verified nowhere, build nowhere). Both otherwise print
-    # nothing useful.
+    # The @declared sentinel is what separates "no mingw_arch" (use the
+    # default) from "mingw_arch=()" (verified nowhere, build nowhere). Both
+    # otherwise print nothing useful. A PKGBUILD without any pkgname is not an
+    # MSYS package, just an incomplete one, so it keeps the MinGW rules.
     script = (
-        'set -e; source ./PKGBUILD >/dev/null 2>&1; '
+        f'set -e; MINGW_PACKAGE_PREFIX={PREFIX_PROBE}; '
+        'source ./PKGBUILD >/dev/null 2>&1; '
+        'kind=mingw; '
+        'if [[ ${#pkgname[@]} -gt 0 ]]; then kind=msys; fi; '
+        'for name in "${pkgname[@]}"; do '
+        f'if [[ $name == {PREFIX_PROBE}* ]]; then kind=mingw; fi; '
+        'done; '
+        'printf "@kind=%s\\n" "$kind"; '
         'if declare -p mingw_arch >/dev/null 2>&1; then '
         'printf "@declared\\n"; printf "%s\\n" "${mingw_arch[@]}"; fi'
     )
@@ -99,17 +121,29 @@ def read_environments(root: str, directory: str) -> list[str]:
         )
 
     lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-    if "@declared" not in lines:
-        return list(DEFAULT_ENVIRONMENTS)
-
+    is_msys = f"@kind={MSYS}" in lines
     # dict.fromkeys de-duplicates while keeping the declared order.
-    declared = list(dict.fromkeys(line for line in lines if line != "@declared"))
+    declared = list(dict.fromkeys(line for line in lines if not line.startswith("@")))
 
-    unknown = [e for e in declared if e not in ENVIRONMENTS]
+    if "@declared" not in lines:
+        return [MSYS] if is_msys else list(DEFAULT_ENVIRONMENTS)
+
+    if is_msys:
+        if declared:
+            raise ValueError(
+                f"{directory}/PKGBUILD is an MSYS package -- none of its package "
+                f"names carries MINGW_PACKAGE_PREFIX -- but declares mingw_arch "
+                f"{declared}. MSYS packages are built for {MSYS} alone; the only "
+                f"mingw_arch that means anything for one is (), which builds it nowhere."
+            )
+        return []
+
+    unknown = [e for e in declared if e not in ENVIRONMENTS or e == MSYS]
     if unknown:
+        known = sorted(e for e in ENVIRONMENTS if e != MSYS)
         raise ValueError(
             f"{directory}/PKGBUILD declares unknown mingw_arch {unknown}; "
-            f"known environments are {sorted(ENVIRONMENTS)}"
+            f"known environments are {known}"
         )
     return declared
 
@@ -162,14 +196,28 @@ def _strip_constraint(dep: str) -> str:
     return dep.strip()
 
 
+def makepkg_environment(environment: str, base: dict[str, str]) -> dict[str, str]:
+    """`base`, set up for running `environment`'s makepkg.
+
+    makepkg-mingw takes its environment from MINGW_ARCH.  Plain makepkg builds
+    for whatever MSYSTEM says, so for msys that has to be MSYS, and a
+    MINGW_ARCH left over from the caller has no business being there.
+    """
+    child = dict(base)
+    if environment == MSYS:
+        child["MSYSTEM"] = "MSYS"
+        child.pop("MINGW_ARCH", None)
+    else:
+        child["MINGW_ARCH"] = environment
+    return child
+
+
 def load(root: str, directory: str, environment: str) -> SrcInfo:
-    """Run makepkg-mingw --printsrcinfo for one package in one environment."""
-    child_env = dict(os.environ)
-    child_env["MINGW_ARCH"] = environment
+    """Run --printsrcinfo for one package in one environment."""
     result = subprocess.run(
-        ["makepkg-mingw", "--printsrcinfo", "-p", "PKGBUILD"],
+        [ENVIRONMENTS[environment].makepkg, "--printsrcinfo", "-p", "PKGBUILD"],
         cwd=os.path.join(root, directory),
-        env=child_env,
+        env=makepkg_environment(environment, dict(os.environ)),
         capture_output=True,
         text=True,
     )

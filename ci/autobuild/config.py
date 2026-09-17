@@ -27,6 +27,16 @@ Must match ``marker`` in that script.  ``repodb.published`` explains why a copy
 without it is refused.
 """
 
+MSYS = "msys"
+"""The one environment that is not MinGW-w64.
+
+An MSYS package is recognised by its name: a MinGW PKGBUILD names every package
+``${MINGW_PACKAGE_PREFIX}-...``, an MSYS one never does.  MSYS packages are
+built with plain ``makepkg`` rather than ``makepkg-mingw``, and before any
+MinGW package, because a MinGW package may depend on one --
+``mingw-w64-alpmrpc`` needs ``alpmrpcd``.
+"""
+
 
 @dataclass(frozen=True)
 class Environment:
@@ -37,15 +47,25 @@ class Environment:
     """Value for the MSYSTEM environment variable."""
 
     prefix: str
-    """Value MINGW_PACKAGE_PREFIX expands to, i.e. the binary package prefix."""
+    """Value MINGW_PACKAGE_PREFIX expands to, i.e. the binary package prefix.
+
+    Empty for msys, whose packages carry none.
+    """
 
     runner: str
     """GitHub Actions runner label able to build this environment."""
+
+    @property
+    def makepkg(self) -> str:
+        """The makepkg that builds packages for this environment."""
+        return "makepkg" if self.name == MSYS else "makepkg-mingw"
 
 
 ENVIRONMENTS: dict[str, Environment] = {
     e.name: e
     for e in [
+        # First, because it is built first; see MSYS.
+        Environment(MSYS, "MSYS", "", "windows-2022"),
         Environment("ucrt64", "UCRT64", "mingw-w64-ucrt-x86_64", "windows-2022"),
         Environment("clang64", "CLANG64", "mingw-w64-clang-x86_64", "windows-2022"),
         Environment("mingw32", "MINGW32", "mingw-w64-i686", "windows-2022"),
@@ -57,7 +77,7 @@ ENVIRONMENTS: dict[str, Environment] = {
 }
 
 DEFAULT_ENVIRONMENTS = ["ucrt64"]
-"""Environments a PKGBUILD is built for when it declares no ``mingw_arch``.
+"""Environments a MinGW PKGBUILD is built for when it declares no ``mingw_arch``.
 
 Rung 0 of the ladder in .claude/skills/msys2-environments, and only rung 0. That skill
 is explicit that ``mingw_arch`` records the environments a package has actually
@@ -68,6 +88,10 @@ exactly what the PR workflow then builds and proves.
 
 An explicitly empty ``mingw_arch=()`` means the opposite of absent: verified
 nowhere, build nowhere.
+
+An MSYS PKGBUILD is built for msys alone.  ``mingw_arch=()`` keeps it from
+being built, as it does any package, and any other ``mingw_arch`` in it is an
+error.
 """
 
 

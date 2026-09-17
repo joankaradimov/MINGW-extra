@@ -6,6 +6,7 @@ commit:
 
     PYTHONPATH=ci python -m autobuild plan
     PYTHONPATH=ci python -m autobuild build --environment ucrt64 serd sord
+    PYTHONPATH=ci python -m autobuild build --environment msys alpmrpcd
 
 With a copy of the server made by ``ci/fetch-published.sh``, ``--published``
 makes both see exactly what CI sees.
@@ -39,7 +40,7 @@ def parser() -> argparse.ArgumentParser:
 
     planner = subcommands.add_parser(
         "plan", parents=[common],
-        help="Work out what needs building and print a GitHub Actions matrix")
+        help="Work out what needs building and print the workflow's outputs")
     planner.add_argument(
         "--changed-since", metavar="REF",
         help="Plan the packages touched since REF, and what they need from this "
@@ -67,10 +68,16 @@ def parser() -> argparse.ArgumentParser:
         "--output", default="artifacts",
         help="Directory to collect built packages in, one subdirectory per environment")
     builder.add_argument(
-        "--published", metavar="DIR",
+        "--published", action="append", metavar="DIR",
         help="Copy of the published repository, databases and packages, made by "
              "ci/fetch-published.sh; already-published dependencies are "
-             "installed from it")
+             "installed from it (repeatable: this environment's and msys's)")
+    builder.add_argument(
+        "--prebuilt", action="append", metavar="DIR",
+        help="Packages an earlier job of the same run built, as "
+             "DIR/<environment>/*.pkg.tar.zst, to install from ahead of the "
+             "published ones (repeatable). The MinGW builds get the msys job's "
+             "output this way.")
     builder.add_argument("packages", nargs="+", metavar="DIR")
     builder.set_defaults(func=build.main)
 

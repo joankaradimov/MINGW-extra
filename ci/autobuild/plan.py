@@ -7,6 +7,11 @@ cannot express dependencies between its own entries, and packages in this
 repository do depend on each other (sord needs serd, qjackctl needs jack2).
 A job that walks its queue in topological order can hand each build the
 packages the previous ones just produced, with no artifact plumbing at all.
+
+The one dependency that does cross environments is a MinGW package needing an
+MSYS one (alpmrpc needs alpmrpcd), and that is why msys is not in the matrix:
+it gets a job of its own, which runs first, and the MinGW builds install what
+it produced.
 """
 
 from __future__ import annotations
@@ -16,7 +21,7 @@ import os
 import subprocess
 
 from . import repodb, srcinfo
-from .config import ENVIRONMENTS
+from .config import ENVIRONMENTS, MSYS
 from .srcinfo import SrcInfo
 
 
@@ -58,9 +63,10 @@ def with_dependencies(selected: list[SrcInfo], candidates: list[SrcInfo]) -> lis
     Pull requests use this.  Their builds cannot install from the published
     repository -- only a job holding the deploy key can read it, and nothing a
     pull request can change may hold that key -- so whatever a changed package
-    needs from this repository is built from source in the same job, ahead of
-    it.  Dependencies resolve within one environment only, and anything no
-    candidate provides is left to MSYS2's own repositories.
+    needs from this repository is built from source in the same run, ahead of
+    it.  A dependency resolves in the package's own environment first, then in
+    msys, whose packages any environment may depend on; anything no candidate
+    provides is left to MSYS2's own repositories.
     """
     providers: dict[tuple[str, str], SrcInfo] = {}
     for info in candidates:
@@ -72,7 +78,8 @@ def with_dependencies(selected: list[SrcInfo], candidates: list[SrcInfo]) -> lis
     while pending:
         info = pending.pop()
         for dependency in info.depends:
-            provider = providers.get((info.environment, dependency))
+            provider = (providers.get((info.environment, dependency))
+                        or providers.get((MSYS, dependency)))
             if provider is None:
                 continue
             key = (provider.directory, provider.environment)
@@ -88,6 +95,8 @@ def order(infos: list[SrcInfo]) -> list[SrcInfo]:
     Only edges *within the queue* matter.  A dependency that is already
     published is not a build-order constraint, because the build job adds its
     copy of the published repository to pacman.conf and simply installs it.
+    Neither is one on an msys package: that job has finished before this queue
+    starts.
     """
     provider: dict[str, str] = {}
     for info in infos:
@@ -120,7 +129,7 @@ def order(infos: list[SrcInfo]) -> list[SrcInfo]:
 def plan(root: str, changed_since: str | None = None,
          only: list[str] | None = None,
          published: str | None = None) -> list[dict[str, str]]:
-    """Build a GitHub Actions matrix describing everything that needs building."""
+    """Every environment's queue, msys included, in build order."""
     directories = only
     if directories:
         known = set(srcinfo.find_package_dirs(root))
@@ -163,6 +172,28 @@ def plan(root: str, changed_since: str | None = None,
     return matrix
 
 
+def outputs(matrix: list[dict[str, str]]) -> dict[str, str]:
+    """What the workflows need from a plan, as step outputs.
+
+    * ``matrix``: the MinGW environments' entries, as JSON.
+    * ``msys``: the msys queue, space-separated, or empty.  It is built by a
+      job of its own before the matrix starts.
+    * ``mirror``: the environments to copy published packages for, as JSON --
+      every MinGW environment in the matrix, plus msys whenever anything at all
+      is built, since any build may need an already-published msys package.
+    """
+    mingw = [entry for entry in matrix if entry["environment"] != MSYS]
+    msys = next((entry["packages"] for entry in matrix if entry["environment"] == MSYS), "")
+    mirror = [{"environment": entry["environment"]} for entry in mingw]
+    if matrix:
+        mirror.append({"environment": MSYS})
+    return {
+        "matrix": json.dumps(mingw, separators=(",", ":")),
+        "msys": msys,
+        "mirror": json.dumps(mirror, separators=(",", ":")),
+    }
+
+
 def report(matrix: list[dict[str, str]]) -> str:
     if not matrix:
         return "Nothing to build; every package is published at its current version."
@@ -178,16 +209,18 @@ def main(args) -> int:
                   only=args.package or None, published=args.published)
 
     print(report(matrix))
-    encoded = json.dumps(matrix, separators=(",", ":"))
+    values = outputs(matrix)
 
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8") as handle:
-            handle.write(f"matrix={encoded}\n")
+            for key, value in values.items():
+                handle.write(f"{key}={value}\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
             handle.write(report(matrix) + "\n")
     if not output:
-        print(encoded)
+        for key, value in values.items():
+            print(f"{key}={value}")
     return 0

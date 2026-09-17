@@ -84,7 +84,8 @@
 
   <h2>1. Add the repository</h2>
   <p>Append these sections to the end of <code>/etc/pacman.conf</code>, after MSYS2's own
-  repositories, so that MSYS2 keeps precedence. Keep only the environments you use.</p>
+  repositories, so that MSYS2 keeps precedence. Keep the environments you use, and
+  <code>mingw-extra-msys</code> in any case: some packages here depend on an MSYS package from it.</p>
 <pre>[mingw-extra-ucrt64]
 SigLevel = Optional TrustAll
 Server = https://msys2pkgs.karadimov.org/ucrt64
@@ -104,6 +105,10 @@ Server = https://msys2pkgs.karadimov.org/mingw64
 [mingw-extra-mingw32]
 SigLevel = Optional TrustAll
 Server = https://msys2pkgs.karadimov.org/mingw32
+
+[mingw-extra-msys]
+SigLevel = Optional TrustAll
+Server = https://msys2pkgs.karadimov.org/msys
 </pre>
   <p>The packages are not signed yet. <code>SigLevel = Optional TrustAll</code> is what lets
   pacman accept them.</p>
@@ -129,6 +134,7 @@ pacman -S mingw-w64-ucrt-x86_64-stormlib
         <tr><td>CLANGARM64</td><td><code>mingw-extra-clangarm64</code></td><td><code>mingw-w64-clang-aarch64-</code></td></tr>
         <tr><td>MINGW64</td><td><code>mingw-extra-mingw64</code></td><td><code>mingw-w64-x86_64-</code></td></tr>
         <tr><td>MINGW32</td><td><code>mingw-extra-mingw32</code></td><td><code>mingw-w64-i686-</code></td></tr>
+        <tr><td>MSYS</td><td><code>mingw-extra-msys</code></td><td>no prefix</td></tr>
       </tbody>
     </table>
   </div>

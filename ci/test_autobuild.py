@@ -13,13 +13,15 @@ from __future__ import annotations
 
 import gzip
 import io
+import json
 import os
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 
 from autobuild import build, plan, repodb, srcinfo
-from autobuild.config import ENVIRONMENTS, PUBLISHED_MARKER, db_name
+from autobuild.config import ENVIRONMENTS, MSYS, PUBLISHED_MARKER, db_name, db_path
 from autobuild.srcinfo import SrcInfo
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -136,27 +138,40 @@ class VersionNormalisation(unittest.TestCase):
         self.assertFalse(database.has("qux", "1.0:rc1-1"))
 
 
-class PublishedCopy(unittest.TestCase):
-    """What the planner makes of the copy ci/fetch-published.sh leaves behind."""
+class TemporaryTree(unittest.TestCase):
+    """A scratch directory per test, and a way to put files in it."""
 
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.directory = temporary.name
 
-    def write(self, relative: str, data: bytes) -> None:
+    def write(self, relative: str, data: bytes = b"") -> str:
         path = os.path.join(self.directory, relative)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as handle:
             handle.write(data)
+        return path
+
+    def published_copy(self, name: str, environment: str) -> str:
+        """A copy of the published repository holding one package for `environment`."""
+        self.write(os.path.join(name, PUBLISHED_MARKER))
+        copy = os.path.join(self.directory, name)
+        self.write(os.path.relpath(db_path(copy, environment), self.directory),
+                   make_db([(f"published-{environment}", "1-1")]))
+        return copy
+
+
+class PublishedCopy(TemporaryTree):
+    """What the planner makes of the copy ci/fetch-published.sh leaves behind."""
 
     def test_a_published_database_is_read(self):
-        self.write(PUBLISHED_MARKER, b"")
+        self.write(PUBLISHED_MARKER)
         self.write("ucrt64/mingw-extra-ucrt64.db", make_db([("serd", "0.30.10-1")]))
         self.assertTrue(repodb.published(self.directory, "ucrt64").has("serd", "0.30.10-1"))
 
     def test_an_environment_never_published_is_empty(self):
-        self.write(PUBLISHED_MARKER, b"")
+        self.write(PUBLISHED_MARKER)
         self.assertEqual(len(repodb.published(self.directory, "clang64")), 0)
 
     def test_no_copy_at_all_means_nothing_published(self):
@@ -170,40 +185,83 @@ class PublishedCopy(unittest.TestCase):
             repodb.published(self.directory, "ucrt64")
 
     def test_a_file_that_is_not_a_database_says_what_it_holds(self):
-        self.write(PUBLISHED_MARKER, b"")
+        self.write(PUBLISHED_MARKER)
         self.write("ucrt64/mingw-extra-ucrt64.db", b"<!DOCTYPE html><html>challenge</html>")
         with self.assertRaises(RuntimeError) as caught:
             repodb.published(self.directory, "ucrt64")
         self.assertIn("<!DOCTYPE html>", str(caught.exception))
 
 
-class PacmanConfiguration(unittest.TestCase):
+class PacmanConfiguration(TemporaryTree):
+
+    def setUp(self):
+        super().setUp()
+        self.stock = self.write(
+            "stock.conf", b"[options]\n\n[ucrt64]\nInclude = /etc/pacman.d/mirrorlist.ucrt64\n")
+        self.staging = os.path.join(self.directory, "staging")
+
+    def conf(self, repositories) -> str:
+        config = os.path.join(self.directory, "pacman.conf")
+        build.write_pacman_conf(config, repositories, stock=self.stock)
+        with open(config, encoding="utf-8") as handle:
+            return handle.read()
+
+    def names(self, environment: str, published: list[str]) -> list[str]:
+        return [name for name, _, _ in
+                build.local_repositories(environment, self.staging, published)]
 
     def test_our_repositories_are_local_files_ahead_of_the_stock_ones(self):
-        with tempfile.TemporaryDirectory() as directory:
-            stock = os.path.join(directory, "stock.conf")
-            with open(stock, "w", encoding="utf-8") as handle:
-                handle.write("[options]\n\n[ucrt64]\nInclude = /etc/pacman.d/mirrorlist.ucrt64\n")
-            config = os.path.join(directory, "pacman.conf")
-            build.write_pacman_conf(config, "ucrt64", "/c/_b/staging/ucrt64",
-                                    "/d/a/published/ucrt64", stock=stock)
-            with open(config, encoding="utf-8") as handle:
-                text = handle.read()
+        text = self.conf([
+            ("mingw-extra-ucrt64-staging", "/c/_b/staging/ucrt64", "Never"),
+            ("mingw-extra-ucrt64", "/d/a/published/ucrt64", "Optional TrustAll"),
+        ])
         self.assertLess(text.index("[mingw-extra-ucrt64-staging]"), text.index("[mingw-extra-ucrt64]"))
         self.assertLess(text.index("[mingw-extra-ucrt64]"), text.index("[options]"))
         self.assertIn("Server = file:///c/_b/staging/ucrt64\n", text)
         self.assertIn("Server = file:///d/a/published/ucrt64\n", text)
         self.assertNotIn("http", text)
 
-    def test_nothing_published_means_no_section(self):
-        with tempfile.TemporaryDirectory() as directory:
-            stock = os.path.join(directory, "stock.conf")
-            with open(stock, "w", encoding="utf-8") as handle:
-                handle.write("[options]\n")
-            config = os.path.join(directory, "pacman.conf")
-            build.write_pacman_conf(config, "ucrt64", None, None, stock=stock)
-            with open(config, encoding="utf-8") as handle:
-                self.assertNotIn("mingw-extra", handle.read())
+    def test_a_mingw_build_sees_msys_too_built_before_published(self):
+        self.write("staging/ucrt64/mingw-extra-ucrt64-staging.db.tar.gz")
+        self.write("staging/msys/mingw-extra-msys-staging.db.tar.gz")
+        own = self.published_copy("own", "ucrt64")
+        msys = self.published_copy("msys-copy", "msys")
+        self.assertEqual(self.names("ucrt64", [own, msys]), [
+            "mingw-extra-ucrt64-staging", "mingw-extra-msys-staging",
+            "mingw-extra-ucrt64", "mingw-extra-msys",
+        ])
+
+    def test_an_msys_build_sees_msys_alone(self):
+        self.write("staging/msys/mingw-extra-msys-staging.db.tar.gz")
+        self.write("staging/ucrt64/mingw-extra-ucrt64-staging.db.tar.gz")
+        msys = self.published_copy("msys-copy", "msys")
+        own = self.published_copy("own", "ucrt64")
+        self.assertEqual(self.names("msys", [msys, own]),
+                         ["mingw-extra-msys-staging", "mingw-extra-msys"])
+
+    def test_nothing_built_or_published_means_no_section(self):
+        self.write(os.path.join("empty", PUBLISHED_MARKER))
+        self.assertEqual(self.names("ucrt64", [os.path.join(self.directory, "empty")]), [])
+        self.assertNotIn("mingw-extra", self.conf([]))
+
+
+class Packager(unittest.TestCase):
+    """makepkg warns about any PACKAGER that is not ``Name <...>``."""
+
+    # From /usr/share/makepkg/lint_config/variable.sh.
+    MAKEPKG_FORMAT = r"^([^<>]+ )?<[^<>]*>$"
+
+    def test_a_ci_run_is_named_and_linked(self):
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r", "GITHUB_RUN_ID": "7"}):
+            value = build.packager()
+        self.assertRegex(value, self.MAKEPKG_FORMAT)
+        self.assertIn("https://github.com/o/r/actions/runs/7", value)
+
+    def test_a_local_build_passes_too(self):
+        with mock.patch.dict(os.environ):
+            os.environ.pop("GITHUB_REPOSITORY", None)
+            os.environ.pop("GITHUB_RUN_ID", None)
+            self.assertRegex(build.packager(), self.MAKEPKG_FORMAT)
 
 
 def fake(directory: str, pkgnames: list[str], depends: list[str],
@@ -283,11 +341,54 @@ class PullRequestDependencies(unittest.TestCase):
         chosen = plan.with_dependencies([consumer], [consumer, producer])
         self.assertEqual(sorted(i.directory for i in chosen), ["consumer", "producer"])
 
-    def test_dependencies_stay_within_one_environment(self):
+    def test_dependencies_do_not_cross_into_another_mingw_environment(self):
         consumer = fake("sord", ["p-sord"], ["p-serd"])
         elsewhere = fake("serd", ["p-serd"], [], environment="clang64")
         chosen = plan.with_dependencies([consumer], [consumer, elsewhere])
         self.assertEqual([i.directory for i in chosen], ["sord"])
+
+    def test_a_mingw_package_pulls_in_the_msys_package_it_needs(self):
+        client = fake("alpmrpc", ["mingw-w64-ucrt-x86_64-alpmrpc"], ["alpmrpcd"])
+        server = fake("alpmrpcd", ["alpmrpcd"], [], environment=MSYS)
+        chosen = plan.with_dependencies([client], [client, server])
+        self.assertEqual(sorted((i.directory, i.environment) for i in chosen),
+                         [("alpmrpc", "ucrt64"), ("alpmrpcd", MSYS)])
+
+    def test_an_msys_package_does_not_reach_into_mingw(self):
+        tool = fake("tool", ["tool"], ["p-lib"], environment=MSYS)
+        lib = fake("lib", ["p-lib"], [])
+        chosen = plan.with_dependencies([tool], [tool, lib])
+        self.assertEqual([i.directory for i in chosen], ["tool"])
+
+
+class PlanOutputs(unittest.TestCase):
+    """msys leaves the matrix: it has to be built before the MinGW builds start."""
+
+    @staticmethod
+    def entry(environment: str, packages: str) -> dict[str, str]:
+        return {"environment": environment, "msystem": "X", "runner": "r", "packages": packages}
+
+    def test_msys_gets_an_output_of_its_own(self):
+        values = plan.outputs([self.entry(MSYS, "alpmrpcd"), self.entry("ucrt64", "alpmrpc")])
+        self.assertEqual(json.loads(values["matrix"]), [self.entry("ucrt64", "alpmrpc")])
+        self.assertEqual(values["msys"], "alpmrpcd")
+        self.assertEqual(json.loads(values["mirror"]),
+                         [{"environment": "ucrt64"}, {"environment": MSYS}])
+
+    def test_msys_is_mirrored_whenever_anything_builds(self):
+        values = plan.outputs([self.entry("clang64", "serd")])
+        self.assertEqual(values["msys"], "")
+        self.assertEqual(json.loads(values["mirror"]),
+                         [{"environment": "clang64"}, {"environment": MSYS}])
+
+    def test_msys_alone_leaves_an_empty_matrix(self):
+        values = plan.outputs([self.entry(MSYS, "alpmrpcd")])
+        self.assertEqual(values["matrix"], "[]")
+        self.assertEqual(json.loads(values["mirror"]), [{"environment": MSYS}])
+
+    def test_nothing_to_build(self):
+        # The workflows compare against these exact strings.
+        self.assertEqual(plan.outputs([]), {"matrix": "[]", "msys": "", "mirror": "[]"})
 
 
 class HomePage(unittest.TestCase):
@@ -303,10 +404,12 @@ class HomePage(unittest.TestCase):
                 self.assertIn(f"[{db_name(name)}]\nSigLevel = Optional TrustAll\n", self.page)
                 self.assertRegex(self.page, rf"\nServer = https://[^/\s]+/{name}\n")
 
-    def test_every_environment_has_its_package_prefix(self):
+    def test_every_environment_is_in_the_table(self):
         for name, environment in ENVIRONMENTS.items():
             with self.subTest(environment=name):
-                self.assertIn(f"<code>{environment.prefix}-</code>", self.page)
+                self.assertIn(f"<td><code>{db_name(name)}</code></td>", self.page)
+                if environment.prefix:
+                    self.assertIn(f"<code>{environment.prefix}-</code>", self.page)
 
 
 class RepositoryLayout(unittest.TestCase):
@@ -332,45 +435,55 @@ class RepositoryLayout(unittest.TestCase):
     def test_an_empty_array_opts_out_entirely(self):
         self.assertEqual(srcinfo.read_environments(ROOT, "bitcoin"), [])
 
+    def test_alpmrpcd_is_built_in_the_msys_lane(self):
+        self.assertEqual(srcinfo.read_environments(ROOT, "alpmrpcd"), [MSYS])
 
-class BrokenPkgbuild(unittest.TestCase):
-    """A PKGBUILD bash cannot read must fail loudly, never fall back."""
+
+class PkgbuildEnvironments(unittest.TestCase):
+    """What a PKGBUILD says about where it is built -- and what it must not say."""
+
+    def environments(self, body: str) -> list[str]:
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "p"))
+            with open(os.path.join(root, "p", "PKGBUILD"), "w", encoding="utf-8") as handle:
+                handle.write(body)
+            return srcinfo.read_environments(root, "p")
 
     def test_unreadable_pkgbuild_is_an_error(self):
-        with tempfile.TemporaryDirectory() as root:
-            package = os.path.join(root, "broken")
-            os.makedirs(package)
-            with open(os.path.join(package, "PKGBUILD"), "w", encoding="utf-8") as handle:
-                handle.write("pkgname=broken\nif [ ; then\n")  # syntax error
-            with self.assertRaisesRegex(ValueError, "could not read"):
-                srcinfo.read_environments(root, "broken")
+        with self.assertRaisesRegex(ValueError, "could not read"):
+            self.environments("pkgname=broken\nif [ ; then\n")  # syntax error
 
     def test_declared_environments_are_deduplicated(self):
-        with tempfile.TemporaryDirectory() as root:
-            package = os.path.join(root, "dup")
-            os.makedirs(package)
-            with open(os.path.join(package, "PKGBUILD"), "w", encoding="utf-8") as handle:
-                handle.write("mingw_arch=('ucrt64' 'clang64' 'ucrt64')\n")
-            self.assertEqual(
-                srcinfo.read_environments(root, "dup"), ["ucrt64", "clang64"])
+        self.assertEqual(
+            self.environments("mingw_arch=('ucrt64' 'clang64' 'ucrt64')\n"),
+            ["ucrt64", "clang64"])
 
     def test_an_absent_array_is_not_an_empty_one(self):
-        with tempfile.TemporaryDirectory() as root:
-            for name, body in [("absent", "pkgver=1\n"), ("empty", "mingw_arch=()\n")]:
-                os.makedirs(os.path.join(root, name))
-                with open(os.path.join(root, name, "PKGBUILD"), "w", encoding="utf-8") as h:
-                    h.write(body)
-            self.assertEqual(srcinfo.read_environments(root, "absent"), ["ucrt64"])
-            self.assertEqual(srcinfo.read_environments(root, "empty"), [])
+        self.assertEqual(self.environments("pkgver=1\n"), ["ucrt64"])
+        self.assertEqual(self.environments("mingw_arch=()\n"), [])
 
     def test_unknown_environment_is_rejected(self):
-        with tempfile.TemporaryDirectory() as root:
-            package = os.path.join(root, "typo")
-            os.makedirs(package)
-            with open(os.path.join(package, "PKGBUILD"), "w", encoding="utf-8") as handle:
-                handle.write("mingw_arch=('ucrt65')\n")
-            with self.assertRaisesRegex(ValueError, "unknown mingw_arch"):
-                srcinfo.read_environments(root, "typo")
+        with self.assertRaisesRegex(ValueError, "unknown mingw_arch"):
+            self.environments("mingw_arch=('ucrt65')\n")
+
+    def test_a_prefixed_name_is_a_mingw_package(self):
+        self.assertEqual(self.environments('pkgname=("${MINGW_PACKAGE_PREFIX}-tool")\n'),
+                         ["ucrt64"])
+
+    def test_an_unprefixed_name_is_an_msys_package(self):
+        self.assertEqual(self.environments("pkgname=tool\n"), [MSYS])
+
+    def test_an_empty_array_keeps_an_msys_package_from_being_built(self):
+        self.assertEqual(self.environments("pkgname=tool\nmingw_arch=()\n"), [])
+
+    def test_an_msys_package_cannot_claim_mingw_environments(self):
+        with self.assertRaisesRegex(ValueError, "MSYS package"):
+            self.environments("pkgname=tool\nmingw_arch=('ucrt64')\n")
+
+    def test_a_mingw_package_cannot_claim_msys(self):
+        with self.assertRaisesRegex(ValueError, "unknown mingw_arch"):
+            self.environments('pkgname=("${MINGW_PACKAGE_PREFIX}-tool")\n'
+                              "mingw_arch=('msys')\n")
 
 
 if __name__ == "__main__":
