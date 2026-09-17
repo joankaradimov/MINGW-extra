@@ -41,7 +41,7 @@ makedepends=('cmake'
              # here. That is deliberate -- see the comment in build().
              'mingw-w64-ucrt-x86_64-clang'
              'mingw-w64-ucrt-x86_64-python')
-source=("${_realname}::git+ssh://git@github.com/joankaradimov/alpmrpc.git")
+source=("${_realname}::git+https://github.com/joankaradimov/alpmrpc.git")
 sha256sums=('SKIP')
 
 pkgver() {
