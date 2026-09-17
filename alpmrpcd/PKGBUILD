@@ -37,6 +37,8 @@ makedepends=('cmake'
              'ninja'
              'openssl-devel'
              'pacman'
+             # Pulled in by gcc as well, but this parses /usr/include itself.
+             'msys2-runtime-devel'
              # The generator is a mingw one, not the MSYS clang sitting right
              # here. That is deliberate -- see the comment in build().
              'mingw-w64-ucrt-x86_64-clang'
