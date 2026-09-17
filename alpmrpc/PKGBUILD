@@ -42,7 +42,12 @@ makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
              'git'
              # For /usr/include/alpm.h, which is what the wire is generated
              # from and what this package installs as its own header.
-             'pacman')
+             'pacman'
+             # alpm.h includes archive.h, and the parse reads both under a
+             # Cygwin triple, so they and their system headers come from the
+             # MSYS tree rather than from the prefix.
+             'libarchive-devel'
+             'msys2-runtime-devel')
 source=("${_realname}::git+https://github.com/joankaradimov/alpmrpc.git")
 sha256sums=('SKIP')
 
