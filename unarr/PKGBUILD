@@ -2,29 +2,85 @@
 
 _realname=unarr
 pkgbase=mingw-w64-${_realname}
-pkgname=${MINGW_PACKAGE_PREFIX}-unarr
-pkgver=1.0.1
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=1.1.1
 pkgrel=1
+pkgdesc="A decompression library for RAR, TAR, ZIP and 7z archives (mingw-w64)"
 arch=('any')
-url="https://github.com/selmf/unarr"
-license=("LGPL3")
-pkgdesc="A lightweight decompression library with support for rar, tar and zip archives."
-source=("https://github.com/selmf/unarr/archive/v$pkgver.tar.gz")
-makedepends=(${MINGW_PACKAGE_PREFIX}-cmake git)
-depends=(${MINGW_PACKAGE_PREFIX}-zlib ${MINGW_PACKAGE_PREFIX}-bzip2 ${MINGW_PACKAGE_PREFIX}-xz)
+# ucrt64, clang64 and mingw32 are all verified: 20/20 integration tests in each,
+# and a consumer compiled from the installed pkg-config flags decompresses the
+# zlib, bzip2, lzma and ppmd corpora in a throwaway root against nothing but the
+# declared closure.
+#
+# clangarm64 is untested: it cannot be built on x86_64 hardware. CI can, on its
+# windows-11-arm runner, so adding it here is a one-line PR that CI verifies.
+mingw_arch=('ucrt64' 'clang64' 'mingw32')
+url='https://github.com/selmf/unarr'
+# AUTHORS names the exceptions to the project's LGPLv3: common/crc32.c and
+# everything under lzmasdk/ are public domain. Both files are installed.
+license=('spdx:LGPL-3.0-only AND LicenseRef-public-domain')
+msys2_references=(
+  'aur: libunarr'
+)
+depends=("${MINGW_PACKAGE_PREFIX}-bzip2"
+         "${MINGW_PACKAGE_PREFIX}-xz"
+         "${MINGW_PACKAGE_PREFIX}-zlib")
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-cmake"
+             "${MINGW_PACKAGE_PREFIX}-ninja"
+             "${MINGW_PACKAGE_PREFIX}-pkgconf")
+source=("https://github.com/selmf/unarr/releases/download/v${pkgver}/${_realname}-${pkgver}.tar.xz"
+        '0001-cmake-raise-minimum-version-to-3.16.patch'
+        '0002-pkgconfig-prefer-bzip2-pc-over-absolute-paths.patch'
+        '0003-tests-fix-dll-search-path-for-ctest.patch'
+        '0004-cmake-report-the-actual-release-version.patch')
+sha256sums=('328efa04ea996dd38916b1247a8cf176ac29b85caf92174e34d31998de4174d2'
+            'b2dc77c258be906e0e622fa61ab02fc62781814f8884bea434a6fad6f9bda1f1'
+            '0b635e41255ea8009eaeae8333c2a657deddbc22efacca303d53141b1e695cbe'
+            'ae2c79c69b40f6c107d42223ce7f24f92866444fc60a00a7386282665d16fb6d'
+            '7baf11eff21c91f6e2bca71a7d4a5fb7478fe576d35dfde1ad36188e1fa78a29')
 
-md5sums=('SKIP')
+prepare() {
+  cd "${srcdir}/${_realname}-${pkgver}"
+
+  patch -Np1 -i "${srcdir}/0001-cmake-raise-minimum-version-to-3.16.patch"
+  patch -Np1 -i "${srcdir}/0002-pkgconfig-prefer-bzip2-pc-over-absolute-paths.patch"
+  patch -Np1 -i "${srcdir}/0003-tests-fix-dll-search-path-for-ctest.patch"
+  patch -Np1 -i "${srcdir}/0004-cmake-report-the-actual-release-version.patch"
+}
 
 build() {
-  cd "${srcdir}/${_realname}-${pkgver}"
-  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" ${MINGW_PREFIX}/bin/cmake ./ \
-    -G "MSYS Makefiles" \
-    -DCMAKE_INSTALL_PREFIX=${MINGW_PREFIX} \
-    -DCMAKE_INSTALL_LIBDIR=lib
-  make
+  declare -a extra_config
+  if check_option "debug" "n"; then
+    extra_config+=("-DCMAKE_BUILD_TYPE=Release")
+  else
+    extra_config+=("-DCMAKE_BUILD_TYPE=Debug")
+  fi
+
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
+    "${MINGW_PREFIX}"/bin/cmake.exe \
+      -B "build-${MSYSTEM}" \
+      -S "${srcdir}/${_realname}-${pkgver}" \
+      -G Ninja \
+      -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
+      -DCMAKE_INSTALL_LIBDIR=lib \
+      -DBUILD_SHARED_LIBS=ON \
+      -DENABLE_7Z=ON \
+      -DBUILD_INTEGRATION_TESTS=ON \
+      "${extra_config[@]}"
+
+  "${MINGW_PREFIX}"/bin/cmake.exe --build "build-${MSYSTEM}"
+}
+
+check() {
+  "${MINGW_PREFIX}"/bin/ctest.exe --test-dir "build-${MSYSTEM}" --output-on-failure
 }
 
 package() {
-  cd "${srcdir}/${_realname}-${pkgver}"
-  make DESTDIR=$pkgdir install
+  DESTDIR="${pkgdir}" "${MINGW_PREFIX}"/bin/cmake.exe --install "build-${MSYSTEM}"
+
+  install -Dm644 "${srcdir}/${_realname}-${pkgver}/COPYING" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/COPYING"
+  install -Dm644 "${srcdir}/${_realname}-${pkgver}/AUTHORS" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/AUTHORS"
 }

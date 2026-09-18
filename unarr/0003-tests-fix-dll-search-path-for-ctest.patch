@@ -1,0 +1,40 @@
+Subject: [PATCH] Windows: Fix ctest search path for unarr.dll
+
+Backported from upstream commit e37c29501.
+
+unarr-test.exe is linked against the shared libunarr, but ctest runs it from
+test/ while the DLL is built one directory up.  1.1.1 tries to fix that by
+putting ${CMAKE_BINARY_DIR}/${CMAKE_BUILD_TYPE} on PATH, which only exists
+for multi-config generators -- with Ninja every integration test fails to
+start.  Upstream switched to ENVIRONMENT_MODIFICATION with the target's real
+directory, which is correct for both.
+
+Upstream: https://github.com/selmf/unarr/commit/e37c295010ae9b028c78041464b50466f6b1c747
+Applies-to: all environments
+---
+diff --git a/test/CMakeLists.txt b/test/CMakeLists.txt
+index cd024ad..9ce45a8 100644
+--- a/test/CMakeLists.txt
++++ b/test/CMakeLists.txt
+@@ -21,13 +21,15 @@ if(BUILD_INTEGRATION_TESTS)
+   target_link_libraries(unarr-test unarr)
+ 
+   function(run_test file)
+-    add_test(NAME ${file} COMMAND unarr-test
++    add_test(NAME "${file}" COMMAND unarr-test
+                                   ${CMAKE_CURRENT_SOURCE_DIR}/corpus/${file})
+-    set_tests_properties(
+-      ${file}
+-      PROPERTIES ENVIRONMENT
+-                 "PATH=${CMAKE_BINARY_DIR}/${CMAKE_BUILD_TYPE};$ENV{PATH}")
+-  endfunction(run_test file)
++    # Add unarr.dll location to path for Windows
++    if(WIN32)
++      set_tests_properties(
++        "${file}" PROPERTIES ENVIRONMENT_MODIFICATION
++                           "PATH=path_list_prepend:$<TARGET_FILE_DIR:unarr>")
++    endif()
++  endfunction()
+ 
+   # Rar
+   run_test(integration/lipsum_rar4_store.rar)

@@ -1,0 +1,30 @@
+Subject: [PATCH] CMake: Report 1.1.1 as the project version
+
+The 1.1.1 release never bumped project(VERSION), which is still 1.1.0 from
+the previous release.  Everything derived from it inherits the stale number:
+libunarr.pc says "Version: 1.1.0" and unarr-version.cmake sets
+PACKAGE_VERSION to 1.1.0, so pkg-config --atleast-version=1.1.1 and
+find_package(unarr 1.1.1) both fail against a full 1.1.1 install.  The
+shared library's VERSION/SOVERSION come from the same variable.
+
+Upstream reworked versioning wholesale after this release (commit d8c9daa33,
+"Refactor versioning", unreleased) rather than fixing the number in place,
+so there is no commit to backport -- drop this on the next version bump and
+check that the new release got its own version right.
+
+Upstream: not submitted (fixed differently on master, after 1.1.1)
+Applies-to: all environments
+---
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index bdb7885..60c9650 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16...4.0 FATAL_ERROR)
+ 
+ project(
+   unarr
+-  VERSION 1.1.0
++  VERSION 1.1.1
+   LANGUAGES C)
+ set(PROJECT_DESCRIPTION "A decompression library for rar, tar and zip files.")
+ 

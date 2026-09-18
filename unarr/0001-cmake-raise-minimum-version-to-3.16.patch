@@ -1,0 +1,23 @@
+Subject: [PATCH] CMake: Increase minimum CMake version to 3.16
+
+Backported from upstream commits 67b2e8155 ("Increase minimum CMake version
+to 3.16") and 1df8ab3d2 ("CMake: indicate compatibility up to CMake 4.0"),
+squashed: 1.1.1 declares a 3.3 minimum, and CMake 4 refuses to configure any
+project asking for less than 3.5, so the build dies before it starts.  The
+upper bound of the range is what upstream settled on and keeps policy
+behaviour pinned where 1.1.1 expects it.
+
+Upstream: https://github.com/selmf/unarr/commit/67b2e8155bc03d9189ea6c52baf13f67f2a739f8
+          https://github.com/selmf/unarr/commit/1df8ab3d281409e9fe6bed8bf485976bb47f5bef
+Applies-to: all environments
+---
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index f38b229..a7a0e3a 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,4 +1,4 @@
+-cmake_minimum_required(VERSION 3.3 FATAL_ERROR)
++cmake_minimum_required(VERSION 3.16...4.0 FATAL_ERROR)
+ 
+ project(
+   unarr
