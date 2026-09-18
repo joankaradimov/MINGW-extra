@@ -1,0 +1,121 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=open-watcom-v2
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+_build=2026-09-01
+pkgver=2.0.${_build//-/}
+pkgrel=1
+pkgdesc="Open Watcom V2 C/C++/Fortran compilers, tools and target libraries for DOS, Windows, OS/2 and Linux (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64' 'mingw32')
+url='https://open-watcom.github.io/'
+msys2_repository_url='https://github.com/open-watcom/open-watcom-v2'
+msys2_references=(
+  'aur: openwatcom-v2'
+)
+license=('spdx:Watcom-1.0')
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             'make')
+depends=()
+optdepends=("${MINGW_PACKAGE_PREFIX}-cmake: for cross-compiling to DOS with the bundled toolchain file")
+options=('!strip' '!emptydirs')
+source=("${_realname}-${_build}-Build.tar.gz::https://github.com/open-watcom/open-watcom-v2/archive/refs/tags/${_build}-Build.tar.gz"
+        '0001-support-mingw-w64-gcc-as-the-host-toolchain.patch'
+        'owsetenv.sh'
+        'OpenWatcomDOS.cmake')
+sha256sums=('a628d95a4559f8a2f955b8720dcb43dfbf55e16bc3733e7e51af5f781d070a85'
+            '2ede7d425448dde16a2b7bbee3ef4467e0e8c121ea94bd68416f506e742bd942'
+            '6600954760c18fe777b2e7f216281f0b8d9a54978949b382c9a186edf320bf05'
+            '9325ad4ed5a89e12328c371db994096685141fce82a1090afc8a550274283442')
+
+_srcdir="${_realname}-${_build}-Build"
+
+prepare() {
+  cd "${srcdir}/${_srcdir}"
+
+  patch -Np1 -i "${srcdir}/0001-support-mingw-w64-gcc-as-the-host-toolchain.patch"
+}
+
+_ow_env() {
+  # The build is driven by Open Watcom's own wmake/builder, which are
+  # native Windows programs, so OWROOT must be a Windows-style path.
+  export OWROOT="$(cygpath -m "${PWD}")"
+  case "${MSYSTEM}" in
+    CLANG*) export OWTOOLS=CLANG; _ver=__clang_major__ ;;
+    *)      export OWTOOLS=GCC;   _ver=__GNUC__ ;;
+  esac
+  export OWTOOLSVER="$(echo ${_ver} | ${CC:-cc} -E -P -x c - | tail -n1)"
+  export OWBLDVER=20
+  export OWBLDVERSTR=2.0
+  export OWBLDVERTOOL=1300
+  export OWOBJDIR=binbuild
+  export OWDOCBUILD=0
+  export OWNOWGML=1
+  export OWDISTRBUILD=0
+  export OWRELROOT="${OWROOT}/rel"
+  export PATH="${PWD}/build/${OWOBJDIR}:${PWD}/build:${PATH}"
+}
+
+build() {
+  cd "${srcdir}/${_srcdir}"
+  _ow_env
+
+  # Phase 1 (boot) builds bootstrap versions of the Open Watcom tools with
+  # the host compiler; phase 2 (rel) rebuilds everything with those tools
+  # and copies the result into ${OWRELROOT}.
+  ./build.sh rel
+}
+
+package() {
+  cd "${srcdir}/${_srcdir}"
+  local _ow="${MINGW_PREFIX}/lib/watcom"
+
+  mkdir -p "${pkgdir}${_ow}"
+  cp -a rel/. "${pkgdir}${_ow}/"
+
+  # Only the Windows-hosted tools are shipped; the target headers and
+  # libraries for every platform stay. binw is kept even though its tools are
+  # 16-bit: it also holds the DOS extender stubs (cwstub, dos32a, pmodew, ...)
+  # that wlink binds into DOS executables, and upstream puts it on PATH for
+  # Windows installs too.
+  rm -rf "${pkgdir}${_ow}"/{binp,binl,binl64,bino64,binb64,armb64,arml64,armo,armo64}
+  # installer images and the uninstaller make no sense under pacman
+  rm -rf "${pkgdir}${_ow}"/{setup,uninstal.exe}
+
+  install -Dm644 "${srcdir}/owsetenv.sh" "${pkgdir}${_ow}/owsetenv.sh"
+
+  # CMake toolchain file for cross-compiling to DOS. It finds this tree on
+  # its own, so a project needs no Open Watcom specific configuration.
+  install -Dm644 "${srcdir}/OpenWatcomDOS.cmake" \
+    "${pkgdir}${MINGW_PREFIX}/share/cmake/OpenWatcom/OpenWatcomDOS.cmake"
+
+  # Open Watcom has no x64 code generator, so the native host tools land in
+  # binnt64 only when the host compiler is 64-bit. A 32-bit host builds them
+  # in binnt and leaves only DOS stub files in binnt64, so key the choice on
+  # the compiler rather than on the directory existing.
+  local _hostbin=binnt64
+  [ -f "${pkgdir}${_ow}/binnt64/wcc386.exe" ] || _hostbin=binnt
+
+  # Wrapper scripts so the tools work from any MSYS2 shell without
+  # sourcing owsetenv.sh first.
+  mkdir -p "${pkgdir}${MINGW_PREFIX}/bin"
+  local _exe _name
+  for _exe in "${pkgdir}${_ow}"/${_hostbin}/*.exe; do
+    _name="$(basename "${_exe}" .exe)"
+    case "${_name}" in
+      # editors and MS tool clones whose names collide with other packages
+      vi|viw|ctags|cl|cl386|claxp|link|link386|linkaxp|lib|lib386|libaxp|nmake|rc|cvtres) continue ;;
+      # DOS stub images, not tools
+      wstub|wstubq) continue ;;
+    esac
+    printf '%s\n' \
+      '#!/bin/sh' \
+      '. "$(dirname "$(realpath "$0")")/../lib/watcom/owsetenv.sh"' \
+      "exec \"\${WATCOM}/${_hostbin}/${_name}.exe\" \"\$@\"" \
+      > "${pkgdir}${MINGW_PREFIX}/bin/${_name}"
+    chmod 755 "${pkgdir}${MINGW_PREFIX}/bin/${_name}"
+  done
+
+  install -Dm644 license.txt "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/license.txt"
+}

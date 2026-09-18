@@ -1,0 +1,1594 @@
+Support MinGW-w64 GCC (MSYS2) as the host toolchain on Windows.
+
+Upstream supports GCC/Clang hosts only on POSIX systems; on Windows the
+build must be bootstrapped with Visual C++ or Open Watcom itself. This
+patch teaches the build system and the small host-compatibility layer
+about a GCC toolchain running on an NT host, so the whole tree can be
+bootstrapped and built from MSYS2 with mingw-w64 GCC. The bootstrap tools
+and the 64-bit Windows host tools (binnt64) are compiled by GCC; everything
+else is built by the bootstrapped Open Watcom compilers as usual.
+
+Build system:
+ * build.sh, bld/wmake/posmake: recognise a MINGW/MSYS uname and build a
+   native NT wmake.exe with the POSIX makefile.
+ * bld/builder/preboot: use gcc for the builder tool on an NT host.
+ * build/mif/cpuoscfg.mif, local.mif: allow bld_os=nt for GCC/CLANG, emit
+   __NT__ instead of __UNIX__, use .dll, drop -gz (unsupported by the
+   MinGW driver), don't redefine _M_X64/_M_IX86 which the mingw-w64
+   headers provide, emit an import library next to every DLL (the
+   makefiles expect it, as MSVC link produces one), and link the Win32
+   import libraries MSVC treats as default libraries.
+ * build/mif/exetarg.mif, dlltarg.mif: wrap libraries in a link group (GNU
+   ld resolves archives in order, MSVC link does not, and the makefiles
+   rely on that); skip 'chmod -x' on NT; strip the whole symbol table
+   before wrc binds resources, which leaves stale COFF pointers otherwise.
+ * build/mif/libtarg.mif: merge sub-libraries through an ar MRI script;
+   GNU ar adds an archive as a plain member where MSVC lib merges it.
+ * build/mif/cproj.mif: point wrc at the OW Win32 API headers, as the
+   Watcom-hosted build does, instead of relying on a Windows SDK in
+   INCLUDE.
+ * bld/trap/*/ntx64.trp/makefile, bld/trap/ntx64.def: the trap DLL entry
+   points are looked up by ordinal; use a .def file instead of MSVC
+   -EXPORT options.
+ * bld/wipfc/master.mif: wipfc needs C++11 (<cstdint>) under GCC/Clang.
+ * bld/rcsdll, bld/ide/ide, bld/wv/utils/trap2txt: declare the C++
+   projects as such so they link with g++ (MSVC cl does not care).
+
+Host compatibility layer:
+ * bld/watcom/h/clibext.h, bld/watcom/c/clibext.c: let __MINGW32__ share
+   the MSVC (non-Watcom NT) branch, guarding the few macros and typedefs
+   mingw-w64 already has; map the spawn* family to the underscored CRT
+   versions whose prototypes match the callers; implement ultoa and cputs
+   which MSVC gets from oldnames.lib and the UCRT only ships underscored.
+ * bld/watcom/h/watcom.h: spell pointer_int as long long for non-MSVC
+   64-bit Windows compilers (__int64 is only a macro after a CRT header).
+ * bld/cc/h/cconst.h: GCC on Win64 predefines __SEH__ for its own
+   unwinder; the C compiler uses the same name with a different meaning.
+ * bld/f77/wfc/c/cptraps.c: FPE_* aliases, mingw-w64 float.h only has the
+   underscored names.
+ * bld/posix/src/compress/compress.h: sys/utime.h for MinGW as well.
+ * bld/posix/src/env/env.c, bld/mstools/*/c/*.c: include clibext.h where
+   spawn* is called without it.
+ * bld/wmake/c/mexec.c: don't split the command word at '+', which
+   truncated 'g++' to 'g' when wmake spawns the compiler directly.
+
+Source fixes GCC insists on:
+ * bld/sdk/fmedit, bld/sdk/wde, bld/dig: token pasting of a name onto a
+   parenthesised argument list or a string literal ('x##(', '## c',
+   'xstr(a)##xstr(b)') is not valid C; MSVC and Watcom tolerate it.
+ * bld/sdk/imgedit: EnumChildWindows callbacks declared with LONG instead
+   of LPARAM, which differ in width on Win64.
+ * bld/ide/ide: WString converts to both const char* and long, making
+   two WCheckBox/WPushButton constructors ambiguous; cast at the call.
+ * bld/wclass/hpp/wfile.hpp: include <stdio.h> for SEEK_SET.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/bld/builder/preboot b/bld/builder/preboot
+index 2bed2e9c..aaf5a5f1 100644
+--- a/bld/builder/preboot
++++ b/bld/builder/preboot
+@@ -23,7 +23,13 @@ cc_opts_nt    = -bcl=nt
+ cc_opts_linux = -bcl=linux
+ CL = *wcl386 -zq $(cc_opts_$(bld_os)) -fe=$(name_exe)
+ !else ifdef __NT__
++! ifdef __GCC_TOOLS__
++CL = gcc -g -O2 -o$(name_exe)
++! else ifdef __CLANG_TOOLS__
++CL = clang -g -O2 -o$(name_exe)
++! else
+ CL = cl /nologo /Fe:$(name_exe)
++! endif
+ !else
+ CL = cc -g -O2 -o$(name_exe)
+ !endif
+diff --git a/bld/cc/h/cconst.h b/bld/cc/h/cconst.h
+index 83b0b7d9..95be1531 100644
+--- a/bld/cc/h/cconst.h
++++ b/bld/cc/h/cconst.h
+@@ -34,6 +34,13 @@
+     #error _CPU macro not defined
+ #endif
+ 
++#if defined( __GNUC__ ) && defined( __SEH__ )
++    /*
++     * GCC on Win64 (MinGW-w64) predefines __SEH__ for its own unwinder,
++     * the name is used here with a different meaning
++     */
++    #undef __SEH__
++#endif
+ #if _CPU != 8086
+     /*
+      * enable Structured Exception Handling for all 32-bit targets
+diff --git a/bld/dig/c/nt/trpld.c b/bld/dig/c/nt/trpld.c
+index 47a09c87..bb6a989c 100644
+--- a/bld/dig/c/nt/trpld.c
++++ b/bld/dig/c/nt/trpld.c
+@@ -39,7 +39,7 @@
+ #include "trpsys.h"
+ 
+ 
+-#define pick(n,r,p,ar,ap)   typedef r TRAPENTRY (*TRAP_EXTFUNC_TYPE(n)) ## p;
++#define pick(n,r,p,ar,ap)   typedef r TRAPENTRY (*TRAP_EXTFUNC_TYPE(n)) p;
+ #include "_trpextf.h"
+ #undef pick
+ 
+diff --git a/bld/dig/c/os2/trpld.c b/bld/dig/c/os2/trpld.c
+index 11a520c5..981a99b1 100644
+--- a/bld/dig/c/os2/trpld.c
++++ b/bld/dig/c/os2/trpld.c
+@@ -50,7 +50,7 @@
+ 
+ #define LOW(c)      ((c) | 0x20)
+ 
+-#define pick(n,r,p,ar,ap)   typedef r TRAPENTRY (*TRAP_EXTFUNC_TYPE(n)) ## p;
++#define pick(n,r,p,ar,ap)   typedef r TRAPENTRY (*TRAP_EXTFUNC_TYPE(n)) p;
+ #include "_trpextf.h"
+ #undef pick
+ 
+diff --git a/bld/dig/c/win/trpld.c b/bld/dig/c/win/trpld.c
+index aee744a5..1a753700 100644
+--- a/bld/dig/c/win/trpld.c
++++ b/bld/dig/c/win/trpld.c
+@@ -39,7 +39,7 @@
+ #include "trpsys.h"
+ 
+ 
+-#define pick(n,r,p,ar,ap)   typedef r TRAPENTRY (*TRAP_EXTFUNC_TYPE(n)) ## p;
++#define pick(n,r,p,ar,ap)   typedef r TRAPENTRY (*TRAP_EXTFUNC_TYPE(n)) p;
+ #include "_trpextf.h"
+ #undef pick
+ 
+diff --git a/bld/dig/h/trpsys.h b/bld/dig/h/trpsys.h
+index 384a77aa..83f61472 100644
+--- a/bld/dig/h/trpsys.h
++++ b/bld/dig/h/trpsys.h
+@@ -56,10 +56,10 @@ extern bool     TrapHardModeRequired;
+ 
+ #endif
+ 
+-#define pick(n,r,p,ar,ap)   extern ar TRAP_EXTFUNC( n ) ## ap;
++#define pick(n,r,p,ar,ap)   extern ar TRAP_EXTFUNC( n ) ap;
+ #include "_trpextf.h"
+ #undef pick
+ 
+-#define pick(n,r,p,ar,ap)   extern r TRAPENTRY_FUNC( n ) ## p;
++#define pick(n,r,p,ar,ap)   extern r TRAPENTRY_FUNC( n ) p;
+ #include "_trpextf.h"
+ #undef pick
+diff --git a/bld/f77/wfc/c/cptraps.c b/bld/f77/wfc/c/cptraps.c
+index c02daac5..8d610de8 100644
+--- a/bld/f77/wfc/c/cptraps.c
++++ b/bld/f77/wfc/c/cptraps.c
+@@ -38,6 +38,13 @@
+ #include "rtfpesig.h"
+ #include "cptraps.h"
+ 
++#if defined( __MINGW32__ ) && !defined( FPE_OVERFLOW )
++    /* mingw-w64 float.h only provides the underscored names */
++    #define FPE_OVERFLOW    _FPE_OVERFLOW
++    #define FPE_UNDERFLOW   _FPE_UNDERFLOW
++    #define FPE_ZERODIVIDE  _FPE_ZERODIVIDE
++#endif
++
+ 
+ #if !defined( __UNIX__ )
+ 
+diff --git a/bld/ide/ide/cpp/vcompon.cpp b/bld/ide/ide/cpp/vcompon.cpp
+index c303545a..84f6c3de 100644
+--- a/bld/ide/ide/cpp/vcompon.cpp
++++ b/bld/ide/ide/cpp/vcompon.cpp
+@@ -270,7 +270,7 @@ void VComponent::createControls()
+             WString text;
+             action->name( text );
+             WPushButton* bAction =
+-                new WPushButton( this, WRect(-BW-xindent, off, BW, BH), text );
++                new WPushButton( this, WRect(-BW-xindent, off, BW, BH), (const char *)text );
+             bAction->setTagPtr( action );
+             off += BH+BH/2;
+             bAction->onClick( this, (cbw)&VComponent::bActionComponent );
+diff --git a/bld/ide/ide/cpp/vsetup.cpp b/bld/ide/ide/cpp/vsetup.cpp
+index 07b263ad..78e1fe58 100644
+--- a/bld/ide/ide/cpp/vsetup.cpp
++++ b/bld/ide/ide/cpp/vsetup.cpp
+@@ -356,7 +356,7 @@ void VSetup::initialize()
+                     } else if( streq( sw->className(), "MCSwitch" )
+                                || streq( sw->className(), "MC2Switch" ) ) {
+                         fam->displayText( sw, text );
+-                        WCheckBox* t = new WCheckBox( w, WRect(xoff,yoff,wid,checkbox_hite), text );
++                        WCheckBox* t = new WCheckBox( w, WRect(xoff,yoff,wid,checkbox_hite), (const char *)text );
+                         swList->add( new SwitchMap( sw, t, st ) );
+ #ifndef TEST
+                         t->show();
+@@ -370,7 +370,7 @@ void VSetup::initialize()
+                         WBoolSwitch* tt = NULL;
+                         fam->displayText( sw, text );
+                         if( ((MVSwitch*)sw)->optional() ) {
+-                            tt = new WCheckBox( w, WRect(xoff,yoff,wid, checkbox_hite), text );
++                            tt = new WCheckBox( w, WRect(xoff,yoff,wid, checkbox_hite), (const char *)text );
+ #ifndef TEST
+                             tt->show();
+ #endif
+diff --git a/bld/ide/ide/master.mif b/bld/ide/ide/master.mif
+index 348b2148..939f2640 100644
+--- a/bld/ide/ide/master.mif
++++ b/bld/ide/ide/master.mif
+@@ -1,6 +1,7 @@
+ tree_depth = 4
+ 
+ proj_name = ide
++proj_type = cxx
+ 
+ !ifndef ide_autodepends
+ ide_autodepends = .AUTODEPEND
+diff --git a/bld/mstools/asaxp/c/asaxp.c b/bld/mstools/asaxp/c/asaxp.c
+index 05c202a1..34ea81c4 100644
+--- a/bld/mstools/asaxp/c/asaxp.c
++++ b/bld/mstools/asaxp/c/asaxp.c
+@@ -31,6 +31,7 @@
+ 
+ 
+ #include <process.h>
++#include "clibext.h"
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+diff --git a/bld/mstools/lib/c/lib.c b/bld/mstools/lib/c/lib.c
+index 0a01d14e..44f6667f 100644
+--- a/bld/mstools/lib/c/lib.c
++++ b/bld/mstools/lib/c/lib.c
+@@ -31,6 +31,7 @@
+ 
+ 
+ #include <process.h>
++#include "clibext.h"
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+diff --git a/bld/mstools/link/c/link.c b/bld/mstools/link/c/link.c
+index 4e446f8d..8e8563f7 100644
+--- a/bld/mstools/link/c/link.c
++++ b/bld/mstools/link/c/link.c
+@@ -31,6 +31,7 @@
+ 
+ 
+ #include <process.h>
++#include "clibext.h"
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+diff --git a/bld/mstools/nmake/c/nmake.c b/bld/mstools/nmake/c/nmake.c
+index cf805e14..f4075553 100644
+--- a/bld/mstools/nmake/c/nmake.c
++++ b/bld/mstools/nmake/c/nmake.c
+@@ -31,6 +31,7 @@
+ 
+ 
+ #include <process.h>
++#include "clibext.h"
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+diff --git a/bld/mstools/rc/c/rc.c b/bld/mstools/rc/c/rc.c
+index 3fa02b2c..e2737e57 100644
+--- a/bld/mstools/rc/c/rc.c
++++ b/bld/mstools/rc/c/rc.c
+@@ -31,6 +31,7 @@
+ 
+ 
+ #include <process.h>
++#include "clibext.h"
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+diff --git a/bld/posix/makeall.mif b/bld/posix/makeall.mif
+index 1508ebdb..02ad8019 100644
+--- a/bld/posix/makeall.mif
++++ b/bld/posix/makeall.mif
+@@ -26,15 +26,20 @@ model_switch_386=
+ 
+ defrule_key = stdlib
+ subdir_stdlib = $(stdlibdir)
++!ifdef __WATCOM_TOOLS__
++# memory model switch, only the Watcom compilers have one
+ extra_cpp_stdlib_i86_flags = -m$(model)
+ extra_cpp_stdlib_386_flags = -m$(model)
++!endif
+ extra_cpp_stdlib_flags = $(extra_cpp_stdlib_$(host_cpu)_flags)
+ !include defrule.mif
+ !ifdef alt_posixlib
+ defrule_key = altlib
+ subdir_altlib = $(altlibdir)
++!ifdef __WATCOM_TOOLS__
+ extra_cpp_altlib_i86s_flags = -mc
+ extra_cpp_altlib_i86c_flags = -ms
++!endif
+ extra_cpp_altlib_flags = $(extra_cpp_altlib_$(host_cpu)$(model)_flags)
+ !include defrule.mif
+ !endif
+diff --git a/bld/posix/src/compress/compress.h b/bld/posix/src/compress/compress.h
+index 3b22a450..d1583cd2 100644
+--- a/bld/posix/src/compress/compress.h
++++ b/bld/posix/src/compress/compress.h
+@@ -343,7 +343,7 @@ extern char *strcat(), *strcpy(), *strncat(), *strncpy();
+ #include <fcntl.h>
+ #endif
+ 
+-#if defined( MSC ) || defined( _MSC_VER )
++#if defined( MSC ) || defined( _MSC_VER ) || defined( __MINGW32__ )
+ #include <stdlib.h>
+ #include <io.h>
+ #include <sys/utime.h>
+diff --git a/bld/posix/src/env/env.c b/bld/posix/src/env/env.c
+index ad45c41a..d53bc5cd 100644
+--- a/bld/posix/src/env/env.c
++++ b/bld/posix/src/env/env.c
+@@ -35,6 +35,7 @@
+ #include <string.h>
+ #include <stdio.h>
+ #include <process.h>
++#include "clibext.h"
+ #include <ctype.h>
+ #include <errno.h>
+ #include "bool.h"
+diff --git a/bld/rcsdll/master.mif b/bld/rcsdll/master.mif
+index 665420f6..f19d29a0 100644
+--- a/bld/rcsdll/master.mif
++++ b/bld/rcsdll/master.mif
+@@ -1,4 +1,5 @@
+ proj_name = rcsdll
++proj_type = cxx
+ 
+ !ifndef rcsdll_autodepends
+ rcsdll_autodepends = .AUTODEPEND
+diff --git a/bld/sdk/fmedit/dev/actions.def b/bld/sdk/fmedit/dev/actions.def
+index d9e36e3f..c5fdf127 100644
+--- a/bld/sdk/fmedit/dev/actions.def
++++ b/bld/sdk/fmedit/dev/actions.def
+@@ -1,43 +1,43 @@
+ #ifndef _ACTIONS_INCLUDE
+ #define _ACTIONS_INCLUDE
+ 
+-#define pick_ACTION_REGISTER(o,x)           x##( REGISTER,           Register,         (o *, void *, void *) )
+-#define pick_ACTION_MOVE(o,x)               x##( MOVE,               Move,             (o *, POINT *, bool *) )
+-#define pick_ACTION_RESIZE(o,x)             x##( RESIZE,             Resize,           (o *, RECT *, bool *) )
+-#define pick_ACTION_LOCATE(o,x)             x##( LOCATE,             Location,         (o *, RECT *, void *) )
+-#define pick_ACTION_FIND_SUBOBJECTS(o,x)    x##( FIND_SUBOBJECTS,    FindSubObjects,   (o *, SUBOBJ_REQUEST *, LIST **) )
+-#define pick_ACTION_DESTROY(o,x)            x##( DESTROY,            Destroy,          (o *, bool *, bool *) )
+-#define pick_ACTION_DRAW(o,x)               x##( DRAW,               Draw,             (o *, RECT *, HDC *) )
+-#define pick_ACTION_DEFINE(o,x)             x##( DEFINE,             Define,           (o *, POINT *, void *) )
+-#define pick_ACTION_NOTIFY(o,x)             x##( NOTIFY,             Notify,           (o *, NOTE_ID *, void *) )
+-#define pick_ACTION_FORWARD(o,x)            x##( FORWARD,            Forward,          (o *, void *, void *) )
+-#define pick_ACTION_VALIDATE_ACTION(o,x)    x##( VALIDATE_ACTION,    ValidateAction,   (o *, ACTION_ID *, void *) )
+-#define pick_ACTION_ADD_SUBOBJECT(o,x)      x##( ADD_SUBOBJECT,      AddSubObject,     (o *, OBJPTR, void *) )
+-#define pick_ACTION_REMOVE_SUBOBJECT(o,x)   x##( REMOVE_SUBOBJECT,   RemoveSubObject,  (o *, OBJPTR, void *) )
+-#define pick_ACTION_RESIZE_INFO(o,x)        x##( RESIZE_INFO,        GetResizeInfo,    (o *, RESIZE_ID *, void *) )
+-#define pick_ACTION_CUT(o,x)                x##( CUT,                CutObject,        (o *, OBJPTR *, void *) )
+-#define pick_ACTION_COPY(o,x)               x##( COPY,               CopyObject,       (o *, o **, OBJPTR) )
+-#define pick_ACTION_PASTE(o,x)              x##( PASTE,              PasteObject,      (o *, OBJPTR, POINT *) )
+-#define pick_ACTION_GET_PARENT(o,x)         x##( GET_PARENT,         GetObjectParent,  (o *, OBJPTR *, void *) )
+-#define pick_ACTION_GET_PRIORITY(o,x)       x##( GET_PRIORITY,       GetPriority,      (o *, int *, void *) )
+-#define pick_ACTION_GET_RESIZE_INC(o,x)     x##( GET_RESIZE_INC,     GetResizeInc,     (o *, POINT *, void *) )
+-#define pick_ACTION_GET_SCROLL_RECT(o,x)    x##( GET_SCROLL_RECT,    GetScrollRect,    (o *, RECT *, void *) )
+-#define pick_ACTION_IS_MARK_VALID(o,x)      x##( IS_MARK_VALID,      IsMarkValid,      (o *, bool *, void *) )
+-#define pick_ACTION_FIND_OBJECTS_PT(o,x)    x##( FIND_OBJECTS_PT,    FindObjectsPt,    (o *, POINT *, LIST **) )
++#define pick_ACTION_REGISTER(o,x)           x( REGISTER,           Register,         (o *, void *, void *) )
++#define pick_ACTION_MOVE(o,x)               x( MOVE,               Move,             (o *, POINT *, bool *) )
++#define pick_ACTION_RESIZE(o,x)             x( RESIZE,             Resize,           (o *, RECT *, bool *) )
++#define pick_ACTION_LOCATE(o,x)             x( LOCATE,             Location,         (o *, RECT *, void *) )
++#define pick_ACTION_FIND_SUBOBJECTS(o,x)    x( FIND_SUBOBJECTS,    FindSubObjects,   (o *, SUBOBJ_REQUEST *, LIST **) )
++#define pick_ACTION_DESTROY(o,x)            x( DESTROY,            Destroy,          (o *, bool *, bool *) )
++#define pick_ACTION_DRAW(o,x)               x( DRAW,               Draw,             (o *, RECT *, HDC *) )
++#define pick_ACTION_DEFINE(o,x)             x( DEFINE,             Define,           (o *, POINT *, void *) )
++#define pick_ACTION_NOTIFY(o,x)             x( NOTIFY,             Notify,           (o *, NOTE_ID *, void *) )
++#define pick_ACTION_FORWARD(o,x)            x( FORWARD,            Forward,          (o *, void *, void *) )
++#define pick_ACTION_VALIDATE_ACTION(o,x)    x( VALIDATE_ACTION,    ValidateAction,   (o *, ACTION_ID *, void *) )
++#define pick_ACTION_ADD_SUBOBJECT(o,x)      x( ADD_SUBOBJECT,      AddSubObject,     (o *, OBJPTR, void *) )
++#define pick_ACTION_REMOVE_SUBOBJECT(o,x)   x( REMOVE_SUBOBJECT,   RemoveSubObject,  (o *, OBJPTR, void *) )
++#define pick_ACTION_RESIZE_INFO(o,x)        x( RESIZE_INFO,        GetResizeInfo,    (o *, RESIZE_ID *, void *) )
++#define pick_ACTION_CUT(o,x)                x( CUT,                CutObject,        (o *, OBJPTR *, void *) )
++#define pick_ACTION_COPY(o,x)               x( COPY,               CopyObject,       (o *, o **, OBJPTR) )
++#define pick_ACTION_PASTE(o,x)              x( PASTE,              PasteObject,      (o *, OBJPTR, POINT *) )
++#define pick_ACTION_GET_PARENT(o,x)         x( GET_PARENT,         GetObjectParent,  (o *, OBJPTR *, void *) )
++#define pick_ACTION_GET_PRIORITY(o,x)       x( GET_PRIORITY,       GetPriority,      (o *, int *, void *) )
++#define pick_ACTION_GET_RESIZE_INC(o,x)     x( GET_RESIZE_INC,     GetResizeInc,     (o *, POINT *, void *) )
++#define pick_ACTION_GET_SCROLL_RECT(o,x)    x( GET_SCROLL_RECT,    GetScrollRect,    (o *, RECT *, void *) )
++#define pick_ACTION_IS_MARK_VALID(o,x)      x( IS_MARK_VALID,      IsMarkValid,      (o *, bool *, void *) )
++#define pick_ACTION_FIND_OBJECTS_PT(o,x)    x( FIND_OBJECTS_PT,    FindObjectsPt,    (o *, POINT *, LIST **) )
+ 
+ /* editor actions */
+ 
+-#define pick_ACTION_RECREATE(o,x)           x##( RECREATE,           Recreate,         (o *, POINT *, void *) )
+-#define pick_ACTION_GET_OBJECT(o,x)         x##( GET_OBJECT,         GetObject,        (o *, OBJPTR *, OBJPTR) )
+-#define pick_ACTION_ADD_OBJECT(o,x)         x##( ADD_OBJECT,         AddObject,        (o *, OBJPTR, bool *) )
+-#define pick_ACTION_DELETE_OBJECT(o,x)      x##( DELETE_OBJECT,      DeleteObject,     (o *, OBJPTR, bool *) )
+-#define pick_ACTION_GET_PRIMARY(o,x)        x##( GET_PRIMARY,        GetPrimary,       (o *, OBJPTR *, bool *) )
+-#define pick_ACTION_UNDO_MOVE(o,x)          x##( UNDO_MOVE,          UndoMove,         (o *, void *, void *) )
+-#define pick_ACTION_REMOVE_FROM_PARENT(o,x) x##( REMOVE_FROM_PARENT, RemoveFromParent, (o *, void *, void *) )
+-#define pick_ACTION_GET_OBJPTR(o,x)         x##( GET_OBJPTR,         GetObjptr,        (o *, OBJPTR *, void *) )
+-#define pick_ACTION_GET_ANCHOR(o,x)         x##( GET_ANCHOR,         GetAnchor,        (o *, POINT *, void *) )
+-#define pick_ACTION_SHOW_SEL_BOXES(o,x)     x##( SHOW_SEL_BOXES,     ShowSelBoxes,     (o *, bool *, void *) )
+-//#define pick_ACTION_FORCE_REDRAW(o,x)       x##( FORCE_REDRAW,       ForceRedraw,      (o *, void *, void *) )
++#define pick_ACTION_RECREATE(o,x)           x( RECREATE,           Recreate,         (o *, POINT *, void *) )
++#define pick_ACTION_GET_OBJECT(o,x)         x( GET_OBJECT,         GetObject,        (o *, OBJPTR *, OBJPTR) )
++#define pick_ACTION_ADD_OBJECT(o,x)         x( ADD_OBJECT,         AddObject,        (o *, OBJPTR, bool *) )
++#define pick_ACTION_DELETE_OBJECT(o,x)      x( DELETE_OBJECT,      DeleteObject,     (o *, OBJPTR, bool *) )
++#define pick_ACTION_GET_PRIMARY(o,x)        x( GET_PRIMARY,        GetPrimary,       (o *, OBJPTR *, bool *) )
++#define pick_ACTION_UNDO_MOVE(o,x)          x( UNDO_MOVE,          UndoMove,         (o *, void *, void *) )
++#define pick_ACTION_REMOVE_FROM_PARENT(o,x) x( REMOVE_FROM_PARENT, RemoveFromParent, (o *, void *, void *) )
++#define pick_ACTION_GET_OBJPTR(o,x)         x( GET_OBJPTR,         GetObjptr,        (o *, OBJPTR *, void *) )
++#define pick_ACTION_GET_ANCHOR(o,x)         x( GET_ANCHOR,         GetAnchor,        (o *, POINT *, void *) )
++#define pick_ACTION_SHOW_SEL_BOXES(o,x)     x( SHOW_SEL_BOXES,     ShowSelBoxes,     (o *, bool *, void *) )
++//#define pick_ACTION_FORCE_REDRAW(o,x)       x( FORCE_REDRAW,       ForceRedraw,      (o *, void *, void *) )
+ 
+ typedef enum {
+ #define pick(e,n,c)     e,
+diff --git a/bld/sdk/fmedit/src/curritem.c b/bld/sdk/fmedit/src/curritem.c
+index c29d4252..2037a34f 100644
+--- a/bld/sdk/fmedit/src/curritem.c
++++ b/bld/sdk/fmedit/src/curritem.c
+@@ -50,7 +50,7 @@
+ WINEXPORT LRESULT CALLBACK CurrItemWndProc( HWND, UINT, WPARAM, LPARAM );
+ 
+ /* forward references */
+-#define pick(e,n,c) static bool CurrItem ## n ## c;
++#define pick(e,n,c) static bool CurrItem ## n c;
+     pick_ACTS( CURRITEM )
+ #undef pick
+ 
+diff --git a/bld/sdk/fmedit/src/currobj.c b/bld/sdk/fmedit/src/currobj.c
+index 1f7d911e..bdd08d05 100644
+--- a/bld/sdk/fmedit/src/currobj.c
++++ b/bld/sdk/fmedit/src/currobj.c
+@@ -48,7 +48,7 @@
+     pick_ACTION_NOTIFY(o,pick)
+ 
+ /* forward references */
+-#define pick(e,n,c)    static bool CurrObj ## n ## c;
++#define pick(e,n,c)    static bool CurrObj ## n c;
+     pick_ACTS( CURROBJ )
+ #undef pick
+ 
+diff --git a/bld/sdk/fmedit/src/eatom.c b/bld/sdk/fmedit/src/eatom.c
+index 530609b7..ab1508b3 100644
+--- a/bld/sdk/fmedit/src/eatom.c
++++ b/bld/sdk/fmedit/src/eatom.c
+@@ -69,7 +69,7 @@
+ WINEXPORT LRESULT CALLBACK EAtomWndProc( HWND, UINT, WPARAM, LPARAM );
+ 
+ /* forward references */
+-#define pick(e,n,c) static bool EAtom ## n ## c;
++#define pick(e,n,c) static bool EAtom ## n c;
+     pick_ACTS( EATOM )
+ #undef pick
+ 
+diff --git a/bld/sdk/fmedit/src/oitem.c b/bld/sdk/fmedit/src/oitem.c
+index f02ca383..16296edb 100644
+--- a/bld/sdk/fmedit/src/oitem.c
++++ b/bld/sdk/fmedit/src/oitem.c
+@@ -55,7 +55,7 @@
+     pick_ACTION_FIND_OBJECTS_PT(o,pick)
+ 
+ /* forward references */
+-#define pick(e,n,c) static bool OItem ## n ## c;
++#define pick(e,n,c) static bool OItem ## n c;
+     pick_ACTS( OITEM )
+ #undef pick
+ 
+diff --git a/bld/sdk/imgedit/c/iedraw.c b/bld/sdk/imgedit/c/iedraw.c
+index 1635748e..cd2813f0 100644
+--- a/bld/sdk/imgedit/c/iedraw.c
++++ b/bld/sdk/imgedit/c/iedraw.c
+@@ -40,7 +40,7 @@
+ 
+ 
+ /* Local Window callback functions prototypes */
+-WINEXPORT BOOL CALLBACK GridEnumProc( HWND hwnd, LONG lparam );
++WINEXPORT BOOL CALLBACK GridEnumProc( HWND hwnd, LPARAM lparam );
+ WPI_EXPORT void CALLBACK DrawPt( int xpos, int ypos, WPI_PARAM2 lparam );
+ 
+ #define MIN_DRAW_WIN_WIDTH      150
+@@ -55,7 +55,7 @@ static void showGrid( HWND hwnd, WPI_PRES mempres );
+ /*
+  * GridEnumProc - used to grid all the children
+  */
+-BOOL CALLBACK GridEnumProc( HWND hwnd, LONG lparam )
++BOOL CALLBACK GridEnumProc( HWND hwnd, LPARAM lparam )
+ {
+     lparam = lparam;
+     if( _wpi_getowner( hwnd ) ) {
+diff --git a/bld/sdk/imgedit/c/ieutil.c b/bld/sdk/imgedit/c/ieutil.c
+index e9dbb00d..1534f861 100644
+--- a/bld/sdk/imgedit/c/ieutil.c
++++ b/bld/sdk/imgedit/c/ieutil.c
+@@ -39,7 +39,7 @@
+ 
+ 
+ /* Local Window callback functions prototypes */
+-WINEXPORT BOOL CALLBACK GetPosProc( HWND hwnd, LONG lparam );
++WINEXPORT BOOL CALLBACK GetPosProc( HWND hwnd, LPARAM lparam );
+ 
+ static WPI_POINT        *windowCoords;
+ static int              windowIndex;    // used to figure out window coordinates
+@@ -493,7 +493,7 @@ void GrayEditOptions( void )
+ /*
+  * GetPosProc - get the position of all the child windows
+  */
+-BOOL CALLBACK GetPosProc( HWND hwnd, LONG lparam )
++BOOL CALLBACK GetPosProc( HWND hwnd, LPARAM lparam )
+ {
+     WPI_RECT    windowrect;
+     WPI_POINT   topleft;        // this ends up being bottom left for PM
+diff --git a/bld/sdk/imgedit/c/ieviewin.c b/bld/sdk/imgedit/c/ieviewin.c
+index 04e30939..c84dc0f1 100644
+--- a/bld/sdk/imgedit/c/ieviewin.c
++++ b/bld/sdk/imgedit/c/ieviewin.c
+@@ -36,8 +36,8 @@
+ 
+ 
+ /* Local Window callback functions prototypes */
+-WINEXPORT BOOL CALLBACK ViewEnumProc( HWND hwnd, LONG lparam );
+-WINEXPORT BOOL CALLBACK BkColorEnumProc( HWND hwnd, LONG lparam );
++WINEXPORT BOOL CALLBACK ViewEnumProc( HWND hwnd, LPARAM lparam );
++WINEXPORT BOOL CALLBACK BkColorEnumProc( HWND hwnd, LPARAM lparam );
+ 
+ static int              showState = SW_SHOWNORMAL;
+ static COLORREF         bkgroundColor = BK_WHITE;
+@@ -279,7 +279,7 @@ static void redrawViewWnd( HWND hwnd )
+  * ViewEnumProc - enumerate the child windows and show the view window
+  *                for each window
+  */
+-BOOL CALLBACK ViewEnumProc( HWND hwnd, LONG lparam )
++BOOL CALLBACK ViewEnumProc( HWND hwnd, LPARAM lparam )
+ {
+     lparam = lparam;
+ 
+@@ -415,7 +415,7 @@ COLORREF GetViewBkColor( void )
+ /*
+  * BkColorEnumProc - used to change the background color of all MDI children
+  */
+-BOOL CALLBACK BkColorEnumProc( HWND hwnd, LONG lparam )
++BOOL CALLBACK BkColorEnumProc( HWND hwnd, LPARAM lparam )
+ {
+     img_node    *node;
+ 
+diff --git a/bld/sdk/wde/c/wdefani.c b/bld/sdk/wde/c/wdefani.c
+index 2ec015ea..90770b05 100644
+--- a/bld/sdk/wde/c/wdefani.c
++++ b/bld/sdk/wde/c/wdefani.c
+@@ -87,7 +87,7 @@ static void     WdeAniCSetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static void     WdeAniCGetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static bool     WdeAniCDefineHook( HWND, UINT, WPARAM, LPARAM, DialogStyle );
+ 
+-#define pick(e,n,c)     static bool WdeAniC ## n ## c;
++#define pick(e,n,c)     static bool WdeAniC ## n c;
+     pick_ACTS( WdeAniCObject )
+ #undef pick
+ 
+diff --git a/bld/sdk/wde/c/wdefbase.c b/bld/sdk/wde/c/wdefbase.c
+index dfe6d453..415d1483 100644
+--- a/bld/sdk/wde/c/wdefbase.c
++++ b/bld/sdk/wde/c/wdefbase.c
+@@ -120,7 +120,7 @@ WINEXPORT bool   CALLBACK WdeBaseDispatcher( ACTION_ID, OBJPTR, void *, void * )
+ /* static function prototypes                                               */
+ /****************************************************************************/
+ 
+-#define pick(e,n,c) static bool WdeBase ## n ## c;
++#define pick(e,n,c) static bool WdeBase ## n c;
+     pick_ACTS( WdeBaseObject )
+ #undef pick
+ 
+diff --git a/bld/sdk/wde/c/wdefbutt.c b/bld/sdk/wde/c/wdefbutt.c
+index 19e8246c..77981b2a 100644
+--- a/bld/sdk/wde/c/wdefbutt.c
++++ b/bld/sdk/wde/c/wdefbutt.c
+@@ -89,7 +89,7 @@ static OBJPTR   WdeButtonCreate( OBJPTR, RECT *, OBJPTR, OBJ_ID, WdeDialogBoxCon
+ static void     WdeButtonSetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static void     WdeButtonGetDefineInfo( WdeDefineObjectInfo *, HWND );
+ 
+-#define pick(e,n,c) static bool WdeButton ## n ## c;
++#define pick(e,n,c) static bool WdeButton ## n c;
+     pick_ACTS( WdeButtonObject )
+ #undef pick
+ 
+diff --git a/bld/sdk/wde/c/wdefcbox.c b/bld/sdk/wde/c/wdefcbox.c
+index 58e2d8c2..6488fa4d 100644
+--- a/bld/sdk/wde/c/wdefcbox.c
++++ b/bld/sdk/wde/c/wdefcbox.c
+@@ -88,7 +88,7 @@ static void     WdeCBoxSetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static void     WdeCBoxGetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static bool     WdeCBoxDefineHook( HWND, UINT, WPARAM, LPARAM, DialogStyle );
+ 
+-#define pick(e,n,c) static bool WdeCBox ## n ## c;
++#define pick(e,n,c) static bool WdeCBox ## n c;
+     pick_ACTS( WdeCBoxObject )
+ #undef pick
+ 
+diff --git a/bld/sdk/wde/c/wdefcntl.c b/bld/sdk/wde/c/wdefcntl.c
+index ff90810c..aa926777 100644
+--- a/bld/sdk/wde/c/wdefcntl.c
++++ b/bld/sdk/wde/c/wdefcntl.c
+@@ -151,8 +151,8 @@ static void WdeWriteControlToInfo( WdeControlObject * );
+ static bool WdeControlModifyInfo( WdeControlObject *, WdeInfoStruct *, void * );
+ static bool WdeControlSizeToText( WdeControlObject *, void *, void * );
+ 
+-#define pick(e,n,c)  static bool WdeControl ## n ## c;
+-#define pick1(e,n,c) static bool WdeControl ## n ## c;
++#define pick(e,n,c)  static bool WdeControl ## n c;
++#define pick1(e,n,c) static bool WdeControl ## n c;
+     pick_ACTS( WdeControlObject )
+ #undef pick1
+ #undef pick
+diff --git a/bld/sdk/wde/c/wdefdiag.c b/bld/sdk/wde/c/wdefdiag.c
+index c369a07d..2d93548d 100644
+--- a/bld/sdk/wde/c/wdefdiag.c
++++ b/bld/sdk/wde/c/wdefdiag.c
+@@ -190,7 +190,7 @@ static void     WdeDialogSetDialogPntInfo( HWND, int );
+ static void     WdeFreeDialogObject( WdeDialogObject * );
+ static void     WdeWriteDialogToInfo( WdeDialogObject * );
+ 
+-#define pick(e,n,c) static bool WdeDialog ## n ## c;
++#define pick(e,n,c) static bool WdeDialog ## n c;
+     pick_ACTS( WdeDialogObject )
+ #undef pick
+ 
+diff --git a/bld/sdk/wde/c/wdefedit.c b/bld/sdk/wde/c/wdefedit.c
+index f98f11d1..d87bb170 100644
+--- a/bld/sdk/wde/c/wdefedit.c
++++ b/bld/sdk/wde/c/wdefedit.c
+@@ -86,7 +86,7 @@ static void     WdeEditSetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static void     WdeEditGetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static bool     WdeEditDefineHook( HWND, UINT, WPARAM, LPARAM, DialogStyle );
+ 
+-#define pick(e,n,c) static bool WdeEdit ## n ## c;
++#define pick(e,n,c) static bool WdeEdit ## n c;
+     pick_ACTS( WdeEditObject )
+ #undef pick
+ 
+diff --git a/bld/sdk/wde/c/wdefhdr.c b/bld/sdk/wde/c/wdefhdr.c
+index 82676a3d..037900c7 100644
+--- a/bld/sdk/wde/c/wdefhdr.c
++++ b/bld/sdk/wde/c/wdefhdr.c
+@@ -87,7 +87,7 @@ static void     WdeHdrSetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static void     WdeHdrGetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static bool     WdeHdrDefineHook( HWND, UINT, WPARAM, LPARAM, DialogStyle );
+ 
+-#define pick(e,n,c) static bool WdeHdr ## n ## c;
++#define pick(e,n,c) static bool WdeHdr ## n c;
+     pick_ACTS( WdeHdrObject )
+ #undef pick
+ 
+diff --git a/bld/sdk/wde/c/wdefhtky.c b/bld/sdk/wde/c/wdefhtky.c
+index 35ba8bb9..aa76f750 100644
+--- a/bld/sdk/wde/c/wdefhtky.c
++++ b/bld/sdk/wde/c/wdefhtky.c
+@@ -87,7 +87,7 @@ static void     WdeHtKySetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static void     WdeHtKyGetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static bool     WdeHtKyDefineHook( HWND, UINT, WPARAM, LPARAM, DialogStyle );
+ 
+-#define pick(e,n,c) static bool WdeHtKy ## n ## c;
++#define pick(e,n,c) static bool WdeHtKy ## n c;
+     pick_ACTS( WdeHtKyObject )
+ #undef pick
+ 
+diff --git a/bld/sdk/wde/c/wdeflbox.c b/bld/sdk/wde/c/wdeflbox.c
+index 7216915d..1f2f1b08 100644
+--- a/bld/sdk/wde/c/wdeflbox.c
++++ b/bld/sdk/wde/c/wdeflbox.c
+@@ -86,7 +86,7 @@ static void     WdeLBoxSetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static void     WdeLBoxGetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static bool     WdeLBoxDefineHook( HWND, UINT, WPARAM, LPARAM, DialogStyle );
+ 
+-#define pick(e,n,c) static bool WdeLBox ## n ## c;
++#define pick(e,n,c) static bool WdeLBox ## n c;
+     pick_ACTS( WdeLBoxObject )
+ #undef pick
+ 
+diff --git a/bld/sdk/wde/c/wdeflvw.c b/bld/sdk/wde/c/wdeflvw.c
+index 3706a1c2..7ebbf2da 100644
+--- a/bld/sdk/wde/c/wdeflvw.c
++++ b/bld/sdk/wde/c/wdeflvw.c
+@@ -87,7 +87,7 @@ static void     WdeLViewSetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static void     WdeLViewGetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static bool     WdeLViewDefineHook( HWND, UINT, WPARAM, LPARAM, DialogStyle );
+ 
+-#define pick(e,n,c) static bool WdeLView ## n ## c;
++#define pick(e,n,c) static bool WdeLView ## n c;
+     pick_ACTS( WdeLViewObject )
+ #undef pick
+ 
+diff --git a/bld/sdk/wde/c/wdefprog.c b/bld/sdk/wde/c/wdefprog.c
+index 503f9b16..b749502e 100644
+--- a/bld/sdk/wde/c/wdefprog.c
++++ b/bld/sdk/wde/c/wdefprog.c
+@@ -87,7 +87,7 @@ static void     WdeProgSetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static void     WdeProgGetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static bool     WdeProgDefineHook( HWND, UINT, WPARAM, LPARAM, DialogStyle );
+ 
+-#define pick(e,n,c) static bool WdeProg ## n ## c;
++#define pick(e,n,c) static bool WdeProg ## n c;
+     pick_ACTS( WdeProgObject )
+ #undef pick
+ 
+diff --git a/bld/sdk/wde/c/wdefsbar.c b/bld/sdk/wde/c/wdefsbar.c
+index e58a9c28..9fc1d502 100644
+--- a/bld/sdk/wde/c/wdefsbar.c
++++ b/bld/sdk/wde/c/wdefsbar.c
+@@ -89,7 +89,7 @@ static void     WdeSBarSetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static void     WdeSBarGetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static bool     WdeSBarDefineHook( HWND, UINT, WPARAM, LPARAM, DialogStyle );
+ 
+-#define pick(e,n,c) static bool WdeSBar ## n ## c;
++#define pick(e,n,c) static bool WdeSBar ## n c;
+     pick_ACTS( WdeSBarObject )
+ #undef pick
+ 
+diff --git a/bld/sdk/wde/c/wdefscrl.c b/bld/sdk/wde/c/wdefscrl.c
+index badb4c66..49da4e42 100644
+--- a/bld/sdk/wde/c/wdefscrl.c
++++ b/bld/sdk/wde/c/wdefscrl.c
+@@ -88,7 +88,7 @@ static void     WdeScrollSetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static void     WdeScrollGetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static bool     WdeScrollDefineHook( HWND, UINT, WPARAM, LPARAM, DialogStyle );
+ 
+-#define pick(e,n,c) static bool WdeScroll ## n ## c;
++#define pick(e,n,c) static bool WdeScroll ## n c;
+     pick_ACTS( WdeScrollObject )
+ #undef pick
+ 
+diff --git a/bld/sdk/wde/c/wdefstat.c b/bld/sdk/wde/c/wdefstat.c
+index 8af55ed1..5a573c9b 100644
+--- a/bld/sdk/wde/c/wdefstat.c
++++ b/bld/sdk/wde/c/wdefstat.c
+@@ -85,7 +85,7 @@ static OBJPTR   WdeStatCreate( OBJPTR, RECT *, OBJPTR, OBJ_ID, WdeDialogBoxContr
+ static void     WdeStaticSetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static void     WdeStaticGetDefineInfo( WdeDefineObjectInfo *, HWND );
+ 
+-#define pick(e,n,c) static bool WdeStatic ## n ## c;
++#define pick(e,n,c) static bool WdeStatic ## n c;
+     pick_ACTS( WdeStaticObject )
+ #undef pick
+ 
+diff --git a/bld/sdk/wde/c/wdeftabc.c b/bld/sdk/wde/c/wdeftabc.c
+index 0effcd7c..b80bff69 100644
+--- a/bld/sdk/wde/c/wdeftabc.c
++++ b/bld/sdk/wde/c/wdeftabc.c
+@@ -87,7 +87,7 @@ static void     WdeTabCSetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static void     WdeTabCGetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static bool     WdeTabCDefineHook( HWND, UINT, WPARAM, LPARAM, DialogStyle );
+ 
+-#define pick(e,n,c) static bool WdeTabC ## n ## c;
++#define pick(e,n,c) static bool WdeTabC ## n c;
+     pick_ACTS( WdeTabCObject )
+ #undef pick
+ 
+diff --git a/bld/sdk/wde/c/wdeftrak.c b/bld/sdk/wde/c/wdeftrak.c
+index cd446a9d..3af9b6bc 100644
+--- a/bld/sdk/wde/c/wdeftrak.c
++++ b/bld/sdk/wde/c/wdeftrak.c
+@@ -87,7 +87,7 @@ static void     WdeTrakSetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static void     WdeTrakGetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static bool     WdeTrakDefineHook( HWND, UINT, WPARAM, LPARAM, DialogStyle );
+ 
+-#define pick(e,n,c) static bool WdeTrak ## n ## c;
++#define pick(e,n,c) static bool WdeTrak ## n c;
+     pick_ACTS( WdeTrakObject )
+ #undef pick
+ 
+diff --git a/bld/sdk/wde/c/wdeftvw.c b/bld/sdk/wde/c/wdeftvw.c
+index 50a010d6..1979399b 100644
+--- a/bld/sdk/wde/c/wdeftvw.c
++++ b/bld/sdk/wde/c/wdeftvw.c
+@@ -87,7 +87,7 @@ static void     WdeTViewSetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static void     WdeTViewGetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static bool     WdeTViewDefineHook( HWND, UINT, WPARAM, LPARAM, DialogStyle );
+ 
+-#define pick(e,n,c) static bool WdeTView ## n ## c;
++#define pick(e,n,c) static bool WdeTView ## n c;
+     pick_ACTS( WdeTViewObject )
+ #undef pick
+ 
+diff --git a/bld/sdk/wde/c/wdefupdn.c b/bld/sdk/wde/c/wdefupdn.c
+index 60996ddf..c27ef803 100644
+--- a/bld/sdk/wde/c/wdefupdn.c
++++ b/bld/sdk/wde/c/wdefupdn.c
+@@ -87,7 +87,7 @@ static void     WdeUpDnSetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static void     WdeUpDnGetDefineInfo( WdeDefineObjectInfo *, HWND );
+ static bool     WdeUpDnDefineHook( HWND, UINT, WPARAM, LPARAM, DialogStyle );
+ 
+-#define pick(e,n,c) static bool WdeUpDn ## n ## c;
++#define pick(e,n,c) static bool WdeUpDn ## n c;
+     pick_ACTS( WdeUpDnObject )
+ #undef pick
+ 
+diff --git a/bld/sdk/wde/c/wdesvdlg.c b/bld/sdk/wde/c/wdesvdlg.c
+index 307c79db..d840efdf 100644
+--- a/bld/sdk/wde/c/wdesvdlg.c
++++ b/bld/sdk/wde/c/wdesvdlg.c
+@@ -49,11 +49,11 @@
+ /****************************************************************************/
+ #define str( a )            #a
+ #define xstr( a )           str( a )
+-#define wpick( a, b, s )    { a##b, a##b, a##b, xstr( a )##xstr( b ) , s }
+-#define opick( a, b )       { a##b, 0xf, 0x0, xstr( a )##xstr( b ), ControlStyle }
+-#define lvs_pick( a, b )    { a##b, 0x3, 0x3, xstr( a )##xstr( b ), ControlStyle }
+-#define jpick( a, b )       { a##b, 0x0f00, 0x0, xstr( a )##xstr( b ), ControlStyle }
+-#define fpick( a, b )       { a##b, a##b, a##b, xstr( a )##xstr( b ), ControlStyle }
++#define wpick( a, b, s )    { a##b, a##b, a##b, xstr( a ) xstr( b ) , s }
++#define opick( a, b )       { a##b, 0xf, 0x0, xstr( a ) xstr( b ), ControlStyle }
++#define lvs_pick( a, b )    { a##b, 0x3, 0x3, xstr( a ) xstr( b ), ControlStyle }
++#define jpick( a, b )       { a##b, 0x0f00, 0x0, xstr( a ) xstr( b ), ControlStyle }
++#define fpick( a, b )       { a##b, a##b, a##b, xstr( a ) xstr( b ), ControlStyle }
+ #define sentinel            { 0, 0, 0, NULL, 0 }
+ 
+ /****************************************************************************/
+diff --git a/bld/sdk/wde/h/wdeactn.h b/bld/sdk/wde/h/wdeactn.h
+index bc37040b..e93a0539 100644
+--- a/bld/sdk/wde/h/wdeactn.h
++++ b/bld/sdk/wde/h/wdeactn.h
+@@ -33,41 +33,41 @@
+ #ifndef WDEACTN_INCLUDED
+ #define WDEACTN_INCLUDED
+ 
+-#define pick_ACTION_GET_WINDOW_HANDLE(o,x)      x##( GET_WINDOW_HANDLE,    GetWindowHandle,    (o *, HWND *, void *) )
+-#define pick_ACTION_GET_WINDOW_CLASS(o,x)       x##( GET_WINDOW_CLASS,     GetWindowClass,     (o *, char **, void *) )
+-#define pick_ACTION_GET_SUBOBJ_LIST(o,x)        x##( GET_SUBOBJ_LIST,      GetSubObjectList,   (o *, LIST **, void *) )
+-#define pick_ACTION_GET_OBJECT_INFO(o,x)        x##( GET_OBJECT_INFO,      GetObjectInfo,      (o *, void **, void **) )
+-#define pick_ACTION_SET_OBJECT_INFO(o,x)        x##( SET_OBJECT_INFO,      SetObjectInfo,      (o *, void *, void *) )
+-#define pick_ACTION_GET_OBJECT_HELPINFO(o,x)    x##( GET_OBJECT_HELPINFO,  GetObjectHelpInfo,  (o *, void **, char **) )
+-#define pick_ACTION_SET_OBJECT_HELPINFO(o,x)    x##( SET_OBJECT_HELPINFO,  SetObjectHelpInfo,  (o *, void *, char *) )
+-#define pick_ACTION_CREATE_WINDOW(o,x)          x##( CREATE_WINDOW,        CreateWindow,       (o *, bool *, void *) )
+-#define pick_ACTION_DESTROY_WINDOW(o,x)         x##( DESTROY_WINDOW,       DestroyWindow,      (o *, bool *, bool *) )
+-#define pick_ACTION_SHOW_WIN(o,x)               x##( SHOW_WIN,             ShowWindow,         (o *, bool *, void *) )
+-#define pick_ACTION_GET_RESIZER(o,x)            x##( GET_RESIZER,          GetResizer,         (o *, WdeResizeRatio *, OBJPTR *) )
+-#define pick_ACTION_GET_FONT(o,x)               x##( GET_FONT,             GetFont,            (o *, HFONT *, void *) )
+-#define pick_ACTION_SET_FONT(o,x)               x##( SET_FONT,             SetFont,            (o *, HFONT *, WdeResizeRatio *) )
+-#define pick_ACTION_BECOME_FIRST_CHILD(o,x)     x##( BECOME_FIRST_CHILD,   FirstChild,         (o *, void *, void *) )
+-#define pick_ACTION_PUT_ME_FIRST(o,x)           x##( PUT_ME_FIRST,         PutChildFirst,      (o *, OBJPTR, void *) )
+-#define pick_ACTION_GET_FIRST_CHILD(o,x)        x##( GET_FIRST_CHILD,      GetFirstChild,      (o *, OBJPTR *, void *) )
+-#define pick_ACTION_GET_NC_SIZE(o,x)            x##( GET_NC_SIZE,          GetNCSize,          (o *, RECT *, void *) )
+-#define pick_ACTION_GET_RES_SIZE(o,x)           x##( GET_RES_SIZE,         GetResSize,         (o *, void *, void *) )
+-#define pick_ACTION_SAVE_OBJECT(o,x)            x##( SAVE_OBJECT,          SaveObject,         (o *, WORD *, void *) )
+-#define pick_ACTION_TEST(o,x)                   x##( TEST,                 Test,               (o *, TEMPLATE_HANDLE *, size_t *) )
+-#define pick_ACTION_TESTEX(o,x)                 x##( TESTEX,               TestEX,             (o *, TEMPLATE_HANDLE *, size_t *) )
+-#define pick_ACTION_ON_TOP(o,x)                 x##( ON_TOP,               OnTop,              (o *, void *, void *) )
+-#define pick_ACTION_IDENTIFY(o,x)               x##( IDENTIFY,             Identify,           (o *, OBJ_ID *, void *) )
+-#define pick_ACTION_SET_CLEAR_INT(o,x)          x##( SET_CLEAR_INT,        SetClearInt,        (o *, bool *, void *) )
+-#define pick_ACTION_IS_OBJECT_CLEAR(o,x)        x##( IS_OBJECT_CLEAR,      GetClearInt,        (o *, bool *, void *) )
+-#define pick_ACTION_RESTORE_OBJECT(o,x)         x##( RESTORE_OBJECT,       Restore,            (o *, void *, void *) )
+-#define pick_ACTION_RESOLVE_SYMBOL(o,x)         x##( RESOLVE_SYMBOL,       ResolveSymbol,      (o *, bool *, bool *) )
+-#define pick_ACTION_RESOLVE_HELPSYMBOL(o,x)     x##( RESOLVE_HELPSYMBOL,   ResolveHelpSymbol,  (o *, bool *, bool *) )
+-#define pick_ACTION_MODIFY_INFO(o,x)            x##( MODIFY_INFO,          ModifyInfo,         (o *, WdeInfoStruct *, void *) )
+-#define pick_ACTION_GET_NEXT_CHILD(o,x)         x##( GET_NEXT_CHILD,       GetNextChild,       (o *, OBJPTR *, bool *) )
+-#define pick_ACTION_SET_ORDER_MODE(o,x)         x##( SET_ORDER_MODE,       SetOrderMode,       (o *, WdeOrderMode *, WdeSetOrderLists **) )
+-#define pick_ACTION_GET_ORDER_MODE(o,x)         x##( GET_ORDER_MODE,       GetOrderMode,       (o *, WdeOrderMode *, WdeSetOrderLists *) )
+-#define pick_ACTION_SIZE_TO_TEXT(o,x)           x##( SIZE_TO_TEXT,         SizeToText,         (o *, void *, void *) )
+-#define pick_ACTION_GET_WND_PROC(o,x)           x##( GET_WND_PROC,         GetWndProc,         (o *, WNDPROC *, void *) )
+-#define pick_ACTION_PICK(o,x)                   x##( PICK,                 Pick,               (o *, void *, void *) )
++#define pick_ACTION_GET_WINDOW_HANDLE(o,x)      x( GET_WINDOW_HANDLE,    GetWindowHandle,    (o *, HWND *, void *) )
++#define pick_ACTION_GET_WINDOW_CLASS(o,x)       x( GET_WINDOW_CLASS,     GetWindowClass,     (o *, char **, void *) )
++#define pick_ACTION_GET_SUBOBJ_LIST(o,x)        x( GET_SUBOBJ_LIST,      GetSubObjectList,   (o *, LIST **, void *) )
++#define pick_ACTION_GET_OBJECT_INFO(o,x)        x( GET_OBJECT_INFO,      GetObjectInfo,      (o *, void **, void **) )
++#define pick_ACTION_SET_OBJECT_INFO(o,x)        x( SET_OBJECT_INFO,      SetObjectInfo,      (o *, void *, void *) )
++#define pick_ACTION_GET_OBJECT_HELPINFO(o,x)    x( GET_OBJECT_HELPINFO,  GetObjectHelpInfo,  (o *, void **, char **) )
++#define pick_ACTION_SET_OBJECT_HELPINFO(o,x)    x( SET_OBJECT_HELPINFO,  SetObjectHelpInfo,  (o *, void *, char *) )
++#define pick_ACTION_CREATE_WINDOW(o,x)          x( CREATE_WINDOW,        CreateWindow,       (o *, bool *, void *) )
++#define pick_ACTION_DESTROY_WINDOW(o,x)         x( DESTROY_WINDOW,       DestroyWindow,      (o *, bool *, bool *) )
++#define pick_ACTION_SHOW_WIN(o,x)               x( SHOW_WIN,             ShowWindow,         (o *, bool *, void *) )
++#define pick_ACTION_GET_RESIZER(o,x)            x( GET_RESIZER,          GetResizer,         (o *, WdeResizeRatio *, OBJPTR *) )
++#define pick_ACTION_GET_FONT(o,x)               x( GET_FONT,             GetFont,            (o *, HFONT *, void *) )
++#define pick_ACTION_SET_FONT(o,x)               x( SET_FONT,             SetFont,            (o *, HFONT *, WdeResizeRatio *) )
++#define pick_ACTION_BECOME_FIRST_CHILD(o,x)     x( BECOME_FIRST_CHILD,   FirstChild,         (o *, void *, void *) )
++#define pick_ACTION_PUT_ME_FIRST(o,x)           x( PUT_ME_FIRST,         PutChildFirst,      (o *, OBJPTR, void *) )
++#define pick_ACTION_GET_FIRST_CHILD(o,x)        x( GET_FIRST_CHILD,      GetFirstChild,      (o *, OBJPTR *, void *) )
++#define pick_ACTION_GET_NC_SIZE(o,x)            x( GET_NC_SIZE,          GetNCSize,          (o *, RECT *, void *) )
++#define pick_ACTION_GET_RES_SIZE(o,x)           x( GET_RES_SIZE,         GetResSize,         (o *, void *, void *) )
++#define pick_ACTION_SAVE_OBJECT(o,x)            x( SAVE_OBJECT,          SaveObject,         (o *, WORD *, void *) )
++#define pick_ACTION_TEST(o,x)                   x( TEST,                 Test,               (o *, TEMPLATE_HANDLE *, size_t *) )
++#define pick_ACTION_TESTEX(o,x)                 x( TESTEX,               TestEX,             (o *, TEMPLATE_HANDLE *, size_t *) )
++#define pick_ACTION_ON_TOP(o,x)                 x( ON_TOP,               OnTop,              (o *, void *, void *) )
++#define pick_ACTION_IDENTIFY(o,x)               x( IDENTIFY,             Identify,           (o *, OBJ_ID *, void *) )
++#define pick_ACTION_SET_CLEAR_INT(o,x)          x( SET_CLEAR_INT,        SetClearInt,        (o *, bool *, void *) )
++#define pick_ACTION_IS_OBJECT_CLEAR(o,x)        x( IS_OBJECT_CLEAR,      GetClearInt,        (o *, bool *, void *) )
++#define pick_ACTION_RESTORE_OBJECT(o,x)         x( RESTORE_OBJECT,       Restore,            (o *, void *, void *) )
++#define pick_ACTION_RESOLVE_SYMBOL(o,x)         x( RESOLVE_SYMBOL,       ResolveSymbol,      (o *, bool *, bool *) )
++#define pick_ACTION_RESOLVE_HELPSYMBOL(o,x)     x( RESOLVE_HELPSYMBOL,   ResolveHelpSymbol,  (o *, bool *, bool *) )
++#define pick_ACTION_MODIFY_INFO(o,x)            x( MODIFY_INFO,          ModifyInfo,         (o *, WdeInfoStruct *, void *) )
++#define pick_ACTION_GET_NEXT_CHILD(o,x)         x( GET_NEXT_CHILD,       GetNextChild,       (o *, OBJPTR *, bool *) )
++#define pick_ACTION_SET_ORDER_MODE(o,x)         x( SET_ORDER_MODE,       SetOrderMode,       (o *, WdeOrderMode *, WdeSetOrderLists **) )
++#define pick_ACTION_GET_ORDER_MODE(o,x)         x( GET_ORDER_MODE,       GetOrderMode,       (o *, WdeOrderMode *, WdeSetOrderLists *) )
++#define pick_ACTION_SIZE_TO_TEXT(o,x)           x( SIZE_TO_TEXT,         SizeToText,         (o *, void *, void *) )
++#define pick_ACTION_GET_WND_PROC(o,x)           x( GET_WND_PROC,         GetWndProc,         (o *, WNDPROC *, void *) )
++#define pick_ACTION_PICK(o,x)                   x( PICK,                 Pick,               (o *, void *, void *) )
+ 
+ /****************************************************************************/
+ /* type definitions                                                         */
+diff --git a/bld/sdk/wde/nt/c/wdefcust.c b/bld/sdk/wde/nt/c/wdefcust.c
+index 21594fc6..97bee0eb 100644
+--- a/bld/sdk/wde/nt/c/wdefcust.c
++++ b/bld/sdk/wde/nt/c/wdefcust.c
+@@ -107,7 +107,7 @@ static bool     WdeCustomRegisterClass( char *, HINSTANCE, char **, int *, WNDPR
+ static void     WdeFreeClassList( void );
+ static void     WdeFreeClassNode( WdeCustClassNode * );
+ 
+-#define pick(e,n,c) static bool WdeCustom ## n ## c;
++#define pick(e,n,c) static bool WdeCustom ## n c;
+     pick_ACTS( WdeCustomObject )
+ #undef pick
+ 
+diff --git a/bld/sdk/wde/win/c/wdefcust.c b/bld/sdk/wde/win/c/wdefcust.c
+index d792c4fb..f763b8b8 100644
+--- a/bld/sdk/wde/win/c/wdefcust.c
++++ b/bld/sdk/wde/win/c/wdefcust.c
+@@ -108,7 +108,7 @@ static bool     WdeCustomRegisterClass( char *, HINSTANCE, char **, int *, WNDPR
+ static void     WdeFreeClassList( void );
+ static void     WdeFreeClassNode( WdeCustClassNode * );
+ 
+-#define pick(e,n,c) static bool WdeCustom ## n ## c;
++#define pick(e,n,c) static bool WdeCustom ## n c;
+     pick_ACTS( WdeCustomObject )
+ #undef pick
+ 
+diff --git a/bld/trap/ntx64.def b/bld/trap/ntx64.def
+new file mode 100644
+index 00000000..dd4e2b6e
+--- /dev/null
++++ b/bld/trap/ntx64.def
+@@ -0,0 +1,4 @@
++EXPORTS
++    TrapInit    @1
++    TrapFini    @2
++    TrapRequest @3
+diff --git a/bld/trap/ser/ntx64.trp/makefile b/bld/trap/ser/ntx64.trp/makefile
+index 27118d6b..a3faae5e 100644
+--- a/bld/trap/ser/ntx64.trp/makefile
++++ b/bld/trap/ser/ntx64.trp/makefile
+@@ -15,7 +15,13 @@ remote_link = 1
+ 
+ extra_objs = sernt.obj busywait.obj
+ 
++!ifdef __MSVC_TOOLS__
+ extra_ldflags = -SUBSYSTEM:CONSOLE -EXPORT:TrapInit,@1 -EXPORT:TrapFini,@2 -EXPORT:TrapRequest,@3
+ extra_ldflags_dll = -SUBSYSTEM:CONSOLE -EXPORT:TrapInit,@1 -EXPORT:TrapFini,@2 -EXPORT:TrapRequest,@3
++!else
++# the trap entry points are looked up by ordinal
++extra_ldflags = -Wl,--subsystem,console ../../ntx64.def
++extra_ldflags_dll = -Wl,--subsystem,console ../../ntx64.def
++!endif
+ 
+ !include $(trap_dir)/master.mif
+diff --git a/bld/trap/tcp/ntx64.trp/makefile b/bld/trap/tcp/ntx64.trp/makefile
+index 0c3455ed..099f2b73 100644
+--- a/bld/trap/tcp/ntx64.trp/makefile
++++ b/bld/trap/tcp/ntx64.trp/makefile
+@@ -13,7 +13,13 @@ srv = tcp
+ which = TRAP
+ remote_link = 1
+ 
++!ifdef __MSVC_TOOLS__
+ extra_ldflags = -SUBSYSTEM:CONSOLE -DEFAULTLIB:wsock32.lib -EXPORT:TrapInit,@1 -EXPORT:TrapFini,@2 -EXPORT:TrapRequest,@3
+ extra_ldflags_dll = -SUBSYSTEM:CONSOLE -DEFAULTLIB:wsock32.lib -EXPORT:TrapInit,@1 -EXPORT:TrapFini,@2 -EXPORT:TrapRequest,@3
++!else
++# the trap entry points are looked up by ordinal
++extra_ldflags = -Wl,--subsystem,console ../../ntx64.def -lwsock32
++extra_ldflags_dll = -Wl,--subsystem,console ../../ntx64.def -lwsock32
++!endif
+ 
+ !include $(trap_dir)/master.mif
+diff --git a/bld/watcom/c/clibext.c b/bld/watcom/c/clibext.c
+index 14127f0e..543144a1 100644
+--- a/bld/watcom/c/clibext.c
++++ b/bld/watcom/c/clibext.c
+@@ -67,8 +67,9 @@
+     #include <string.h>
+     #include <ctype.h>
+     #include <errno.h>
+-  #if defined( _MSC_VER )
++  #if ( defined( _MSC_VER ) || defined( __MINGW32__ ) )
+     #include <windows.h>
++    #include <conio.h>
+     #include "_dtaxxx.h"
+     #include "ntext.h"
+   #endif
+@@ -733,7 +734,7 @@ char *_cmdname( char *name )
+     return( name );
+ }
+ 
+-#elif defined( _MSC_VER )
++#elif ( defined( _MSC_VER ) || defined( __MINGW32__ ) )
+ 
+ char *_cmdname( char *name )
+ {
+@@ -764,6 +765,28 @@ char *_cmdname( char *name )
+ 
+ #endif
+ 
++/****************************************************************************
++*
++* Description:  Implementation of ultoa and cputs.
++*               MSVC provides them through oldnames.lib; the mingw-w64 UCRT
++*               declares them but only implements the underscored forms.
++*
++****************************************************************************/
++
++#if defined( __MINGW32__ )
++
++char *ultoa( unsigned long value, char *buffer, int radix )
++{
++    return( _ultoa( value, buffer, radix ) );
++}
++
++int cputs( const char *str )
++{
++    return( _cputs( str ) );
++}
++
++#endif
++
+ /****************************************************************************
+ *
+ * Description:  Implementation of _bgetcmd().
+@@ -772,7 +795,7 @@ char *_cmdname( char *name )
+ 
+ #ifdef __WATCOMC__
+ 
+-#elif defined( _MSC_VER )
++#elif ( defined( _MSC_VER ) || defined( __MINGW32__ ) )
+ 
+ int _bgetcmd( char *buffer, int len )
+ {
+@@ -1044,7 +1067,7 @@ void _searchenv( const char *name, const char *env_var, char *buffer )
+ 
+ #ifdef __WATCOMC__
+ 
+-#elif defined(_MSC_VER)
++#elif ( defined( _MSC_VER ) || defined( __MINGW32__ ) )
+ 
+ static const struct my_wctypes {
+     const char  *name;
+@@ -1295,7 +1318,7 @@ int   fnmatch( const char *patt, const char *s, int flags )
+ 
+ #ifdef __WATCOMC__
+ 
+-#elif defined(_MSC_VER)
++#elif ( defined( _MSC_VER ) || defined( __MINGW32__ ) )
+ 
+ int setenv( const char *name, const char *newvalue, int overwrite )
+ /*****************************************************************/
+@@ -1337,7 +1360,7 @@ void unsetenv( const char *name )
+ }
+   #endif
+ 
+-#elif defined(_MSC_VER)
++#elif ( defined( _MSC_VER ) || defined( __MINGW32__ ) )
+ 
+ int unsetenv( const char *name )
+ /******************************/
+@@ -1361,7 +1384,7 @@ int unsetenv( const char *name )
+ *
+ ****************************************************************************/
+ 
+-#if defined(_MSC_VER) \
++#if ( defined( _MSC_VER ) || defined( __MINGW32__ ) ) \
+   || defined( __WATCOMC__ ) \
+   && ( __WATCOMC__ == 1290 ) \
+   && defined( __NT__ )      /* OW 1.9 fix */
+@@ -1381,7 +1404,7 @@ int unsetenv( const char *name )
+     #define OPENMODE_DENY_READ      0x0030
+     #define OPENMODE_DENY_NONE      0x0040
+ 
+-  #if defined(_MSC_VER)
++  #if ( defined( _MSC_VER ) || defined( __MINGW32__ ) )
+     #define MAKEDOSDTXX     __MakeDOSDT
+     #define FROMDOSDTXX     __FromDOSDT
+     #define GETNTDIRINFOXX  __GetNTDirInfo
+@@ -1667,7 +1690,7 @@ int CLOSEDIRXX( DIRXX *dirp )
+ 
+ #ifdef __WATCOMC__
+ 
+-#elif defined(_MSC_VER)
++#elif ( defined( _MSC_VER ) || defined( __MINGW32__ ) )
+ 
+ char        *optarg;            /* pointer to option argument */
+ int         optind = 1;         /* current argv[] index */
+@@ -1778,7 +1801,7 @@ int getopt( int argc, char * const argv[], const char *optstring )
+ 
+ #ifdef __WATCOMC__
+ 
+-#elif defined(_MSC_VER)
++#elif ( defined( _MSC_VER ) || defined( __MINGW32__ ) )
+ 
+ static int is_valid_template( char *template_str, char **xs )
+ {
+@@ -1846,7 +1869,7 @@ int mkstemp( char *template_str )
+ 
+ #ifdef __WATCOMC__
+ 
+-#elif defined(_MSC_VER)
++#elif ( defined( _MSC_VER ) || defined( __MINGW32__ ) )
+ 
+ unsigned sleep( unsigned time )
+ {
+diff --git a/bld/watcom/h/clibext.h b/bld/watcom/h/clibext.h
+index 3ac593d6..03f2b7aa 100644
+--- a/bld/watcom/h/clibext.h
++++ b/bld/watcom/h/clibext.h
+@@ -137,24 +137,42 @@
+   #else
+     #define _mkgmtime   timegm
+   #endif
+- #elif defined( _MSC_VER )
++ #elif ( defined( _MSC_VER ) || defined( __MINGW32__ ) )
++  #ifndef S_ISDIR
+     #define S_ISDIR(x) (((x)&_S_IFMT)==_S_IFDIR)
+     #define S_ISREG(x) (((x)&_S_IFMT)==_S_IFREG)
+     #define S_ISCHR(x) (((x)&_S_IFMT)==_S_IFCHR)
++  #endif
++  #ifndef _A_VOLID
+     #define _A_VOLID 0
++  #endif
+     #define FNM_NOMATCH     1
+     #define FNM_NOESCAPE    0x01
+     #define FNM_PATHNAME    0x02
+     #define FNM_PERIOD      0x04
+     #define FNM_IGNORECASE  0x08
+     #define FNM_LEADING_DIR 0x10
++  #ifndef NAME_MAX
+     #define NAME_MAX FILENAME_MAX
++  #endif
++  #ifndef PATH_MAX
+     #define PATH_MAX FILENAME_MAX
++  #endif
+     #define _grow_handles _setmaxstdio
+  #endif
+ 
+     #define _MAX_PATH2 (_MAX_PATH + 3)
+ 
++ #if defined( __MINGW32__ )
++    /* MinGW-w64 declares the unprefixed spawn* functions with a
++       non-const argv; the underscored versions match the OW usage */
++    #define spawnv  _spawnv
++    #define spawnve _spawnve
++    #define spawnvp _spawnvp
++    #define spawnvpe _spawnvpe
++    #define spawnlp _spawnlp
++ #endif
++
+  #if 0
+   #ifndef getch
+     #define getch getchar
+@@ -177,7 +195,7 @@
+ 
+  #if defined( __UNIX__ )
+ 
+- #elif defined( _MSC_VER )
++ #elif ( defined( _MSC_VER ) || defined( __MINGW32__ ) )
+ 
+     typedef struct find_t {
+         char            reserved[21];       /* reserved for use by DOS    */
+@@ -200,12 +218,14 @@
+     } dirent;
+     typedef struct dirent   DIR;
+ 
++  #ifndef __MINGW32__
+   #ifdef _WIN64
+     typedef __int64 ssize_t;
+   #else
+     typedef long    ssize_t;
+   #endif
+     typedef int     mode_t;
++  #endif
+ 
+  #endif
+ 
+@@ -222,7 +242,7 @@
+     extern int      spawnlp( int mode, const char *path, const char *cmd, ... );
+     extern int      spawnvp( int mode, const char *cmd, const char * const *args );
+ 
+- #elif defined( _MSC_VER )
++ #elif ( defined( _MSC_VER ) || defined( __MINGW32__ ) )
+ 
+     extern int      setenv( const char *name, const char *newvalue, int overwrite );
+     extern int      unsetenv( const char *name );
+diff --git a/bld/watcom/h/watcom.h b/bld/watcom/h/watcom.h
+index 91cc6b0c..c46a7fa6 100644
+--- a/bld/watcom/h/watcom.h
++++ b/bld/watcom/h/watcom.h
+@@ -485,9 +485,14 @@ typedef long long           int_64;
+ #endif
+ 
+ #if defined( _WIN64 )
++#if defined( _MSC_VER )
+ typedef __int64             pointer_int;
+ typedef unsigned __int64    pointer_uint;
+ #else
++typedef long long           pointer_int;
++typedef unsigned long long  pointer_uint;
++#endif
++#else
+ typedef long                pointer_int;
+ typedef unsigned long       pointer_uint;
+ #endif
+diff --git a/bld/wclass/hpp/wfile.hpp b/bld/wclass/hpp/wfile.hpp
+index 0540c530..c195e325 100644
+--- a/bld/wclass/hpp/wfile.hpp
++++ b/bld/wclass/hpp/wfile.hpp
+@@ -33,6 +33,7 @@
+ #ifndef wfile_class
+ #define wfile_class
+ 
++#include <stdio.h>
+ #include "wfilenam.hpp"
+ #include <sys/types.h>
+ #include "wio.h"
+diff --git a/bld/wipfc/master.mif b/bld/wipfc/master.mif
+index 73d6b0ae..1fd29c4e 100644
+--- a/bld/wipfc/master.mif
++++ b/bld/wipfc/master.mif
+@@ -11,6 +11,14 @@ additional_clean = *.grc
+ !include defrule.mif
+ !include deftarg.mif
+ 
++!ifndef __WATCOM_TOOLS__
++! if defined( __GCC_TOOLS__ ) || defined( __CLANG_TOOLS__ )
++# wipfc uses <cstdint> and other C++11 library features
++bld_cxx_flags = -std=c++11
++cxx_flags     = -std=c++11
++! endif
++!endif
++
+ #
+ # cflags
+ #
+diff --git a/bld/wmake/c/mexec.c b/bld/wmake/c/mexec.c
+index 385bab17..34375cbc 100644
+--- a/bld/wmake/c/mexec.c
++++ b/bld/wmake/c/mexec.c
+@@ -2212,7 +2212,6 @@ STATIC RET_T shellSpawn( char *cmd, shell_flags flags )
+         if( !dquote ) {
+             if( cisws( *arg )
+               || *arg == Glob.shell_swchar
+-              || *arg == '+'
+               || *arg == '=' ) {
+                 break;
+             }
+diff --git a/bld/wmake/posmake b/bld/wmake/posmake
+index d9c27560..d732b83b 100644
+--- a/bld/wmake/posmake
++++ b/bld/wmake/posmake
+@@ -4,10 +4,12 @@
+ # tabs, too!
+ 
+ INCS = -I. -I../h -I../../watcom/h -I../../lib_misc/h $(DEFS)
+-DEFS = $(TARGETDEF) -D__UNIX__ -DBOOTSTRAP -DPREBOOT -DINCL_MSGTEXT -D_XOPEN_SOURCE=600 -D_BLDVER=$(OWBLDVERTOOL) -D_CYEAR=xxxx $(EXTRADEF)
++OSDEFS = -D__UNIX__
++EXEEXT =
++DEFS = $(TARGETDEF) $(OSDEFS) -DBOOTSTRAP -DPREBOOT -DINCL_MSGTEXT -D_XOPEN_SOURCE=600 -D_BLDVER=$(OWBLDVERTOOL) -D_CYEAR=xxxx $(EXTRADEF)
+ CFLAGS = -g -O2 $(INCS)
+ 
+-all: ../../../build/$(OWOBJDIR)/wmake
++all: ../../../build/$(OWOBJDIR)/wmake$(EXEEXT)
+ 
+ # Unfortunately there appears to be no portable way of specifying source
+ # directories. So we use brute force - it's just this one makefile, once we
+@@ -71,6 +73,10 @@ OBJS = macros.o main.o mautodep.o mautoomf.o \
+  mparse.o mpreproc.o mrcmsg.o msg.o mstream.o msuffix.o msysdep.o \
+  mtarget.o mupdate.o mvecstr.o depinfo.o clibext.o
+ 
++# generated headers, must exist before the sources including them compile
++mglob.o: isarray.gh
++mrcmsg.o msg.o: usage.gh
++
+ wsplice.exe: wsplice.o clibext.o
+ 	$(CC) -g wsplice.o clibext.o -o $@
+ 
+@@ -83,7 +89,7 @@ cretype.exe : ../c/cretype.c
+ isarray.gh : cretype.exe
+ 	./cretype.exe $@
+ 
+-../../../build/$(OWOBJDIR)/wmake: wmake.exe
++../../../build/$(OWOBJDIR)/wmake$(EXEEXT): wmake.exe
+ 	cp wmake.exe $@
+ 
+ wmake.exe: usage.gh isarray.gh $(OBJS)
+diff --git a/bld/wv/utils/trap2txt/master.mif b/bld/wv/utils/trap2txt/master.mif
+index a4733609..899ed217 100644
+--- a/bld/wv/utils/trap2txt/master.mif
++++ b/bld/wv/utils/trap2txt/master.mif
+@@ -1,6 +1,7 @@
+ tree_depth = 5
+ 
+ proj_name = trap2txt
++proj_type = cxx
+ 
+ trap2txt_autodepends = .AUTODEPEND
+ 
+diff --git a/build.sh b/build.sh
+index cd039cde..131b64fa 100755
+--- a/build.sh
++++ b/build.sh
+@@ -22,7 +22,7 @@ rm -f "$OWBUILDER_BOOTX_OUTPUT"
+ cd bld/wmake
+ if [ ! -d $OWOBJDIR ]; then mkdir $OWOBJDIR; fi
+ cd $OWOBJDIR
+-rm -f ../../../build/$OWOBJDIR/wmake
++rm -f ../../../build/$OWOBJDIR/wmake ../../../build/$OWOBJDIR/wmake.exe
+ if [ "$OWTOOLS" = "WATCOM" ]; then
+     output_redirect wmake -m -f ../wmake clean
+     output_redirect wmake -m -f ../wmake
+@@ -47,6 +47,10 @@ else
+         Haiku)
+             output_redirect make -f ../posmake TARGETDEF=-D__HAIKU__
+             ;;
++        MINGW*|MSYS*)
++            # MinGW-w64 GCC on Windows (MSYS2): build a native NT wmake
++            output_redirect make -f ../posmake TARGETDEF=-D__NT__ OSDEFS= EXEEXT=.exe
++            ;;
+ #        Linux)
+         *)
+             output_redirect make -f ../posmake TARGETDEF=-D__LINUX__
+@@ -61,7 +65,7 @@ else
+     cd bld/builder
+     if [ ! -d $OWOBJDIR ]; then mkdir $OWOBJDIR; fi
+     cd $OWOBJDIR
+-    rm -f ../../../build/$OWOBJDIR/builder
++    rm -f ../../../build/$OWOBJDIR/builder ../../../build/$OWOBJDIR/builder.exe
+     output_redirect ../../../build/$OWOBJDIR/wmake -f ../preboot clean
+     output_redirect ../../../build/$OWOBJDIR/wmake -f ../preboot
+     cd "$OWROOT"
+diff --git a/build/mif/cproj.mif b/build/mif/cproj.mif
+index 8fd30471..bb18cfe5 100644
+--- a/build/mif/cproj.mif
++++ b/build/mif/cproj.mif
+@@ -841,6 +841,9 @@ rc_inc_dirs_all = -I"$(watcom_dir)/h"
+ 
+ !ifdef __WATCOM_TOOLS__
+ rc_inc_path     = $(rc_inc_dirs) $(rc_inc_dirs_$(host_os)) $(inc_dirs_sys) $(rc_inc_dirs_all)
++!else if defined( __GCC_TOOLS__ ) || defined( __CLANG_TOOLS__ )
++# no Windows SDK in INCLUDE: use the OW API headers as the WATCOM build does
++rc_inc_path     = $(rc_inc_dirs) $(rc_inc_dirs_$(host_os)) $(inc_dirs_sys) $(rc_inc_dirs_all)
+ !else
+ rc_inc_path     = $(rc_inc_dirs) $(rc_inc_dirs_$(host_os)) $(rc_inc_dirs_all)
+ !endif
+@@ -856,7 +859,7 @@ rcu8_encoding = -zku0
+ !endif
+ 
+ !ifndef bootstrap
+-!ifdef __WATCOM_TOOLS__
++!if defined( __WATCOM_TOOLS__ ) || defined( __GCC_TOOLS__ ) || defined( __CLANG_TOOLS__ )
+ rc_ignore_env = -x
+ !endif
+ !endif
+diff --git a/build/mif/cpuoscfg.mif b/build/mif/cpuoscfg.mif
+index bb52cae3..522a7c92 100644
+--- a/build/mif/cpuoscfg.mif
++++ b/build/mif/cpuoscfg.mif
+@@ -18,6 +18,7 @@ bld_cpu_x64  = 1
+ bld_cpu_arm  = 1
+ bld_cpu_a64  = 1
+ #
++bld_os_nt    = 1
+ bld_os_linux = 1
+ bld_os_bsd   = 1
+ !else ifdef __CLANG_TOOLS__
+@@ -26,6 +27,7 @@ bld_cpu_x64  = 1
+ bld_cpu_arm  = 1
+ bld_cpu_a64  = 1
+ #
++bld_os_nt    = 1
+ bld_os_linux = 1
+ bld_os_bsd   = 1
+ bld_os_osx   = 1
+diff --git a/build/mif/dlltarg.mif b/build/mif/dlltarg.mif
+index b10cce84..41623582 100644
+--- a/build/mif/dlltarg.mif
++++ b/build/mif/dlltarg.mif
+@@ -19,11 +19,20 @@ dlltarg_name = $(proj_name)
+ !ifndef dlltarg_ext
+ dlltarg_ext = .dll
+ !endif
++!ifndef objcopy
++objcopy = objcopy
++!endif
+ $(dlltarg_name)$(dlltarg_ext) : $+$(dlltarg_prebuild_objs) $(dlltarg_objs) $(dlltarg_libs) &
+   $(cli_wres_libs) $(dlltarg_res) $(ntverrc_dll_res) $(dlltarg_export)$- $(__MAKEFILES__)
+     @%make echo_cl
+ !ifndef __WATCOM_TOOLS__
++! ifeq bld_os nt
++    $(cl) $(clflags_dll) $+$(dlltarg_objs)$- -Wl,--start-group $+$(dlltarg_libs) $(cli_wres_libs)$- -Wl,--end-group $(ldflags_dll)
++# see exetarg.mif: no symbol table may remain when wrc binds resources
++    $(objcopy) --strip-all $@
++! else
+     $(cl) $(clflags_dll) $+$(dlltarg_objs) $(dlltarg_libs) $(cli_wres_libs)$- $(ldflags_dll)
++! endif
+ !else
+     $(noecho)%write $^&.lnd $(lflags_dll) $+$(dlltarg_opts)$-
+     @for %f in ($+$(dlltarg_objs)$-) do @%append $^&.lnd file %f
+diff --git a/build/mif/exetarg.mif b/build/mif/exetarg.mif
+index a6c7f935..e59ec781 100644
+--- a/build/mif/exetarg.mif
++++ b/build/mif/exetarg.mif
+@@ -47,16 +47,28 @@ $(exetarg_name)$(exetarg_ext) : $+$(exetarg_prebuild_objs) $(exetarg_qnx_res_obj
+ ! ifdef bootstrap
+     $(bld_cl) $(bld_clflags) $+$(exetarg_objs) $(exetarg_libs) $(cli_wres_libs)$- $(bld_ldflags)
+ ! else
++!  ifeq bld_os nt
++# GNU ld resolves static libraries in order; MSVC link does not, and the
++# makefiles rely on that
++    $(cl) $(clflags) $+$(exetarg_objs)$- -Wl,--start-group $+$(exetarg_libs) $(cli_wres_libs)$- -Wl,--end-group $(ldflags)
++!  else
+     $(cl) $(clflags) $+$(exetarg_objs) $(exetarg_libs) $(cli_wres_libs)$- $(ldflags)
++!  endif
+ ! endif
+ ! ifeq host_os osx
+ # now unsupported on OSX
+ ! else
+ !  if defined("__CLANG_TOOLS__") || defined("__GCC_TOOLS__")
+     $(objcopy) --only-keep-debug $@ $^&.sym
++!   ifeq bld_os nt
++# wrc binds resources into the image afterwards without updating the COFF
++# symbol table pointers, so leave no symbol table behind
++    $(objcopy) --strip-all $@
++!   else
+     chmod -x $^&.sym
+     $(objcopy) --strip-debug $@
+     $(objcopy) --add-gnu-debuglink=$^&.sym $@
++!   endif
+ !  endif
+ ! endif
+ !else
+diff --git a/build/mif/libtarg.mif b/build/mif/libtarg.mif
+index cdd38940..5bb293fd 100644
+--- a/build/mif/libtarg.mif
++++ b/build/mif/libtarg.mif
+@@ -17,7 +17,23 @@ libtarg_name = $(proj_name)
+ $(libtarg_name).lib : $+$(libtarg_prebuild_objs) $(libtarg_objs) $(libtarg_libs)$- $(__MAKEFILES__)
+ !ifndef __WATCOM_TOOLS__
+     @%make echo_lib
++! if defined( __GCC_TOOLS__ ) || defined( __CLANG_TOOLS__ )
++!  ifeq bld_os nt
++# GNU ar adds an archive as a plain member; an MRI script merges its objects
++# the way MSVC lib does
++    $(noecho)%create $^&.mri
++    $(noecho)%append $^&.mri CREATE $@
++    @for %o in ($+$(libtarg_objs)$-) do @%append $^&.mri ADDMOD %o
++    @for %l in ($+$(libtarg_libs)$-) do @%append $^&.mri ADDLIB %l
++    $(noecho)%append $^&.mri SAVE
++    $(noecho)%append $^&.mri END
++    $(noecho)ar -M < $^&.mri
++!  else
+     $(bld_lib) $+$(libtarg_objs) $(libtarg_libs)$-
++!  endif
++! else
++    $(bld_lib) $+$(libtarg_objs) $(libtarg_libs)$-
++! endif
+ !else ifeq __WATCOM_TOOLS__ 1290
+     $(noecho)%create $(libtarg_name).lbc
+     @for %o in ($+$(libtarg_opts) $(libtarg_objs) $(libtarg_libs)$-) do @%append $(libtarg_name).lbc %o
+diff --git a/build/mif/local.mif b/build/mif/local.mif
+index f1c36b27..d785d295 100644
+--- a/build/mif/local.mif
++++ b/build/mif/local.mif
+@@ -354,7 +354,13 @@ bld_lib = $(noecho)ar crs $@
+ 
+ # common settings
+ ############################
++!ifeq bld_os nt
++common_ppflags          = -D__FLAT__
++!else
+ common_ppflags          = -D__UNIX__ -D__FLAT__
++!endif
++
++common_cppflags_nt      = -D__NT__ -DWIN32_LEAN_AND_MEAN
+ 
+ common_cppflags_linux   = -D__LINUX__
+ !ifdef __FREEBSD__
+@@ -371,13 +377,22 @@ common_cppflags_bsd     = -D__BSD__
+ common_cppflags_haiku   = -D__HAIKU__
+ common_cppflags_osx     = -D__OSX__
+ 
++!ifeq bld_os nt
++# MinGW-w64 headers already define _M_IX86 / _M_X64
++common_cppflags_386     = -D__386__
++common_cppflags_x64     =
++!else
+ common_cppflags_386     = -D_M_IX86 -D__386__
+ common_cppflags_x64     = -D_M_X64
++!endif
+ common_cppflags_ppc     = -D__PPC__
+ common_cppflags_mps     = -D__MIPS__ -Umips
+ common_cppflags_arm     = -D_M_ARM
+ common_cppflags_a64     = -D_M_ARM64
+ 
++common_cppflags_nt386      = -D__NT_386__
++common_cppflags_ntx64      = -D__NT_X64__
++
+ common_cppflags_linux386   = -D__LINUX_386__
+ common_cppflags_linuxx64   = -D__LINUX_X64__
+ common_cppflags_linuxppc   =
+@@ -430,9 +445,15 @@ common_flags_dbg = -g -gdwarf
+ 
+ # common debug info compression options
+ ! ifdef __CLANG_TOOLS__
++!  ifeq bld_os nt
++# -gz is not supported by the MinGW-w64 drivers
++!  else
+ common_flags_compr = -gz
++!  endif
+ ! else ifdef __GCC_TOOLS__
+ !  ifdef __OSX__
++!  else ifeq bld_os nt
++# -gz is not supported by the MinGW-w64 GCC driver
+ !  else
+ common_flags_compr = -gz
+ !  endif
+@@ -523,7 +544,13 @@ common_clflags_exe = -static
+ 
+ # Options for building DLLs
+ common_cflags_lib_shared  = -fPIC
++! ifeq bld_os nt
++# the makefiles expect an import library next to the DLL, as MSVC produces;
++# executables are linked -static, keep DLLs free of runtime DLLs as well
++common_clflags_lib_shared = -shared -static -Wl,--out-implib,$^*.lib
++! else
+ common_clflags_lib_shared = -shared
++! endif
+ 
+ # Target specific options
+ target_cflags_386   =
+@@ -538,7 +565,11 @@ target_cflags_arm   =
+ target_cflags_a64   =
+ 
+ # DLL/shared library file extension
++!ifeq bld_os nt
++ext_lib_shared = .dll
++!else
+ ext_lib_shared = .so
++!endif
+ 
+ # extra objects for linking via cl
+ cl_extra_objs_gen =
+@@ -583,6 +614,15 @@ bld_cl_extra_objs_dll =
+ ! ifdef bootstrap
+ bld_cl_extra_libs_gen = $(watcom_dir)/$(bin_subdir)/clibext.lib
+ bld_cl_extra_libs_dll = $(watcom_dir)/$(bin_subdir)/clibexts.lib
++! else ifdef watbld_$(bld_os)$(bld_cpu)
++#
++# The tools for this build host are compiled by Open Watcom itself, so
++# bld/watcom/$(bld) holds no library for the native compiler. Build-time
++# utilities still use the native compiler, and the bootstrap copy was built
++# by that same compiler for that same host.
++#
++bld_cl_extra_libs_gen = $(watcom_dir)/$(bin_subdir)/clibext.lib
++bld_cl_extra_libs_dll = $(watcom_dir)/$(bin_subdir)/clibexts.lib
+ ! else
+ bld_cl_extra_libs_gen = $(watcom_dir)/$(bld)/clibext.lib
+ bld_cl_extra_libs_dll = $(watcom_dir)/$(bld)/clibexts.lib
+@@ -646,6 +686,7 @@ cl = $(cl_$(proj_type))
+ 
+ ppflags_sys = $(common_ppflags)
+ 
++cppflags_nt     = $(common_cppflags_nt)
+ cppflags_linux  = $(common_cppflags_linux)
+ cppflags_bsd    = $(common_cppflags_bsd)
+ cppflags_haiku  = $(common_cppflags_haiku)
+@@ -673,9 +714,15 @@ ldflags1 = $(common_ldflags) -Wl,-map,$^&.map
+ ldflags1 = $(common_ldflags) -Wl,-Map,$^&.map
+ !  endif
+ 
+-ldflags_gen  = $(cl_extra_libs_gen) $(extra_ldflags)
+-ldflags_dll  = $(cl_extra_libs_dll) $(extra_ldflags_dll)
+-ldflags_wind = $(ldflags_gen)
++!  ifeq bld_os nt
++# MSVC links these as default libraries; ld only pulls in what is referenced
++ldflags_nt_libs = -luser32 -lgdi32 -lcomdlg32 -lshell32 -ladvapi32 -lole32 -lversion -lcomctl32 -luuid
++ldflags_nt_wind = -mwindows
++!  endif
++
++ldflags_gen  = $(cl_extra_libs_gen) $(extra_ldflags) $(ldflags_nt_libs)
++ldflags_dll  = $(cl_extra_libs_dll) $(extra_ldflags_dll) $(ldflags_nt_libs)
++ldflags_wind = $(ldflags_gen) $(ldflags_nt_wind)
+ 
+ !  ifdef sys_dll
+ ldflags = $(ldflags_dll)
