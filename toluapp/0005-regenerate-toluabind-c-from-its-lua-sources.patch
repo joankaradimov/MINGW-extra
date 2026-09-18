@@ -1,0 +1,119 @@
+Regenerate src/bin/toluabind.c at build time.
+
+toluabind.c is generated code: tolua++ compiles src/bin/lua/*.lua into C
+byte arrays that the binary runs through tolua_dobuffer at startup.  The
+copy in the tarball was generated in February 2009 by tolua++ 1.0.92, so it
+holds the pre-5.2 scripts and no amount of patching src/bin/lua reaches it.
+Patch the scripts alone and the build succeeds while the binary still fails
+at run time on the first `table.getn`.
+
+So regenerate it, the way the SConstruct build always did: build a bootstrap
+binary that reads the scripts from the source tree, then have it write
+toluabind.c for the real one.  The tarball's toluabind_default.c, which
+SConstruct bootstrapped from, is no use here -- it is the same generated
+file from 2007 and carries the same stale scripts.
+
+tolua.c gets the run-time path it needs for that: the TOLUA_SCRIPT_RUN
+branch was already there but had rotted, still calling the Lua 5.0-only
+lua_dofile and deriving the script directory from argv[0] relative to the
+build tree.  It now takes the directory from TOLUA_SCRIPT_DIR, loads through
+luaL_dofile and reports what failed instead of continuing silently.  Only
+the bootstrap defines TOLUA_SCRIPT_DIR; the installed binary is unchanged in
+being self-contained.
+
+Generation is also a test: classCode:register runs every embedded chunk
+through clean(), which compiles it with the Lua being linked.  A script that
+is not valid for this Lua version now fails the build instead of shipping.
+
+Upstream: not submitted (project unmaintained since 2012)
+Applies-to: all environments
+---
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 6115613..957d161 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -24,7 +24,36 @@ set_target_properties ( toluapp_lib PROPERTIES OUTPUT_NAME toluapp CLEAN_DIRECT_
+ 
+ # Build app
+ include_directories ( src/bin )
+-set ( SRC_TOLUA src/bin/tolua.c src/bin/toluabind.c )
++
++# src/bin/toluabind.c is generated code: it holds src/bin/lua/*.lua compiled
++# into C byte arrays which the binary runs at startup.  The copy shipped in the
++# tarball was generated in 2009 by tolua++ 1.0.92, so its embedded scripts are
++# the pre-Lua-5.2 ones and no amount of patching src/bin/lua reaches them.
++# Regenerate it here the way the SConstruct build did: build a bootstrap binary
++# that reads the scripts from the source tree, then have it write toluabind.c.
++# Generation also parses every script with the Lua being built against, so a
++# script that is not valid for this Lua version fails the build instead of
++# shipping.
++file ( GLOB SRC_TOLUA_SCRIPTS ${CMAKE_CURRENT_SOURCE_DIR}/src/bin/lua/*.lua )
++
++add_executable ( toluapp_bootstrap src/bin/tolua.c )
++target_compile_definitions ( toluapp_bootstrap PRIVATE TOLUA_SCRIPT_RUN
++  TOLUA_SCRIPT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/bin/lua/" )
++target_link_libraries ( toluapp_bootstrap toluapp_lib ${LUA_LIBRARIES} )
++
++add_custom_command (
++  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/toluabind.c
++  COMMAND toluapp_bootstrap -C -n tolua
++          -H ${CMAKE_CURRENT_BINARY_DIR}/toluabind.h
++          -o ${CMAKE_CURRENT_BINARY_DIR}/toluabind.c
++          src/bin/tolua_scons.pkg
++  DEPENDS toluapp_bootstrap ${SRC_TOLUA_SCRIPTS}
++          ${CMAKE_CURRENT_SOURCE_DIR}/src/bin/tolua_scons.pkg
++  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
++  COMMENT "Regenerating toluabind.c from src/bin/lua"
++  VERBATIM )
++
++set ( SRC_TOLUA src/bin/tolua.c ${CMAKE_CURRENT_BINARY_DIR}/toluabind.c )
+ add_executable ( toluapp ${SRC_TOLUA} )
+ target_link_libraries ( toluapp toluapp_lib ${LUA_LIBRARIES} )
+ 
+diff --git a/src/bin/tolua.c b/src/bin/tolua.c
+index 930d61e..7e2b7ac 100644
+--- a/src/bin/tolua.c
++++ b/src/bin/tolua.c
+@@ -149,7 +149,11 @@ int main (int argc, char* argv[])
+   }
+   lua_pop(L,1);
+  }
+-/* #define TOLUA_SCRIPT_RUN */
++/* Defining TOLUA_SCRIPT_RUN makes tolua++ load its driver scripts from
++** TOLUA_SCRIPT_DIR at run time instead of from the copy compiled into
++** toluabind.c.  The build uses it for the bootstrap binary that generates
++** toluabind.c, so that generation runs the scripts in src/bin/lua rather than
++** the stale ones embedded in the tarball's toluabind.c. */
+ #ifndef TOLUA_SCRIPT_RUN
+  {
+   int tolua_tolua_open (lua_State* L);
+@@ -157,16 +161,20 @@ int main (int argc, char* argv[])
+  }
+ #else
+  {
+-  char* p;
+-  char  path[BUFSIZ];
+-  strcpy(path,argv[0]);
+-  p = strrchr(path,'/');
+-  if (p==NULL) p = strrchr(path,'\\');
+-  p = (p==NULL) ? path : p+1;
+-  sprintf(p,"%s","../src/bin/lua/");
++  char path[4096];
++  if (strlen(TOLUA_SCRIPT_DIR) + sizeof("all.lua") > sizeof(path))
++  {
++   fprintf(stderr,"tolua: TOLUA_SCRIPT_DIR is too long\n");
++   return 1;
++  }
++  strcpy(path,TOLUA_SCRIPT_DIR);
+   lua_pushstring(L,path); lua_setglobal(L,"path");
+-		strcat(path,"all.lua");
+-  lua_dofile(L,path);
++  strcat(path,"all.lua");
++  if (luaL_dofile(L,path) != 0)
++  {
++   fprintf(stderr,"tolua: %s\n",lua_tostring(L,-1));
++   return 1;
++  }
+  }
+ #endif
+  return 0;

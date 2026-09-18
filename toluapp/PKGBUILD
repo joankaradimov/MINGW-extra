@@ -1,40 +1,111 @@
 # Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
 
 _realname=toluapp
-pkgname="${MINGW_PACKAGE_PREFIX}-${_realname}"
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
 pkgver=1.0.93
-pkgrel=1
-pkgdesc="A tool to integrate C/C++ code with Lua"
+pkgrel=2
+pkgdesc="tolua++, a tool to integrate C/C++ code with Lua (mingw-w64)"
 arch=('any')
-url="https://github.com/LuaDist/toluapp"
-license=('MIT')
+# ucrt64 and clang64 are both verified: check() has the built binary regenerate
+# the code it was built from, and in a throwaway root, against nothing but the
+# declared closure, the installed binary generates bindings for a C and a C++
+# .pkg that compile and run -- fields, methods, inheritance, virtual dispatch,
+# std::string returns, tolua.cast, peer tables and destructors.
+#
+# mingw32 is impossible, not untried: the mingw32 repo is down to 248 packages
+# and lua is not among them, so the one dependency cannot be satisfied.
+#
+# clangarm64 is untested: it cannot be built on x86_64 hardware. lua is there,
+# so CI can, on its windows-11-arm runner -- a one-line PR that CI verifies.
+mingw_arch=('ucrt64' 'clang64')
+url='https://github.com/LuaDist/toluapp'
+license=('spdx:MIT')
+msys2_references=(
+  'aur: tolua++_5.3'
+)
 depends=("${MINGW_PACKAGE_PREFIX}-lua")
-makedepends=('cmake' 'git')
-options=('staticlibs')
-source=("$_realname-$pkgver.tar.gz:https://github.com/LuaDist/toluapp/archive/refs/tags/${pkgver}.tar.gz"
-        "newer-lua-versions.patch")
-sha512sums=('68f169244f1b37fdeb1a72b0f8fc61a30329c0a828f46af718021c8cfa120fe15379b4b2bc10f0995de90e34735564afd6d302fa1865be60272e52e276e1114f'
-            '43b6633d8438247460832811176ab6349c3fbe8c87d18065d4e1be52d798da5b0c724da68e2afb3b9344a61b97bea3a72d9e5f8bfb85dd2ba4a1a8d098998f54')
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-cmake"
+             "${MINGW_PACKAGE_PREFIX}-ninja")
+source=("${_realname}-${pkgver}.tar.gz::https://github.com/LuaDist/toluapp/archive/refs/tags/${pkgver}.tar.gz"
+        '0001-cmake-configure-under-cmake-4.patch'
+        '0002-port-the-c-api-to-lua-5.2-and-later.patch'
+        '0003-do-not-finalize-non-userdata-in-class-gc-event.patch'
+        '0004-port-the-driver-scripts-to-lua-5.2-and-later.patch'
+        '0005-regenerate-toluabind-c-from-its-lua-sources.patch')
+sha256sums=('0a1ff87cb74e7531aec57e2a7cfdf282116647dea3b46223e3cc7c362b55b5bb'
+            '4ef2b53bd0b18f6e390a255fdf0915e1cfe568d3fefec28ddf08dbe1c0d20a08'
+            '65ff56ee8f3a57d6063f1df8cad80066402d8c6473f220f98d3f3fb8854dbdd3'
+            'a9fc5e239c5672a6b7d07af09441886d964345da78327fd3f196e5e85837f549'
+            '850acdc428ae950c4558f248a6643d043bbb96fda310f01ba9934af40f1333ec'
+            'ed986b0ee9605c8091fa875c82043cacd78f2ef6e312c4fd6814c9f3845db3ea')
+
+apply_patch_with_msg() {
+  for _patch in "$@"; do
+    msg2 "Applying $_patch"
+    patch -Np1 -i "${srcdir}/$_patch"
+  done
+}
 
 prepare() {
   cd "${srcdir}/${_realname}-${pkgver}"
 
-  patch -p1 -i ${srcdir}/newer-lua-versions.patch
+  apply_patch_with_msg \
+    0001-cmake-configure-under-cmake-4.patch \
+    0002-port-the-c-api-to-lua-5.2-and-later.patch \
+    0003-do-not-finalize-non-userdata-in-class-gc-event.patch \
+    0004-port-the-driver-scripts-to-lua-5.2-and-later.patch \
+    0005-regenerate-toluabind-c-from-its-lua-sources.patch
 }
 
 build() {
+  declare -a extra_config
+  if check_option "debug" "n"; then
+    extra_config+=("-DCMAKE_BUILD_TYPE=Release")
+  else
+    extra_config+=("-DCMAKE_BUILD_TYPE=Debug")
+  fi
+
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
+    "${MINGW_PREFIX}"/bin/cmake.exe \
+      -B "build-${MSYSTEM}" \
+      -S "${srcdir}/${_realname}-${pkgver}" \
+      -G Ninja \
+      -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
+      "${extra_config[@]}"
+
+  "${MINGW_PREFIX}"/bin/cmake.exe --build "build-${MSYSTEM}"
+}
+
+check() {
+  # The build generates toluabind.c with a bootstrap binary that reads
+  # src/bin/lua from disk; the installed binary runs the same scripts from
+  # copies compiled into it. Have it regenerate toluabind.c and check the two
+  # agree, which is an end-to-end run of the shipped code generator over a real
+  # .pkg file -- the one tolua++ uses to build itself.
   cd "${srcdir}/${_realname}-${pkgver}"
 
-  rm -rf "build-${MINGW_CHOST}" && mkdir "build-${MINGW_CHOST}"
-  cd "build-${MINGW_CHOST}"
+  "${srcdir}/build-${MSYSTEM}/toluapp.exe" -C -n tolua \
+    -H "${srcdir}/build-${MSYSTEM}/check-toluabind.h" \
+    -o "${srcdir}/build-${MSYSTEM}/check-toluabind.c" \
+    src/bin/tolua_scons.pkg
 
-  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" cmake -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" ..
-  ninja
+  # Both files carry their generation time in a header comment; drop it before
+  # comparing. Real files, not process substitution: CLANG64 puts its own
+  # diff.exe ahead of the MSYS one on PATH and it cannot open /proc/*/fd/*.
+  local _f
+  for _f in toluabind.c toluabind.h check-toluabind.c check-toluabind.h; do
+    sed '/^\*\* Generated automatically by /d' \
+      "${srcdir}/build-${MSYSTEM}/${_f}" > "${srcdir}/${_f}.stripped"
+  done
+  diff "${srcdir}/toluabind.c.stripped" "${srcdir}/check-toluabind.c.stripped"
+  diff "${srcdir}/toluabind.h.stripped" "${srcdir}/check-toluabind.h.stripped"
 }
 
 package() {
-  cd "${srcdir}/${_realname}-${pkgver}/"build-${MINGW_CHOST}""
+  DESTDIR="${pkgdir}" "${MINGW_PREFIX}"/bin/cmake.exe --install "build-${MSYSTEM}"
 
-  DESTDIR="${pkgdir}" ninja install
-  install -Dm644 "../COPYRIGHT" "${pkgdir}/${MINGW_PREFIX}/share/licenses/$_realname/COPYRIGHT"
+  install -Dm644 "${srcdir}/${_realname}-${pkgver}/COPYRIGHT" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/COPYRIGHT"
 }

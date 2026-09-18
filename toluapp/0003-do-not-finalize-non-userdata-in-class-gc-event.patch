@@ -1,0 +1,43 @@
+Do not treat every finalized object as a usertype in class_gc_event.
+
+class_gc_event is tolua's __gc.  It opens by dereferencing
+lua_touserdata(L,1) without checking what it was handed, which was safe
+while only userdata had finalizers.  Since Lua 5.2 an object is marked for
+finalization when it is given a metatable that already carries __gc -- and
+tolua_classevents puts __gc on every class metatable, which
+tolua_beginmodule then installs on the class *table*.  Those tables are
+finalized too, at the latest when the state is closed, and for a table
+lua_touserdata returns NULL, so the dereference is a null read.
+
+The symptom is a segfault in lua_close after a binding has otherwise run
+perfectly: every assertion passes, the script prints, and the process dies
+on the way out.
+
+Upstream: not submitted (project unmaintained since 2012); the AUR
+          tolua++_5.3 package carries an equivalent guard
+Applies-to: all environments
+---
+diff --git a/src/lib/tolua_event.c b/src/lib/tolua_event.c
+index 210dfee..2cf0b82 100644
+--- a/src/lib/tolua_event.c
++++ b/src/lib/tolua_event.c
+@@ -432,8 +432,18 @@ static int class_gc_event (lua_State* L)
+ */
+ TOLUA_API int class_gc_event (lua_State* L)
+ {
+-	void* u = *((void**)lua_touserdata(L,1));
++	void* u;
+ 	int top;
++	/* Since Lua 5.2 an object is marked for finalization when it is given a
++	** metatable that already has a __gc field, and that catches more than the
++	** userdata this was written for: tolua_classevents puts __gc on every class
++	** metatable, and tolua_beginmodule then hands that metatable to the class
++	** *table*.  Those tables are finalized too -- at the latest when the state
++	** is closed -- and for a table lua_touserdata returns NULL, so
++	** dereferencing it below segfaults. */
++	if (lua_type(L,1) != LUA_TUSERDATA)
++		return 0;
++	u = *((void**)lua_touserdata(L,1));
+ 	/*fprintf(stderr, "collecting: looking at %p\n", u);*/
+ 	/*
+ 	lua_pushstring(L,"tolua_gc");

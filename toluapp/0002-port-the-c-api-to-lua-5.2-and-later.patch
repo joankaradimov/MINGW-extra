@@ -1,0 +1,154 @@
+Port the C sources to the Lua 5.2+ C API.
+
+tolua++ 1.0.93 predates Lua 5.2 and uses four things it removed:
+
+  lua_getfenv / lua_setfenv   -> lua_getuservalue / lua_setuservalue
+  LUA_GLOBALSINDEX            -> lua_pushglobaltable
+  luaL_getn                   -> lua_rawlen
+
+Function environments became per-userdata user values in 5.2, which is
+exactly what tolua uses them for -- the "peer" table it hangs off every
+usertype -- so the replacement is one for one.  Without this the package
+does not compile at all against the Lua MSYS2 ships (5.5).
+
+Each change is guarded on LUA_VERSION_NUM rather than done in place, because
+tolua++ still supports 5.0 and 5.1 and there is no reason to drop that here.
+
+Upstream: not submitted (project unmaintained since 2012); the same
+          substitutions are carried by the AUR tolua++_5.3 package and by
+          the OpenMandriva and Solus toluapp packages
+Applies-to: all environments
+---
+diff --git a/src/bin/tolua.c b/src/bin/tolua.c
+index cc9f9ad..930d61e 100644
+--- a/src/bin/tolua.c
++++ b/src/bin/tolua.c
+@@ -67,7 +67,11 @@ static void setfield (lua_State* L, int table, char* f, char* v)
+ static void add_extra (lua_State* L, char* value) {
+ 	int len;
+ 	lua_getglobal(L, "_extra_parameters");
++#if LUA_VERSION_NUM > 501
++	len = (int)lua_rawlen(L, -1);
++#else
+ 	len = luaL_getn(L, -1);
++#endif
+ 	lua_pushstring(L, value);
+ 	lua_rawseti(L, -2, len+1);
+ 	lua_pop(L, 1);
+diff --git a/src/lib/tolua_event.c b/src/lib/tolua_event.c
+index 8258867..210dfee 100644
+--- a/src/lib/tolua_event.c
++++ b/src/lib/tolua_event.c
+@@ -23,12 +23,20 @@
+ static void storeatubox (lua_State* L, int lo)
+ {
+ 	#ifdef LUA_VERSION_NUM
++#if LUA_VERSION_NUM > 501
++		lua_getuservalue(L, lo);
++#else
+ 		lua_getfenv(L, lo);
++#endif
+ 		if (lua_rawequal(L, -1, TOLUA_NOPEER)) {
+ 			lua_pop(L, 1);
+ 			lua_newtable(L);
+ 			lua_pushvalue(L, -1);
++#if LUA_VERSION_NUM > 501
++			lua_setuservalue(L, lo);	/* stack: k,v,table  */
++#else
+ 			lua_setfenv(L, lo);	/* stack: k,v,table  */
++#endif
+ 		};
+ 		lua_insert(L, -3);
+ 		lua_settable(L, -3); /* on lua 5.1, we trade the "tolua_peers" lookup for a settable call */
+@@ -141,7 +149,11 @@ static int class_index_event (lua_State* L)
+ 	{
+ 		/* Access alternative table */
+ 		#ifdef LUA_VERSION_NUM /* new macro on version 5.1 */
++#if LUA_VERSION_NUM > 501
++		lua_getuservalue(L,1);
++#else
+ 		lua_getfenv(L,1);
++#endif
+ 		if (!lua_rawequal(L, -1, TOLUA_NOPEER)) {
+ 			lua_pushvalue(L, 2); /* key */
+ 			lua_gettable(L, -2); /* on lua 5.1, we trade the "tolua_peers" lookup for a gettable call */
+diff --git a/src/lib/tolua_map.c b/src/lib/tolua_map.c
+index d00e706..055a361 100644
+--- a/src/lib/tolua_map.c
++++ b/src/lib/tolua_map.c
+@@ -263,7 +263,11 @@ static int tolua_bnd_setpeer(lua_State* L) {
+ 		lua_pop(L, 1);
+ 		lua_pushvalue(L, TOLUA_NOPEER);
+ 	};
++#if LUA_VERSION_NUM > 501
++	lua_setuservalue(L, -2);
++#else
+ 	lua_setfenv(L, -2);
++#endif
+ 
+ 	return 0;
+ };
+@@ -271,7 +275,11 @@ static int tolua_bnd_setpeer(lua_State* L) {
+ static int tolua_bnd_getpeer(lua_State* L) {
+ 
+ 	/* stack: userdata */
++#if LUA_VERSION_NUM > 501
++	lua_getuservalue(L, -1);
++#else
+ 	lua_getfenv(L, -1);
++#endif
+ 	if (lua_rawequal(L, -1, TOLUA_NOPEER)) {
+ 		lua_pop(L, 1);
+ 		lua_pushnil(L);
+@@ -411,7 +419,11 @@ TOLUA_API void tolua_beginmodule (lua_State* L, const char* name)
+ 		lua_rawget(L,-2);
+ 	}
+ 	else
++#if LUA_VERSION_NUM > 501
++	 lua_pushglobaltable(L);
++#else
+ 	 lua_pushvalue(L,LUA_GLOBALSINDEX);
++#endif
+ }
+ 
+ /* End module
+@@ -445,7 +457,11 @@ TOLUA_API void tolua_module (lua_State* L, const char* name, int hasvar)
+ 	else
+ 	{
+ 		/* global table */
++#if LUA_VERSION_NUM > 501
++		lua_pushglobaltable(L);
++#else
+ 		lua_pushvalue(L,LUA_GLOBALSINDEX);
++#endif
+ 	}
+ 	if (hasvar)
+ 	{
+@@ -473,7 +489,11 @@ TOLUA_API void tolua_module (lua_State* L, const char* name, int hasvar)
+ 	else
+ 	{
+ 		/* global table */
++#if LUA_VERSION_NUM > 501
++		lua_pushglobaltable(L);
++#else
+ 		lua_pushvalue(L,LUA_GLOBALSINDEX);
++#endif
+ 	}
+ 	if (hasvar)
+ 	{
+diff --git a/src/lib/tolua_push.c b/src/lib/tolua_push.c
+index 6394147..278e49f 100644
+--- a/src/lib/tolua_push.c
++++ b/src/lib/tolua_push.c
+@@ -79,7 +79,11 @@ TOLUA_API void tolua_pushusertype (lua_State* L, void* value, const char* type)
+ 
+    #ifdef LUA_VERSION_NUM
+    lua_pushvalue(L, TOLUA_NOPEER);
++#if LUA_VERSION_NUM > 501
++   lua_setuservalue(L, -2);
++#else
+    lua_setfenv(L, -2);
++#endif
+    #endif
+   }
+   else

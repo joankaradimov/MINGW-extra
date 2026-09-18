@@ -1,0 +1,30 @@
+Make the LuaDist CMakeLists configure under CMake 4.
+
+Two problems, both in the first two lines.  cmake_minimum_required asks for
+2.8, and CMake 4 refuses to configure any project asking for less than 3.5.
+It is also called after project(), which CMake has warned about for years
+and which means the policy version is not yet set while project() runs.
+3.10 is the oldest release whose policies this file is actually written
+against (it uses nothing newer), and the upper bound keeps CMake from
+applying policy defaults the 2012 code has never seen.
+
+LuaDist is a dead packaging fork, so there is nobody upstream to send this
+to; the tolua++ sources it wraps carry no CMake build of their own.
+
+Upstream: not submitted (LuaDist unmaintained since 2013)
+Applies-to: all environments
+---
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b59ef7c..6115613 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -4,8 +4,8 @@
+ # For details see the COPYRIGHT file distributed with LuaDist.
+ # Please note that the package source code is licensed under its own license.
+ 
++cmake_minimum_required ( VERSION 3.10...4.0 )
+ project ( toluapp C )
+-cmake_minimum_required ( VERSION 2.8 )
+ include ( cmake/dist.cmake )
+ 
+ find_package ( Lua REQUIRED )
