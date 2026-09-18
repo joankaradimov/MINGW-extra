@@ -1,0 +1,56 @@
+Stop the reader before closing its pipe
+
+kill() tears the ConPTY down in an order that guarantees one failed read on a
+closed handle:
+
+    closePseudoConsole(m_ptyHandler);
+    CloseHandle(m_hPipeOut);
+    CloseHandle(m_hPipeIn);                 // the reader is blocked in here
+    m_readThread->requestInterruption();    // ... and only now is it told
+
+Closing the pipe is what unblocks the reader -- requestInterruption() on its own
+cannot, because the thread is parked inside ReadFile and never reaches the check
+until the read returns. So the close has to happen. What does not have to happen
+is doing it while the thread still believes it should keep going: ReadFile fails,
+isInterruptionRequested() is false, and the loop goes round again on a handle
+that has just been closed. 0009 makes that second pass exit rather than spin,
+but the read still happens.
+
+Setting the flag first closes the window. The failing read then finds the
+interruption already requested and leaves on the first pass, so nothing re-enters
+ReadFile on a closed handle -- which matters because a closed HANDLE value can be
+handed straight back out to another thread by CreateFile, and a stale read would
+land on whatever inherited the number.
+
+This is ordering only; every call kill() makes is unchanged, as is the
+wait(1000)/terminate() that follows.
+
+Upstream: not submitted; belongs on PR #578, which is not being merged --
+         see 0001's header
+Applies-to: all environments (the changed code is behind Q_OS_WIN)
+
+--- a/lib/ptyqt/conptyprocess.cpp
++++ b/lib/ptyqt/conptyprocess.cpp
+@@ -255,6 +255,13 @@
+     if (m_ptyHandler != INVALID_HANDLE_VALUE) {
+         m_aboutToDestruct = true;
+ 
++        // Ask the reader to stop *before* taking away the handle it is blocked
++        // on. Closing the pipe is what unblocks ReadFile, so the close has to
++        // happen too -- but with the flag already set, the failing read finds
++        // isInterruptionRequested() true and leaves on the first pass instead
++        // of going round again on a closed handle.
++        m_readThread->requestInterruption();
++
+         // Close ConPTY - this will terminate client process if running
+         m_winContext.closePseudoConsole(m_ptyHandler);
+ 
+@@ -263,8 +270,6 @@
+             CloseHandle(m_hPipeOut);
+         if (INVALID_HANDLE_VALUE != m_hPipeIn)
+             CloseHandle(m_hPipeIn);
+-
+-        m_readThread->requestInterruption();
+         if (!m_readThread->wait(1000))
+             m_readThread->terminate();
+         m_readThread->deleteLater();

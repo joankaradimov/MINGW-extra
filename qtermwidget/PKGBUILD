@@ -32,7 +32,8 @@ source=("https://github.com/lxqt/${_realname}/releases/download/${pkgver}/${_rea
         "0006-fix-the-working-directory-on-windows.patch"
         "0007-pass-the-environment-to-the-child-process.patch"
         "0008-launch-the-configured-shell-on-windows.patch"
-        "0009-end-the-conpty-read-loop-on-any-error.patch")
+        "0009-end-the-conpty-read-loop-on-any-error.patch"
+        "0010-stop-the-reader-before-closing-its-pipe.patch")
 sha256sums=('ceb7d1991ecc0e75b751b6b7786c4962598d367c6e9a0b55f78fc12a49f25304'
             'e80f96bd2322e3b18d9923ac46752108155c681749e87862b12c61f201ff2a11'
             'b38b50e4ca7b7f8b6237dbcc86876f5323da3347f9ed614903e000df0ebe8bdb'
@@ -42,7 +43,8 @@ sha256sums=('ceb7d1991ecc0e75b751b6b7786c4962598d367c6e9a0b55f78fc12a49f25304'
             'c430493315fb0119dcfe64d3f2cbac8323663b724057b03b48fce30c13218121'
             '5309f5d3500b0a6e87a39c647030d1cd01cce4fe94209ef42555892b125a4619'
             '1e8e09cfd0dd0cd63bcd4de1e7738c948e6914d99288e881e8df42915f3cb639'
-            'a102ed67b1c049ba2528df1b785ba8d5f80142328505a3111b03a6e1179ee1df')
+            'f8b347831e0ce952dd69d34891d5e9d37cf781155ef4ff321becb7aaff546527'
+            '2adca0f6879ce937772aa9688251638dc88016cd7fa04f2d6f4d81aa390af997')
 # Unpacked by hand in prepare(); see the comment there.
 noextract=("${_realname}-${pkgver}.tar.xz")
 
@@ -77,6 +79,7 @@ prepare() {
   patch -Np1 -i "${srcdir}/0007-pass-the-environment-to-the-child-process.patch"
   patch -Np1 -i "${srcdir}/0008-launch-the-configured-shell-on-windows.patch"
   patch -Np1 -i "${srcdir}/0009-end-the-conpty-read-loop-on-any-error.patch"
+  patch -Np1 -i "${srcdir}/0010-stop-the-reader-before-closing-its-pipe.patch"
 }
 
 build() {
