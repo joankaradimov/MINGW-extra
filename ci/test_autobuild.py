@@ -15,6 +15,7 @@ import gzip
 import io
 import json
 import os
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -437,6 +438,31 @@ class RepositoryLayout(unittest.TestCase):
 
     def test_alpmrpcd_is_built_in_the_msys_lane(self):
         self.assertEqual(srcinfo.read_environments(ROOT, "alpmrpcd"), [MSYS])
+
+
+class Sources(unittest.TestCase):
+    """What CI can fetch: it clones anonymously, holding no secrets at all."""
+
+    def test_no_committed_pkgbuild_fetches_over_ssh(self):
+        result = subprocess.run(["git", "ls-files", "*/PKGBUILD"],
+                                cwd=ROOT, capture_output=True, text=True)
+        if result.returncode != 0:
+            self.skipTest("not a git checkout")
+        offenders = []
+        for relative in result.stdout.split():
+            with open(os.path.join(ROOT, relative), encoding="utf-8") as handle:
+                text = handle.read()
+            if "ssh://" in text or "git@" in text:
+                offenders.append(relative)
+        self.assertEqual(offenders, [], "use git+https://; a runner has no key")
+
+
+class MakepkgFlags(unittest.TestCase):
+
+    def test_the_pkgbuild_decides_the_version(self):
+        # Without --holdver a VCS package builds as whatever upstream's HEAD
+        # says, which is never the version the planner queued.
+        self.assertIn("--holdver", build.MAKEPKG_FLAGS)
 
 
 class PkgbuildEnvironments(unittest.TestCase):

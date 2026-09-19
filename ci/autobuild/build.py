@@ -46,6 +46,12 @@ MAKEPKG_FLAGS = [
     # in the same job happened to pull in without declaring it.
     "--rmdeps",
     "--cleanbuild",
+    # A VCS package's pkgver() would otherwise rewrite the version from
+    # upstream's HEAD, and the build would produce something the plan never
+    # asked for: the planner reads the pkgver in the PKGBUILD, so a package
+    # built as r30 leaves the r29 it planned unpublished, and every later run
+    # queues it again. A version changes when a commit here changes it.
+    "--holdver",
 ]
 
 GPG_TIMEOUT = 60
@@ -193,6 +199,7 @@ def stage_prebuilt(prebuilt: list[str], environment: str, staging_root: str) -> 
     Each directory holds ``<environment>/*.pkg.tar.zst``, the layout every
     build job uploads.  For a MinGW build that is the msys job's output.
     """
+    staged = 0
     for directory in prebuilt:
         for env in sorted(ENVIRONMENTS):
             if env == environment:
@@ -200,8 +207,14 @@ def stage_prebuilt(prebuilt: list[str], environment: str, staging_root: str) -> 
             packages = sorted(glob.glob(os.path.join(directory, env, "*.pkg.tar.zst")))
             if packages:
                 stage(os.path.join(staging_root, env), env, packages)
+                staged += len(packages)
                 print(f"note: {len(packages)} {env} package file(s) built earlier "
                       f"in this run are available")
+    if prebuilt and not staged:
+        # Worth saying out loud: a package that needs one of them is about to
+        # fail on a missing dependency, and the reason is in the earlier job.
+        print(f"note: no packages from earlier jobs of this run were found in "
+              f"{', '.join(prebuilt)}")
 
 
 def build_one(root: str, directory: str, environment: str, build_root: str,

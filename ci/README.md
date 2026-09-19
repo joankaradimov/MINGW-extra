@@ -249,6 +249,10 @@ To rebuild a package that is already published, bump `pkgrel`. That is not a
 workaround for the version check, it is the correct thing to do: users whose
 pacman already has the old build have no other way to learn there is a new one.
 
+VCS packages are built with `--holdver`: the version is the `pkgver` in the
+PKGBUILD, not whatever upstream's HEAD happens to be, so it only changes when a
+commit here changes it.
+
 ## Adding signing
 
 Currently packages are unsigned. To change that:
