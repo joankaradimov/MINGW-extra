@@ -1,6 +1,6 @@
 ---
 name: msys2-nodejs
-description: Packaging Node.js applications — npm CLIs, servers, TypeScript monorepos — as MSYS2 MinGW packages in the MINGW-extra repo. Covers building from the source tag with upstream's lockfile (npm ci), bundling every npm module into the application including native addons, compiling those addons with the MinGW nodejs's node-gyp against libnode.dll and the shared MinGW libraries, pruning the installed tree, writing the command launchers, and testing the result. Use whenever the thing being packaged has a package.json or is published on npm, needs node-gyp or ships a .node addon, or when a Node addon fails to load or aborts on MSYS2. Node.js applications are the one exception to the repo's no-vendoring rule, so read this before applying that rule to anything Node.
+description: Packaging Node.js applications — npm CLIs, servers, TypeScript monorepos — as MSYS2 MinGW packages in the MINGW-extra repo. Covers building from the source tag with upstream's lockfile (npm, Yarn or pnpm), bundling every npm module into the application including native addons, compiling those addons with the MinGW nodejs's node-gyp against libnode.dll and the shared MinGW libraries, pruning the installed tree, writing the command launchers, and testing the result. Use whenever the thing being packaged has a package.json or is published on npm, needs node-gyp or ships a .node addon, or when a Node addon fails to load or aborts on MSYS2. Node.js applications are the one exception to the repo's no-vendoring rule, so read this before applying that rule to anything Node.
 ---
 
 # Packaging Node.js applications
@@ -28,7 +28,8 @@ built.
 and ignores one inside an installed package, so installing a tarball resolves every version
 range on the day of the build. The same `pkgver-pkgrel` would then contain different code from
 one rebuild or environment to the next. `npm ci` installs the locked tree and checks every
-module against its recorded hash: the combination upstream tested, reproducibly.
+module against its recorded hash: the combination upstream tested, reproducibly. Yarn and pnpm
+lockfiles serve the same purpose with their own tools (Phase 1).
 
 **3. Bundle every npm module into the application — native addons too.** Node resolves
 modules next to the code that loads them, and npm gives each global package its own tree. So
@@ -46,7 +47,8 @@ output.
 
 **6. Keep the build reproducible.** Upstream build scripts sometimes refresh data from the
 network — catalogs, generated option lists. Skip those steps and use what the tag commits.
-The one network access the build needs is `npm ci`, and that is hash-checked.
+The one network access the build needs is the frozen install from the lockfile, and that is
+hash-checked.
 
 **7. Prebuilt tools may run at build time; nothing prebuilt ships.** For now (Joan, 2026-09-22)
 the build may use prebuilt executables that upstream's toolchain expects, pinned by version and
@@ -142,14 +144,18 @@ This runs alongside `msys2-new-package` Phase 0, whose existence checks still ap
 
 1. **nodejs per environment.** MSYS2 builds nodejs for ucrt64, clang64, clangarm64 and mingw64,
    but not mingw32. Compare the application's `engines.node` with what the environment has.
-2. **Modules that need a decision.** In the lockfile, these are entries with `hasInstallScript`,
-   and entries restricted by `os`/`cpu` (per-platform binaries). Sort them into run time and
-   build time (`dev: true`). `scripts/lockfile-natives.py` does that listing. Every run-time
-   native module must be compiled here. Every build-time one needs a plan, or proof that it is
-   harmless.
+2. **Modules that need a decision.** Install with scripts disabled (Phase 1), then look in
+   `node_modules` for packages with an `install`, `preinstall` or `postinstall` script or a
+   `binding.gyp`, and for per-platform binary packages (`os`/`cpu` in their `package.json`).
+   npm's lockfile records the same as `hasInstallScript` and `os`/`cpu`. Sort them into what
+   the application needs at run time and what only the build uses. Every run-time native
+   module must be compiled here. Every build-time one needs a plan, or proof that it is
+   harmless: an install script can also be a download, or just a message.
 3. **What the application loads at run time.** A bundler compiles most modules into its output,
    and what it leaves external still has to ship in `node_modules`. The bundler's `external`
-   setting is the authority. `scripts/runtime-requires.mjs` cross-checks a built output. Also
+   setting is the authority. Cross-check a built output by searching it for `require(` and
+   `import(` of package names, reading each hit in context: minified code yields false
+   positives, such as code-generation strings and optional requires inside `try`/`catch`. Also
    notice code that looks for a module by path next to itself: that module can be compiled into
    the output instead of shipped separately.
 4. **Upstream's build.** Work out which steps produce what you are packaging, which belong to
@@ -183,6 +189,40 @@ prepare() {
   locked version they target (`msys2-patch-author`).
 - Never edit the repository's own `package.json`: `npm ci` refuses a lockfile that no longer
   matches it. Manifest changes belong on the staged copies (Phase 2).
+
+### Yarn and pnpm lockfiles
+
+`yarn.lock` and `pnpm-lock.yaml` pin versions and content hashes just as npm's lockfile does,
+so install them the same way: frozen, with scripts disabled, into a cache under `${srcdir}`.
+Two things differ.
+
+- **The package manager.** Use the one upstream declares: the `packageManager` field in
+  `package.json`, or a Yarn release committed under `.yarn/releases` and named by
+  `.yarnrc.yml`. Pin it like any other build tool (principle 7), either as a checksummed source
+  or through corepack. corepack comes with the MinGW nodejs 24, and verifies the download when
+  the field carries a hash. MSYS2 packages Yarn 1 as `${MINGW_PACKAGE_PREFIX}-yarn`.
+- **The layout.** Staging expects npm's flat `node_modules`. Yarn 2 and later default to
+  Plug'n'Play, which creates no `node_modules` at all, and pnpm defaults to a tree of links into
+  its store. Both can produce the flat tree:
+
+```bash
+# yarn.lock, Yarn 1
+yarn install --frozen-lockfile --ignore-scripts --non-interactive \
+  --cache-folder "${srcdir}/yarn-cache"
+
+# yarn.lock, Yarn 2 and later
+YARN_NODE_LINKER=node-modules YARN_ENABLE_SCRIPTS=false YARN_ENABLE_GLOBAL_CACHE=false \
+YARN_CACHE_FOLDER="$(cygpath -w "${srcdir}/yarn-cache")" \
+  yarn install --immutable
+
+# pnpm-lock.yaml
+pnpm install --frozen-lockfile --ignore-scripts --config.node-linker=hoisted \
+  --store-dir "${srcdir}/pnpm-store"
+```
+
+Each also leaves its own bookkeeping in `node_modules` (`.yarn-integrity`, `.yarn-state.yml`,
+`.modules.yaml`, `.pnpm/`), which the stage does not copy. These commands were checked on a
+small project, not yet on a packaged application.
 
 In `build()`, compile the addons first, then build the application:
 
@@ -301,9 +341,9 @@ processes with `Get-CimInstance Win32_Process -Filter "Name = 'node.exe'"`.
 
 ## Checklist
 
-- [ ] Source is the tag, installed with `npm ci` against its lockfile
-- [ ] Lockfile survey read: every run-time native module compiled here, every build-time one
-      decided
+- [ ] Source is the tag, installed frozen from its lockfile (npm, Yarn or pnpm)
+- [ ] Native and platform-specific modules found: every run-time one compiled here, every
+      build-time one decided
 - [ ] What the application loads at run time established; everything else pruned
 - [ ] Addons built with the MinGW node-gyp and `--nodedir`, linked to shared MinGW libraries,
       bundled library sources deleted, behaviour differences written down
@@ -320,5 +360,7 @@ processes with `Get-CimInstance Win32_Process -Filter "Name = 'node.exe'"`.
 ## Sources
 
 The MSYS2 nodejs PKGBUILD and its `0103-node-gyp-support-mingw-toolchain.patch`. npm's
-documentation for `package-lock.json`, `npm-shrinkwrap.json` and `npm ci`. nodejs/node#65446
+documentation for `package-lock.json`, `npm-shrinkwrap.json` and `npm ci`; Yarn's for
+`--frozen-lockfile`, `--immutable` and `nodeLinker`; pnpm's for `--frozen-lockfile` and
+`node-linker`. nodejs/node#65446
 and #65943. The worked example, `claude-code-router/`.
