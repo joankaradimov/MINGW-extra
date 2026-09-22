@@ -61,6 +61,7 @@ When a rung fails, you know which axis caused it. That is the entire point of th
 | Checking a built package before committing | `msys2-verify-package` |
 | Smoke-testing a package without installing it into the real MSYS2 | `msys2-test-isolated` |
 | The `license=()` field and where license files go | `msys2-licensing` |
+| Packaging a Node.js application: npm, node-gyp addons, launchers | `msys2-nodejs` |
 
 ## Non-negotiables
 
@@ -75,7 +76,8 @@ When a rung fails, you know which axis caused it. That is the entire point of th
 - Never begin a new package without the `msys2/MINGW-packages` existence check. Eight of the
   twelve packages currently in this repo also exist upstream — that is what skipping it costs.
 - Never `makepkg --nodeps`, and never vendor a dependency into the package that needs it.
-  One library, one package.
+  One library, one package. The one exception is the npm modules of a Node.js application,
+  which ship inside it; the C libraries under them do not (`msys2-nodejs`).
 - Never smoke-test with `pacman -U` on the development machine. It pollutes the installation
   and, worse, hides missing `depends=()` entries behind libraries that are already installed.
   Use a throwaway root (`msys2-test-isolated`).

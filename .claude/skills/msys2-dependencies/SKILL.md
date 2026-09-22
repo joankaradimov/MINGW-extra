@@ -241,7 +241,9 @@ not really ported to Windows yet. Say so rather than grinding through it.
 - **Never vendor a dependency into the parent package** — no bundled copies, no
   `FetchContent`, no building git submodules. Every library gets its own package so it can be
   updated and shared. Meson's `--wrap-mode=nodownload` exists to enforce exactly this; keep
-  it.
+  it. The npm modules of a Node.js application are the one exception — they ship inside the
+  application, pinned by its lockfile (`msys2-nodejs`) — but any C library an addon bundles
+  still comes from its MinGW package.
 - **Never put a name in `depends` that you have not confirmed with `pacman -Si`.** An
   unresolvable name makes the package uninstallable for everyone but you.
 - **Never leave a locally built dependency uncommitted** while committing the parent. The

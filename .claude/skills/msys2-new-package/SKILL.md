@@ -157,7 +157,8 @@ cd <upstream-name>
 ```
 
 Start from the matching template in `msys2-pkgbuild` (CMake, Meson, autotools, Python, waf,
-git). Do not start from an Arch PKGBUILD — you will forget the environment indirection.
+git). Do not start from an Arch PKGBUILD — you will forget the environment indirection. A
+Node.js application follows `msys2-nodejs` instead, including its own Phase 0 survey.
 
 Fill in the header. Set `mingw_arch=('ucrt64')` and nothing else. Set `license` per
 `msys2-licensing`.

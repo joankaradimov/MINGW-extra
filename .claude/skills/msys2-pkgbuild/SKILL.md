@@ -276,6 +276,11 @@ MSYS2 guidance: ship `.pyc` and `.opt-1.pyc` for every `.py`, compiled with Unix
 (`/ucrt64/lib/python3.x/site-packages/foo.py`) so they stay relocatable. Use `python -m
 compileall` when the build does not produce them.
 
+### Node.js applications
+No short skeleton fits: `npm ci` against upstream's lockfile, node-gyp for native addons, a
+staged install tree and `cmd-shim` launchers. See `msys2-nodejs`, and `claude-code-router/`
+for a complete PKGBUILD.
+
 ### waf (used by several packages in this repo)
 waf has no MSYS2 template upstream. The working pattern:
 

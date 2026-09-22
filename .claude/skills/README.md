@@ -20,6 +20,7 @@ used here only as a reference of last resort, never as the source of conventions
 | `msys2-verify-package` | Post-build QA before committing or extending `mingw_arch`. |
 | `msys2-test-isolated` | Smoke-test a built package in a throwaway pacman root, never the real MSYS2. |
 | `msys2-licensing` | `license=()` SPDX rules and license file placement. |
+| `msys2-nodejs` | Node.js applications: lockfile-pinned `npm ci`, bundled modules, node-gyp addons on shared MinGW libraries. |
 
 ## Four things these skills insist on
 
@@ -31,7 +32,8 @@ never for structure.
 
 **Leaves before roots.** A missing dependency — runtime or build-time — is a package in its own
 right — built, verified
-and committed before the thing that needs it. Never `--nodeps`, never a vendored copy. And
+and committed before the thing that needs it. Never `--nodeps`, never a vendored copy — the
+npm modules of a Node.js application being the one deliberate exception (`msys2-nodejs`). And
 confirm a dependency really is missing before packaging it: MSYS2 often names it differently
 from Arch.
 
