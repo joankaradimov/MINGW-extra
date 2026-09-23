@@ -97,6 +97,17 @@ msys2_documentation_url='https://.../docs'
 Most used upstream: `!strip` (475), `!emptydirs` (77). Set `!strip` for Python packages and
 anything shipping non-ELF/PE payloads that `strip` would corrupt.
 
+## Comments
+
+Comment what the next maintainer would otherwise undo: a build option pinned against
+upstream's default, a test switched off, a dependency whose reason is not obvious, an
+environment left out for a reason specific to this package.
+
+Leave out whatever holds for every package. What `mingw_arch` means, that `clangarm64` cannot
+be built on x86_64, how CI builds the package: `ci/README.md` and these skills say it once.
+How you verified the package, and what its tests need in order to run, go in your report, not
+in the PKGBUILD.
+
 ## `MSYS2_ARG_CONV_EXCL` — the path-mangling escape hatch
 
 MSYS2 rewrites Unix-looking command-line arguments into Windows paths before handing them to

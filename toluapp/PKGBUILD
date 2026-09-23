@@ -7,17 +7,8 @@ pkgver=1.0.93
 pkgrel=2
 pkgdesc="tolua++, a tool to integrate C/C++ code with Lua (mingw-w64)"
 arch=('any')
-# ucrt64 and clang64 are both verified: check() has the built binary regenerate
-# the code it was built from, and in a throwaway root, against nothing but the
-# declared closure, the installed binary generates bindings for a C and a C++
-# .pkg that compile and run -- fields, methods, inheritance, virtual dispatch,
-# std::string returns, tolua.cast, peer tables and destructors.
-#
 # mingw32 is impossible, not untried: the mingw32 repo is down to 248 packages
 # and lua is not among them, so the one dependency cannot be satisfied.
-#
-# clangarm64 is untested: it cannot be built on x86_64 hardware. lua is there,
-# so CI can, on its windows-11-arm runner -- a one-line PR that CI verifies.
 mingw_arch=('ucrt64' 'clang64')
 url='https://github.com/LuaDist/toluapp'
 license=('spdx:MIT')

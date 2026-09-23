@@ -7,12 +7,6 @@ pkgver=1.7.3
 pkgrel=1
 pkgdesc="UDP Interactive Connectivity Establishment (ICE) library (mingw-w64)"
 arch=('any')
-# ucrt64, clang64 and mingw32 are verified: upstream's test suite passes in
-# each, and in a throwaway root holding only the declared closure two agents
-# connect over loopback and exchange data, linked both directly and through
-# find_package(LibJuice).
-#
-# clangarm64 is untested: it cannot be built on x86_64 hardware.
 mingw_arch=('ucrt64' 'clang64' 'mingw32')
 url='https://github.com/paullouisageneau/libjuice'
 license=('spdx:MPL-2.0')
@@ -62,9 +56,6 @@ build() {
 }
 
 check() {
-  # One executable, not registered with CTest. It needs the internet: the
-  # gathering test passes only on a server-reflexive candidate from
-  # stun.l.google.com. CI builds with --nocheck.
   "build-${MSYSTEM}"/tests.exe
 }
 

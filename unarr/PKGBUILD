@@ -7,13 +7,6 @@ pkgver=1.1.1
 pkgrel=1
 pkgdesc="A decompression library for RAR, TAR, ZIP and 7z archives (mingw-w64)"
 arch=('any')
-# ucrt64, clang64 and mingw32 are all verified: 20/20 integration tests in each,
-# and a consumer compiled from the installed pkg-config flags decompresses the
-# zlib, bzip2, lzma and ppmd corpora in a throwaway root against nothing but the
-# declared closure.
-#
-# clangarm64 is untested: it cannot be built on x86_64 hardware. CI can, on its
-# windows-11-arm runner, so adding it here is a one-line PR that CI verifies.
 mingw_arch=('ucrt64' 'clang64' 'mingw32')
 url='https://github.com/selmf/unarr'
 # AUTHORS names the exceptions to the project's LGPLv3: common/crc32.c and

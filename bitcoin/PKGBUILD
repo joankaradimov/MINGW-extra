@@ -2,7 +2,6 @@
 
 _realname=bitcoin
 pkgbase=mingw-w64-${_realname}
-# Verified nowhere, so built nowhere -- an empty array is how CI is told that.
 # The package_*() functions below are named for the i686 and x86_64 prefixes
 # only, so makepkg finds nothing to call in ucrt64 or clang64; reaching rung 0
 # means adding package_mingw-w64-ucrt-x86_64-* wrappers first.

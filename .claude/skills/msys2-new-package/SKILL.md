@@ -225,7 +225,8 @@ to each rung — the rung tells you which axis to suspect.
 
 Never add an environment to `mingw_arch` you have not built. `mingw_arch` is a record of what
 works, not a wish list. In particular `clangarm64` cannot be built on x86_64 hardware at all;
-leave it out unless you have an ARM64 Windows machine or CI.
+leave it out unless you have an ARM64 Windows machine or CI. Its absence needs no comment in
+the PKGBUILD (`msys2-pkgbuild`, Comments).
 
 ## Phase 5 — record what you learned
 
@@ -246,6 +247,8 @@ during a version bump, that header is the only thing standing between you and a 
 - [ ] no `mv`/`rm`/`rename` fixups in `package()`
 - [ ] patches numbered `NNNN-description.patch` with provenance headers
 - [ ] split packages use the wrapper loop, not hardcoded `package_mingw-w64-*` names
+- [ ] comments explain this package's own decisions only: no verification notes, nothing that
+      holds for every package
 - [ ] every `depends`/`makedepends` entry resolves with `pacman -Si`; any dependency packaged
       for this one is committed too
 - [ ] built, installed, and smoke-tested in at least UCRT64

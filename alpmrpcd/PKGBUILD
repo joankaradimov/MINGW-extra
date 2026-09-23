@@ -13,12 +13,6 @@ arch=('x86_64')
 # from the same alpm.h by the same tools/gen pass and version together, so
 # splitting them across two repositories would only make it easier for them to
 # drift apart.
-#
-# ci/ recognises it by its name, which carries no MINGW_PACKAGE_PREFIX: it is
-# built with plain makepkg in the msys lane, ahead of the mingw environments
-# that depend on it, and published as mingw-extra-msys. That is also why there
-# is no mingw_arch here -- for an MSYS package the only value that means
-# anything is (), which would keep it from being built at all.
 url='https://github.com/joankaradimov/alpmrpc'
 license=('spdx:GPL-2.0-or-later')
 depends=('libarchive'
