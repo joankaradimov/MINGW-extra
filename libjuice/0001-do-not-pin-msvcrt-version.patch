@@ -1,0 +1,51 @@
+Do not pin __MSVCRT_VERSION__ to 0x0601
+
+socket.h and thread.h define __MSVCRT_VERSION__ as 0x0601 unless something
+already has, ahead of their first system header. That is a mingw.org idiom:
+its headers hide the 64-bit time functions below msvcrt.dll 6.1.
+
+MinGW-w64 selects the C runtime with this macro. Neither GCC nor Clang
+predefines _UCRT; _mingw.h derives it from __MSVCRT_VERSION__, defaulting to
+0xE00 in the UCRT environments. Any source that includes socket.h or thread.h
+before another system header is therefore compiled against the msvcrt.dll
+view of the headers while the DLL links the UCRT. In 1.7.3 that is 11 of the
+21 sources: addr, agent, conn, conn_mux, conn_poll, conn_thread, ice, server,
+tcp, turn and udp.
+
+None of those 11 calls anything declared differently in the two views, so
+the unpatched library works. The pin is a trap for the next change that
+reaches stdio, time or stat from one of them. The toolchain default is right
+in every environment, and MINGW32's 0x600 gates nothing that 0x601 would
+unlock. _WIN32_WINNT stays.
+
+Upstream: not submitted yet
+Applies-to: all environments; a no-op on MINGW32
+
+diff --git a/src/socket.h b/src/socket.h
+index 93899f5..d255570 100644
+--- a/src/socket.h
++++ b/src/socket.h
+@@ -14,9 +14,6 @@
+ #ifndef _WIN32_WINNT
+ #define _WIN32_WINNT 0x0601 // Windows 7
+ #endif
+-#ifndef __MSVCRT_VERSION__
+-#define __MSVCRT_VERSION__ 0x0601
+-#endif
+ 
+ #include <winsock2.h>
+ #include <ws2tcpip.h>
+diff --git a/src/thread.h b/src/thread.h
+index 8d35958..0815326 100644
+--- a/src/thread.h
++++ b/src/thread.h
+@@ -14,9 +14,6 @@
+ #ifndef _WIN32_WINNT
+ #define _WIN32_WINNT 0x0601 // Windows 7
+ #endif
+-#ifndef __MSVCRT_VERSION__
+-#define __MSVCRT_VERSION__ 0x0601
+-#endif
+ 
+ #include <windows.h>
+ 

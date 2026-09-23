@@ -1,0 +1,76 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=libjuice
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=1.7.3
+pkgrel=1
+pkgdesc="UDP Interactive Connectivity Establishment (ICE) library (mingw-w64)"
+arch=('any')
+# ucrt64, clang64 and mingw32 are verified: upstream's test suite passes in
+# each, and in a throwaway root holding only the declared closure two agents
+# connect over loopback and exchange data, linked both directly and through
+# find_package(LibJuice).
+#
+# clangarm64 is untested: it cannot be built on x86_64 hardware.
+mingw_arch=('ucrt64' 'clang64' 'mingw32')
+url='https://github.com/paullouisageneau/libjuice'
+license=('spdx:MPL-2.0')
+msys2_repository_url='https://github.com/paullouisageneau/libjuice'
+msys2_references=(
+  'archlinux: libjuice'
+)
+# cc-libs: on mingw32 the DLL imports __divdi3 and __udivdi3 from
+# libgcc_s_dw2-1.dll.
+depends=("${MINGW_PACKAGE_PREFIX}-cc-libs"
+         "${MINGW_PACKAGE_PREFIX}-nettle")
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-cmake"
+             "${MINGW_PACKAGE_PREFIX}-ninja")
+source=("${_realname}-${pkgver}.tar.gz::https://github.com/paullouisageneau/${_realname}/archive/refs/tags/v${pkgver}.tar.gz"
+        "0001-do-not-pin-msvcrt-version.patch")
+sha256sums=('86e075ca4732882746b6d5733ff1b6090f942e5750df58630b191b5f00f30010'
+            '891a363917e328964019f10ea98ff951d1ed5d014f9a343ec562e7d91a366b49')
+
+prepare() {
+  cd "${_realname}-${pkgver}"
+
+  patch -Np1 -i "${srcdir}/0001-do-not-pin-msvcrt-version.patch"
+}
+
+build() {
+  declare -a extra_config
+  if check_option "debug" "n"; then
+    extra_config+=("-DCMAKE_BUILD_TYPE=Release")
+  else
+    extra_config+=("-DCMAKE_BUILD_TYPE=Debug")
+  fi
+
+  # USE_NETTLE: take MD5, SHA-1, SHA-256 and their HMACs from the system Nettle
+  # instead of compiling in the bundled copy of picohash (src/picohash.h).
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
+    "${MINGW_PREFIX}"/bin/cmake.exe \
+      -G Ninja \
+      -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
+      "${extra_config[@]}" \
+      -DBUILD_SHARED_LIBS=ON \
+      -DUSE_NETTLE=ON \
+      -B "build-${MSYSTEM}" \
+      -S "${_realname}-${pkgver}"
+
+  "${MINGW_PREFIX}"/bin/cmake.exe --build "build-${MSYSTEM}"
+}
+
+check() {
+  # One executable, not registered with CTest. It needs the internet: the
+  # gathering test passes only on a server-reflexive candidate from
+  # stun.l.google.com. CI builds with --nocheck.
+  "build-${MSYSTEM}"/tests.exe
+}
+
+package() {
+  DESTDIR="${pkgdir}" "${MINGW_PREFIX}"/bin/cmake.exe --install "build-${MSYSTEM}"
+
+  install -Dm644 "${_realname}-${pkgver}/LICENSE" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/LICENSE"
+}
