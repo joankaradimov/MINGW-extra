@@ -1,4 +1,4 @@
-# Maintainer: Joan Karadimov <joan.karadimopv@gmail.com>
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
 
 _realname=bitcoin
 pkgbase=mingw-w64-${_realname}
