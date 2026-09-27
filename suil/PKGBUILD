@@ -10,7 +10,7 @@ arch=('any')
 mingw_arch=('ucrt64')
 url='https://drobilla.net/software/suil.html'
 license=('spdx:ISC')
-msys2_repository_url='https://gitlab.com/drobilla/suil'
+msys2_repository_url='https://gitlab.com/lv2/suil'
 msys2_references=(
   'archlinux: suil'
 )

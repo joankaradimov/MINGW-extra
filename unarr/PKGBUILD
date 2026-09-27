@@ -12,6 +12,7 @@ url='https://github.com/selmf/unarr'
 # AUTHORS names the exceptions to the project's LGPLv3: common/crc32.c and
 # everything under lzmasdk/ are public domain. Both files are installed.
 license=('spdx:LGPL-3.0-only AND LicenseRef-public-domain')
+msys2_repository_url='https://github.com/selmf/unarr'
 msys2_references=(
   'aur: libunarr'
 )

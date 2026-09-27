@@ -8,6 +8,10 @@ pkgrel=1
 pkgdesc="An LV2 Atom RDF serialisation library"
 url="https://drobilla.net/software/sratom"
 license=('ISC')
+msys2_repository_url='https://gitlab.com/lv2/sratom'
+msys2_references=(
+  'archlinux: sratom'
+)
 arch=('any')
 makedepends=("${MINGW_PACKAGE_PREFIX}-gcc"
              "${MINGW_PACKAGE_PREFIX}-pkg-config"

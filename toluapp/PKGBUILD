@@ -12,6 +12,7 @@ arch=('any')
 mingw_arch=('ucrt64' 'clang64')
 url='https://github.com/LuaDist/toluapp'
 license=('spdx:MIT')
+msys2_repository_url='https://github.com/LuaDist/toluapp'
 msys2_references=(
   'aur: tolua++_5.3'
 )

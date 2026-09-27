@@ -8,6 +8,10 @@ pkgrel=1
 pkgdesc="Successor to the LADSPA audio plug-in standard"
 url="https://lv2plug.in/"
 license=('LGPL' 'custom')
+msys2_repository_url='https://gitlab.com/lv2/lv2'
+msys2_references=(
+  'archlinux: lv2'
+)
 arch=('any')
 makedepends=("${MINGW_PACKAGE_PREFIX}-gcc"
              "${MINGW_PACKAGE_PREFIX}-libsndfile"

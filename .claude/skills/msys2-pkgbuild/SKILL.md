@@ -35,6 +35,10 @@ arch=('any')
 mingw_arch=('ucrt64')
 url='https://www.somepackage.org/'
 license=('spdx:MIT')
+msys2_repository_url='https://github.com/someproject/somepackage'
+msys2_references=(
+  'archlinux: somepackage'
+)
 makedepends=("${MINGW_PACKAGE_PREFIX}-cc")
 depends=()
 options=()
@@ -74,23 +78,42 @@ makedepends=("${MINGW_PACKAGE_PREFIX}-autotools" "${MINGW_PACKAGE_PREFIX}-cc")
 makedepends=("${MINGW_PACKAGE_PREFIX}-python-build" "${MINGW_PACKAGE_PREFIX}-python-installer")
 ```
 
-### Optional MSYS2 metadata
+### MSYS2 metadata
 
-Widely used upstream and worth setting; all are inert at build time.
+`msys2_*` and `mingw_*` variables are MSYS2's extension to the PKGBUILD format. makepkg
+ignores them and MSYS2's own tools read them, packages.msys2.org among them. Nothing in this
+repo reads the `msys2_*` ones, but the repo follows MSYS2's conventions, so every package sets
+them the way MSYS2's recipes do.
+
+**`msys2_repository_url`**: the web view of upstream's repository, even when it is the same
+as `url`. Of the 1231 MSYS2 recipes whose `url` is a GitHub repository, 1209 set both. Leave it
+out only when upstream has no browsable repository.
+
+**`msys2_references`**: every mapping that exists, and none invented.
+
+- `archlinux`: the Arch package name, or the `pkgbase` of a split package; packages.msys2.org
+  indexes both. When only the AUR carries it, `aur` with the AUR package name instead. Phase 0b
+  of `msys2-new-package` looks up both.
+- `purl`: only for a package that comes from a language registry: `pkg:npm/@scope/name`,
+  `pkg:pypi/name`, `pkg:cargo/name`. MSYS2 has 958 `pkg:pypi` purls and 27 `pkg:github` ones;
+  a GitHub project is already named by `msys2_repository_url`.
+- `cpe`, `anitya`, `gentoo`: when you know them. If MSYS2 also carries the package, its recipe
+  is a good source.
+
+A package published nowhere else, such as alpmrpc, has no `msys2_references` at all.
 
 ```bash
-msys2_repository_url='https://github.com/someproject/somepackage'   # 2965/3364 upstream
+msys2_repository_url='https://github.com/someproject/somepackage'
 msys2_references=(
   'archlinux: somepackage'
-  'anitya: 1234'
-)                                                                    # 2378/3364
-msys2_changelog_url='https://.../NEWS'
-msys2_issue_tracker_url='https://.../issues'
-msys2_documentation_url='https://.../docs'
+  'cpe: cpe:/a:someproject:somepackage'
+)
 ```
 
-`msys2_references` keys: `anitya`, `archlinux`, `aur`, `cygwin`, `cygwin-mingw64`, `gentoo`,
-`internal`, `purl`, `cpe`. Mapping syntax is `("key: value" "key2: value2")`.
+The other keys are `cygwin`, `cygwin-mingw64` and `internal`; the syntax is
+`("key: value" "key2: value2")`. MSYS2 also defines `msys2_changelog_url`,
+`msys2_issue_tracker_url` and `msys2_documentation_url`, worth setting only when they are not
+obvious from the repository. Counts are from `msys2/MINGW-packages` as of 2026-09-27.
 
 ### `options`
 

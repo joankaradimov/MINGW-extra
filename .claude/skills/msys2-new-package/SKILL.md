@@ -99,6 +99,9 @@ AUR PKGBUILDs are unreviewed and frequently stale. Treat one as a hint about whe
 tarball lives and which flags the build wants — never as an authority. Verify the source URL
 and recompute checksums yourself with `updpkgsums`; never copy a checksum from the AUR.
 
+Whichever of the two carries the package goes into `msys2_references` as `archlinux` or `aur`
+(`msys2-pkgbuild`, MSYS2 metadata).
+
 ### What to take from an Arch or AUR PKGBUILD, and what to leave
 
 | Take | Leave behind |
@@ -240,6 +243,7 @@ during a version bump, that header is the only thing standing between you and a 
       keeping a local copy is stated in the commit message
 - [ ] `arch=('any')`, `mingw_arch` lists only verified environments
 - [ ] `pkgbase` set, `pkgdesc` ends with `(mingw-w64)`
+- [ ] `msys2_repository_url` set, and `msys2_references` lists every mapping that exists
 - [ ] `makedepends` uses `-cc`, not `-gcc`; `depends` uses `-cc-libs`, not `-gcc-libs`
 - [ ] `license` uses `spdx:` and the license file is installed to
       `${MINGW_PREFIX}/share/licenses/${_realname}/`

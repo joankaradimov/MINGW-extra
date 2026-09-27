@@ -8,6 +8,10 @@ pkgdesc="A C library for RDF syntax with Turtle, TRiG, NTriples, and NQuads supp
 arch=('any')
 url="http://drobilla.net/software/serd"
 license=('ISC')
+msys2_repository_url='https://gitlab.com/drobilla/serd'
+msys2_references=(
+  'archlinux: serd'
+)
 depends=("${MINGW_PACKAGE_PREFIX}-gcc-libs")
 makedepends=("${MINGW_PACKAGE_PREFIX}-gcc"
              "${MINGW_PACKAGE_PREFIX}-pkg-config"

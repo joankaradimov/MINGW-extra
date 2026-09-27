@@ -15,6 +15,7 @@ arch=('x86_64')
 # drift apart.
 url='https://github.com/joankaradimov/alpmrpc'
 license=('spdx:GPL-2.0-or-later')
+msys2_repository_url='https://github.com/joankaradimov/alpmrpc'
 depends=('libarchive'
          'libcurl'
          'libgpgme'

@@ -9,6 +9,10 @@ pkgdesc="Linear/Logitudinal Time Code (LTC) Library"
 arch=('any')
 url="https://x42.github.io/libltc/"
 license=("LGPLv3+")
+msys2_repository_url='https://github.com/x42/libltc'
+msys2_references=(
+  'archlinux: libltc'
+)
 makedepends=("${MINGW_PACKAGE_PREFIX}-gcc" "${MINGW_PACKAGE_PREFIX}-pkg-config")
 depends=("${MINGW_PACKAGE_PREFIX}-gcc-libs")
 options=('staticlibs') # '!strip' 'debug')
