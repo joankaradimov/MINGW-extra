@@ -83,6 +83,13 @@ prepare() {
 }
 
 build() {
+  declare -a extra_config
+  if check_option "debug" "n"; then
+    extra_config+=("-DCMAKE_BUILD_TYPE=Release")
+  else
+    extra_config+=("-DCMAKE_BUILD_TYPE=Debug")
+  fi
+
   # USE_UTF8PROC is pinned ON rather than left at its default of OFF. With it
   # off, konsole_wcwidth() calls wcwidth(), which the MS CRT does not provide;
   # patch 0002 adds a crude fallback so the source still compiles that way, but
@@ -92,7 +99,7 @@ build() {
     "${MINGW_PREFIX}"/bin/cmake.exe \
       -G Ninja \
       -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
-      -DCMAKE_BUILD_TYPE=Release \
+      "${extra_config[@]}" \
       -DBUILD_EXAMPLE=OFF \
       -DUSE_UTF8PROC=ON \
       -DQTERMWIDGET_USE_UTEMPTER=OFF \

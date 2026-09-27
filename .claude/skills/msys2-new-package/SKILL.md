@@ -245,6 +245,7 @@ during a version bump, that header is the only thing standing between you and a 
 - [ ] `pkgbase` set, `pkgdesc` ends with `(mingw-w64)`
 - [ ] `msys2_repository_url` set, and `msys2_references` lists every mapping that exists
 - [ ] `makedepends` uses `-cc`, not `-gcc`; `depends` uses `-cc-libs`, not `-gcc-libs`
+- [ ] a CMake build takes its build type from `check_option "debug"`, not a hardcoded `Release`
 - [ ] `license` uses `spdx:` and the license file is installed to
       `${MINGW_PREFIX}/share/licenses/${_realname}/`
 - [ ] checksums real (`SKIP` only for VCS sources)

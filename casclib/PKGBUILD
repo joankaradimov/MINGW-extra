@@ -41,6 +41,13 @@ prepare() {
 }
 
 build() {
+  declare -a extra_config
+  if check_option "debug" "n"; then
+    extra_config+=("-DCMAKE_BUILD_TYPE=Release")
+  else
+    extra_config+=("-DCMAKE_BUILD_TYPE=Debug")
+  fi
+
   # CASC_UNICODE is ON: the storage-path parameters are TCHAR on Windows, and
   # only the UNICODE flavour can open paths outside the ANSI code page. The
   # choice cannot go unnoticed by a consumer: the CMake target exports
@@ -58,7 +65,7 @@ build() {
     "${MINGW_PREFIX}"/bin/cmake.exe \
       -G Ninja \
       -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
-      -DCMAKE_BUILD_TYPE=Release \
+      "${extra_config[@]}" \
       -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
       -DCMAKE_REQUIRE_FIND_PACKAGE_ZLIB=ON \
       -DCASC_BUILD_SHARED_LIB=ON \

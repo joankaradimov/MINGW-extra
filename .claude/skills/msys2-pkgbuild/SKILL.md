@@ -148,7 +148,11 @@ unconverted is what you want. 2315 of 3364 upstream PKGBUILDs use this. If a gen
 or `*Config.cmake` contains `C:/msys64/...`, a missing `MSYS2_ARG_CONV_EXCL` is the first
 suspect.
 
-## `check_option` — debug/release
+## `check_option` — the CMake build type
+
+A CMake package takes its build type from makepkg's `debug` option and never hardcodes
+`Release`. This is MSYS2's CMake template, and 746 of the 849 CMake recipes in
+`msys2/MINGW-packages` that set a build type do it this way:
 
 ```bash
 build() {
@@ -161,6 +165,17 @@ build() {
   ...
 }
 ```
+
+With `debug` on, makepkg adds `DEBUG_CFLAGS` (`-ggdb -Og`) to `CFLAGS`, and `Debug` keeps
+CMake from appending `-O3 -DNDEBUG` after them. Meson needs no switch: `--buildtype=plain`,
+MSYS2's Meson template, adds no flags of its own.
+
+Options reach makepkg only through `OPTIONS=()` in its config file and `options=()` in the
+PKGBUILD, which wins; no command-line flag sets one. `makepkg-mingw` always passes
+`--config /etc/makepkg_mingw.conf`, and makepkg reads `~/.makepkg.conf` only with its default
+config, so a MinGW build has no per-user override. The stock file says `!debug`, so builds
+here and in CI are `Release`. For a debug build, put `debug` in `options=()` or in that file's
+`OPTIONS`.
 
 ## Out-of-tree builds keyed by environment
 

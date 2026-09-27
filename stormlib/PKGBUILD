@@ -42,6 +42,13 @@ prepare() {
 }
 
 build() {
+  declare -a extra_config
+  if check_option "debug" "n"; then
+    extra_config+=("-DCMAKE_BUILD_TYPE=Release")
+  else
+    extra_config+=("-DCMAKE_BUILD_TYPE=Debug")
+  fi
+
   # STORM_USE_BUNDLED_LIBRARIES stays OFF so the vendored copies of zlib and
   # bzip2 under src/ are left alone and the system libraries are linked
   # instead. libtomcrypt and libtommath are not up for the same treatment:
@@ -64,7 +71,7 @@ build() {
     "${MINGW_PREFIX}"/bin/cmake.exe \
       -G Ninja \
       -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
-      -DCMAKE_BUILD_TYPE=Release \
+      "${extra_config[@]}" \
       -DBUILD_SHARED_LIBS=ON \
       -DSTORM_USE_BUNDLED_LIBRARIES=OFF \
       -DSTORM_UNICODE=ON \

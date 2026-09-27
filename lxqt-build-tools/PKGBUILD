@@ -37,6 +37,13 @@ prepare() {
 }
 
 build() {
+  declare -a extra_config
+  if check_option "debug" "n"; then
+    extra_config+=("-DCMAKE_BUILD_TYPE=Release")
+  else
+    extra_config+=("-DCMAKE_BUILD_TYPE=Debug")
+  fi
+
   # Nothing is compiled here -- the package is CMake modules plus one shell
   # script -- but project() is declared without LANGUAGES NONE, so CMake still
   # runs its C/C++ compiler checks. Hence the -cc makedepend.
@@ -51,7 +58,7 @@ build() {
   cmake -B "build-${MSYSTEM}" -S "${_realname}-${pkgver}" \
     -G Ninja \
     -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
-    -DCMAKE_BUILD_TYPE=Release \
+    "${extra_config[@]}" \
     -DLXQT_ETC_XDG_DIR="${MINGW_PREFIX}/etc/xdg" \
     -Wno-dev
 

@@ -48,6 +48,13 @@ prepare() {
 }
 
 build() {
+  declare -a extra_config
+  if check_option "debug" "n"; then
+    extra_config+=("-DCMAKE_BUILD_TYPE=Release")
+  else
+    extra_config+=("-DCMAKE_BUILD_TYPE=Debug")
+  fi
+
   # BUILD_STATIC stays OFF. It appends -static to the link line and restricts
   # CMAKE_FIND_LIBRARY_SUFFIXES to .a, which would refuse the shared StormLib
   # this package depends on and statically bind the C++ runtime besides.
@@ -55,7 +62,7 @@ build() {
     "${MINGW_PREFIX}"/bin/cmake.exe \
       -G Ninja \
       -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
-      -DCMAKE_BUILD_TYPE=Release \
+      "${extra_config[@]}" \
       -DBUILD_MPQCLI=ON \
       -DBUILD_STATIC=OFF \
       -DGIT_COMMIT_HASH="${_commit}" \
