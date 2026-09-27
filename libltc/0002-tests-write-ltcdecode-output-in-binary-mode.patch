@@ -1,0 +1,29 @@
+Write ltcdecode's output in binary mode on Windows
+
+_set_fmode(_O_BINARY) covers the files ltcdecode opens, not stdout, which the
+CRT opened in text mode before main() ran. Every line it prints therefore ends
+in CRLF, and each `ltcdecode | diff -q expected -` step in `make check` fails
+although the decoded timecode is identical. Switch stdout to binary mode too,
+which is what upstream's binary-I/O change (issue #18) was after.
+
+Upstream: not submitted yet
+Applies-to: all environments
+
+--- a/tests/ltcdecode.c
++++ b/tests/ltcdecode.c
+@@ -29,6 +29,7 @@
+ #ifdef _WIN32
+ #include <fcntl.h> // for _fmode
+ #include <stdlib.h> // for _set_fmode
++#include <io.h> // for _setmode
+ #endif
+ 
+ #define BUFFER_SIZE (1024)
+@@ -61,6 +62,7 @@
+ 	// see https://msdn.microsoft.com/en-us/library/ktss1a9b.aspx and
+ 	// https://github.com/x42/libltc/issues/18
+ 	_set_fmode(_O_BINARY);
++	_setmode(_fileno(stdout), _O_BINARY);
+ #endif
+ 
+ 	f = fopen(filename, "r");

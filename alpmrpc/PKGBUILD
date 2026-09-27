@@ -102,16 +102,13 @@ build() {
   # It is passed so src/client/CMakeLists.txt can check the installed
   # alpm_list.h against the one vendor/alpm_list.c was taken with, which is
   # the check that stops a list this DLL builds from being walked differently
-  # by the libalpm on the other end of the pipe.
+  # by the libalpm on the other end of the pipe. The transaction tests also
+  # build their throwaway roots with its bash.
   #
   # ALPMRPC_WIN32_PATHS is upstream's default, and is pinned anyway: it decides
   # what every path this DLL returns looks like, so anything compiled against
   # this package is compiled against that answer. A default is not the place
   # for something a dependent's source depends on.
-  #
-  # Tests are off: they are end-to-end, so each one starts a server and talks
-  # to it, and the transaction test builds a throwaway root and installs into
-  # it for real. That belongs in a checkout, not in a package build.
   MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
     "${MINGW_PREFIX}"/bin/cmake.exe \
       -B "build-${MSYSTEM}" \
@@ -119,12 +116,17 @@ build() {
       -G Ninja \
       -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
       -DALPMRPC_GEN_DIR="${_gendir}" \
-      -DALPMRPC_BUILD_TESTS=OFF \
+      -DALPMRPC_BUILD_TESTS=ON \
       -DALPMRPC_WIN32_PATHS=ON \
       -DMSYS2_ROOT="${_msys2_root}" \
       "${extra_config[@]}"
 
   "${MINGW_PREFIX}"/bin/cmake.exe --build "build-${MSYSTEM}"
+}
+
+check() {
+  ALPMRPC_ROOT="$(cygpath -w /)" \
+    "${MINGW_PREFIX}"/bin/ctest.exe --test-dir "build-${MSYSTEM}" --output-on-failure
 }
 
 package() {

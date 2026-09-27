@@ -23,11 +23,13 @@ makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
 source=("${_realname}-${pkgver}.tar.gz::https://github.com/ladislav-zezula/${_upstreamname}/archive/refs/tags/${pkgver}.tar.gz"
         "0001-link-ws2_32-on-windows.patch"
         "0002-report-the-release-version-in-the-cmake-package.patch"
-        "0003-name-the-dll-after-its-def-file.patch")
+        "0003-name-the-dll-after-its-def-file.patch"
+        "test-blte.cpp")
 sha256sums=('2bbd1b62c3e161a7204345d89afdcf5160649c220e1a043460ba72ff0ab1b070'
             '8dca06a542cceea6a6de0806aad0e3632aa56574d13e4f339113b3809e899112'
             '16b9c6a2c1d6150b0baa6279428b34dffb2aa13f37c20763f398bda328ab8d8c'
-            '135eb9a305b5cdbb9151728971a170d58ba3288c5ad8b2b682815e75389d281a')
+            '135eb9a305b5cdbb9151728971a170d58ba3288c5ad8b2b682815e75389d281a'
+            '1efb578e873da18d6fbc7c824db432753b3b0366d9616bba012b2ee62a09a1d0')
 
 prepare() {
   cd "${_upstreamname}-${pkgver}"
@@ -76,6 +78,16 @@ build() {
       -S "${_upstreamname}-${pkgver}"
 
   "${MINGW_PREFIX}"/bin/cmake.exe --build "build-${MSYSTEM}"
+}
+
+check() {
+  cd "build-${MSYSTEM}"
+  ${CXX} ${CXXFLAGS} ${LDFLAGS} \
+    -DCASCLIB_NO_AUTO_LINK_LIBRARY -DCASCLIB_NODEBUG -DCASCLIB_UNICODE \
+    -DCASCLIB_DETECT_UNICODE_MISMATCHES -DUNICODE -D_UNICODE \
+    -I"../${_upstreamname}-${pkgver}/src" \
+    "${srcdir}/test-blte.cpp" -L. -lCascLib -o test-blte.exe
+  ./test-blte.exe
 }
 
 package() {

@@ -24,9 +24,11 @@ depends=("${MINGW_PACKAGE_PREFIX}-cmake"
 makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
              "${MINGW_PACKAGE_PREFIX}-ninja")
 source=("https://github.com/lxqt/${_realname}/releases/download/${pkgver}/${_realname}-${pkgver}.tar.xz"
-        "0001-do-not-use-elf-only-linker-flags-on-windows.patch")
+        "0001-do-not-use-elf-only-linker-flags-on-windows.patch"
+        "test-consumer.cmake")
 sha256sums=('14999ff954e820a23af44389b9f7c65f9e58b2f1c0a559f0badd38f9b459aee6'
-            '96630f1a941ecd14480e91793fa29847d032657f1459eec8782488d72fd7327e')
+            '96630f1a941ecd14480e91793fa29847d032657f1459eec8782488d72fd7327e'
+            'ce3ff45868b61c4cd20aa61fcb2e538cc11cb8ca9704a345035067129ca83504')
 
 prepare() {
   cd "${_realname}-${pkgver}"
@@ -63,6 +65,20 @@ build() {
     -Wno-dev
 
   cmake --build "build-${MSYSTEM}"
+}
+
+check() {
+  local _stage="${srcdir}/check-root"
+  DESTDIR="${_stage}" cmake --install "build-${MSYSTEM}"
+
+  mkdir -p check-consumer
+  cp "${srcdir}/test-consumer.cmake" check-consumer/CMakeLists.txt
+  cmake -B check-consumer/build -S check-consumer -G Ninja \
+    -Dlxqt2-build-tools_DIR="$(cygpath -m "${_stage}${MINGW_PREFIX}/share/cmake/lxqt2-build-tools")"
+  cmake --build check-consumer/build
+
+  cd check-consumer/build
+  ./check.exe
 }
 
 package() {

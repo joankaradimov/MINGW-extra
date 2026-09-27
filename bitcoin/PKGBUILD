@@ -58,11 +58,15 @@ build() {
   PKG_CONFIG="/usr/bin/pkgconf.exe" LIBS="$LIBS -lbcrypt" LDFLAGS="-L$srcdir/db-4.8.30.NC/build_unix $LDFLAGS" CPPFLAGS="-I$srcdir/db-4.8.30.NC/build_unix $CPPFLAGS" ./configure \
     --prefix=${MINGW_PREFIX} \
     --with-gui=qt5 \
-    --disable-tests \
     --with-boost=${MINGW_PREFIX}/include/boost \
     --with-boost-libdir=${MINGW_PREFIX}/bin
   make clean
   make
+}
+
+check() {
+  cd $_realname-$pkgver
+  make check
 }
 
 _package_bitcoin-qt() {

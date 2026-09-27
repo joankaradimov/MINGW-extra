@@ -17,17 +17,21 @@ msys2_references=(
 license=('spdx:Watcom-1.0')
 makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
              'make')
+checkdepends=("${MINGW_PACKAGE_PREFIX}-cmake"
+              "${MINGW_PACKAGE_PREFIX}-ninja")
 depends=()
 optdepends=("${MINGW_PACKAGE_PREFIX}-cmake: for cross-compiling to DOS with the bundled toolchain file")
 options=('!strip' '!emptydirs')
 source=("${_realname}-${_build}-Build.tar.gz::https://github.com/open-watcom/open-watcom-v2/archive/refs/tags/${_build}-Build.tar.gz"
         '0001-support-mingw-w64-gcc-as-the-host-toolchain.patch'
         'owsetenv.sh'
-        'OpenWatcomDOS.cmake')
+        'OpenWatcomDOS.cmake'
+        'test-toolchain.sh')
 sha256sums=('a628d95a4559f8a2f955b8720dcb43dfbf55e16bc3733e7e51af5f781d070a85'
             '2ede7d425448dde16a2b7bbee3ef4467e0e8c121ea94bd68416f506e742bd942'
             '6600954760c18fe777b2e7f216281f0b8d9a54978949b382c9a186edf320bf05'
-            '9325ad4ed5a89e12328c371db994096685141fce82a1090afc8a550274283442')
+            '9325ad4ed5a89e12328c371db994096685141fce82a1090afc8a550274283442'
+            'a4cd9008e94f5461cc1247845d290f1e15499752d8637840b89eef45224cca35')
 
 _srcdir="${_realname}-${_build}-Build"
 
@@ -59,12 +63,23 @@ _ow_env() {
 
 build() {
   cd "${srcdir}/${_srcdir}"
-  _ow_env
 
-  # Phase 1 (boot) builds bootstrap versions of the Open Watcom tools with
-  # the host compiler; phase 2 (rel) rebuilds everything with those tools
-  # and copies the result into ${OWRELROOT}.
-  ./build.sh rel
+  # A subshell, so the PATH _ow_env exports stays here: it puts the bootstrap
+  # tools first, and their head, tr, sed, awk and cat would shadow the MSYS
+  # ones in check().
+  (
+    _ow_env
+
+    # Phase 1 (boot) builds bootstrap versions of the Open Watcom tools with
+    # the host compiler; phase 2 (rel) rebuilds everything with those tools
+    # and copies the result into ${OWRELROOT}.
+    ./build.sh rel
+  )
+}
+
+check() {
+  cd "${srcdir}/${_srcdir}"
+  sh "${srcdir}/test-toolchain.sh" rel "${srcdir}/OpenWatcomDOS.cmake"
 }
 
 package() {

@@ -1,0 +1,63 @@
+# A consumer of the installed modules. LXQtCompilerSettings builds a Qt
+# program with the flags every LXQt project gets; lxqt_translate_ts() compiles
+# a German catalogue with lrelease; lxqt_translate_desktop() merges a
+# translated desktop file with Perl. The program then checks both results.
+cmake_minimum_required(VERSION 3.18)
+project(check CXX)
+
+find_package(lxqt2-build-tools REQUIRED)
+find_package(Qt6 REQUIRED COMPONENTS Core LinguistTools)
+find_package(Perl REQUIRED)
+include(LXQtCompilerSettings NO_POLICY_SCOPE)
+include(LXQtTranslateTs)
+include(LXQtTranslateDesktop)
+
+file(WRITE "${CMAKE_BINARY_DIR}/translations/check_de.ts" [=[<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE TS>
+<TS version="2.1" language="de">
+<context>
+    <name>check</name>
+    <message>
+        <source>Hello</source>
+        <translation>Hallo</translation>
+    </message>
+</context>
+</TS>
+]=])
+file(WRITE "${CMAKE_BINARY_DIR}/check.desktop.in" "[Desktop Entry]\nType=Application\nName=Check\n")
+file(WRITE "${CMAKE_BINARY_DIR}/translations/check_de.desktop.yaml" "Desktop Entry/Name: Prüfung\n")
+
+lxqt_translate_ts(QM TEMPLATE check TRANSLATION_DIR "${CMAKE_BINARY_DIR}/translations")
+# USE_YAML, the Perl merger: the default one runs LXQtTranslateDesktop.sh as a
+# command, which cmd.exe cannot execute, and on Windows it writes nothing.
+lxqt_translate_desktop(DESKTOP USE_YAML
+    SOURCES "${CMAKE_BINARY_DIR}/check.desktop.in"
+    TRANSLATION_DIR "${CMAKE_BINARY_DIR}/translations")
+
+file(WRITE "${CMAKE_BINARY_DIR}/main.cpp" [=[
+#include <QCoreApplication>
+#include <QFile>
+#include <QTranslator>
+#include <cstdio>
+
+int main(int argc, char **argv)
+{
+    QCoreApplication app(argc, argv);
+    QTranslator translator;
+    if (!translator.load(QStringLiteral("check_de.qm")) || !app.installTranslator(&translator))
+        return std::fputs("check_de.qm did not load\n", stderr), 1;
+    if (QCoreApplication::translate("check", "Hello") != QStringLiteral("Hallo"))
+        return std::fputs("the catalogue does not translate Hello\n", stderr), 1;
+
+    QFile desktop(QStringLiteral("check.desktop"));
+    if (!desktop.open(QIODevice::ReadOnly) ||
+        !QString::fromUtf8(desktop.readAll()).contains(QStringLiteral("Name[de]=Prüfung")))
+        return std::fputs("check.desktop lacks the German name\n", stderr), 1;
+
+    std::puts("translation and desktop file merged");
+    return 0;
+}
+]=])
+
+add_executable(check "${CMAKE_BINARY_DIR}/main.cpp" ${QM} ${DESKTOP})
+target_link_libraries(check PRIVATE Qt6::Core)

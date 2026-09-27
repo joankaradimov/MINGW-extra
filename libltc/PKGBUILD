@@ -16,8 +16,18 @@ msys2_references=(
 makedepends=("${MINGW_PACKAGE_PREFIX}-gcc" "${MINGW_PACKAGE_PREFIX}-pkg-config")
 depends=("${MINGW_PACKAGE_PREFIX}-gcc-libs")
 options=('staticlibs') # '!strip' 'debug')
-source=("https://github.com/x42/libltc/releases/download/v${pkgver}/${_realname}-${pkgver}.tar.gz")
-sha256sums=('50e63eb3b767151bc0159a3cc5d426d03a42fd69029bc9b3b7c346555f4b709c')
+source=("https://github.com/x42/libltc/releases/download/v${pkgver}/${_realname}-${pkgver}.tar.gz"
+        "0001-tests-include-stdlib-h-for-set-fmode.patch"
+        "0002-tests-write-ltcdecode-output-in-binary-mode.patch")
+sha256sums=('50e63eb3b767151bc0159a3cc5d426d03a42fd69029bc9b3b7c346555f4b709c'
+            '4466df57c8ad5e915ab2ca08df466a6ab73bb56bc7cdeaad003aa6b7e620f61c'
+            '5ad71a2f04cec602b6cd181864c29b0b5618b195a575619b054c9fe9fc18d72e')
+
+prepare() {
+  cd "${srcdir}/${_realname}-${pkgver}"
+  patch -Np1 -i "${srcdir}/0001-tests-include-stdlib-h-for-set-fmode.patch"
+  patch -Np1 -i "${srcdir}/0002-tests-write-ltcdecode-output-in-binary-mode.patch"
+}
 
 build() {
   mkdir -p "${srcdir}/build-${CARCH}"
@@ -26,8 +36,15 @@ build() {
     --prefix=${MINGW_PREFIX} \
     --build=${MINGW_CHOST} \
     --host=${MINGW_CHOST} \
-    --target=${MINGW_CHOST} \
+    --target=${MINGW_CHOST}
   make
+}
+
+check() {
+  cd "${srcdir}/build-${CARCH}"
+  # tests/Makefile.am's own check rule and automake's check-am build the same
+  # test programs, and race each other under -j.
+  make -j1 check
 }
 
 package() {

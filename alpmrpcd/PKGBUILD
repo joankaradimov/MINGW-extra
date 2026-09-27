@@ -38,8 +38,10 @@ makedepends=('cmake'
              # here. That is deliberate -- see the comment in build().
              'mingw-w64-ucrt-x86_64-clang'
              'mingw-w64-ucrt-x86_64-python')
-source=("${_realname}::git+https://github.com/joankaradimov/alpmrpc.git")
-sha256sums=('SKIP')
+source=("${_realname}::git+https://github.com/joankaradimov/alpmrpc.git"
+        "test-stdio.py")
+sha256sums=('SKIP'
+            '1b814b59730e61b4eacde8bd2153515a40918ffafdc78c74ec2de197325d31b0')
 
 pkgver() {
   cd "${srcdir}/${_realname}"
@@ -116,6 +118,10 @@ build() {
     "${extra_config[@]}"
 
   cmake --build build
+}
+
+check() {
+  /ucrt64/bin/python.exe "${srcdir}/test-stdio.py" "$(cygpath -m "${srcdir}/build/alpmrpcd.exe")"
 }
 
 package() {

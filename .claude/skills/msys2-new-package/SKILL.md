@@ -250,6 +250,8 @@ during a version bump, that header is the only thing standing between you and a 
       `${MINGW_PREFIX}/share/licenses/${_realname}/`
 - [ ] checksums real (`SKIP` only for VCS sources)
 - [ ] no `mv`/`rm`/`rename` fixups in `package()`
+- [ ] `check()` runs upstream's tests, or a test of the package's own where upstream has none,
+      and passes in every environment in `mingw_arch`
 - [ ] patches numbered `NNNN-description.patch` with provenance headers
 - [ ] split packages use the wrapper loop, not hardcoded `package_mingw-w64-*` names
 - [ ] comments explain this package's own decisions only: no verification notes, nothing that

@@ -27,16 +27,19 @@ makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
              "${MINGW_PACKAGE_PREFIX}-cli11"
              "${MINGW_PACKAGE_PREFIX}-cmake"
              "${MINGW_PACKAGE_PREFIX}-ninja")
+checkdepends=("${MINGW_PACKAGE_PREFIX}-python-pytest")
 source=("${_realname}-${pkgver}.tar.gz::https://github.com/TheGrayDot/${_realname}/archive/v${pkgver}.tar.gz"
         "0001-build-against-system-stormlib-and-cli11.patch"
         "0002-pass-native-local-paths-to-a-unicode-stormlib.patch"
         "0003-keep-archive-names-as-paths-until-they-are-encoded.patch"
-        "0004-decode-archive-entry-names-as-utf-8-when-extracting.patch")
+        "0004-decode-archive-entry-names-as-utf-8-when-extracting.patch"
+        "0005-tests-expect-sizes-for-the-encoding-the-fixtures-use.patch")
 sha256sums=('68a678697fe778cd0c6cda4adf9fa7cb93f114ee1d68c81bd0164ca5d7eb6c1a'
             'f841f0d0a509cb376924baf19a2cddbabbb3781d2894a88dba0e0d9a5d7f92c9'
             '59760fd3fe0ce683abab2d855d40c1353656d08f13ad3e271f43f6987d17fcfd'
             '912fe792339490ec4456405bea0509f23bb79db4f64e663900768a2798dcd1cf'
-            '984306c6d90be1e1da2b7a64942a372bb2cbf2ee0b33605524772e8281e55a2e')
+            '984306c6d90be1e1da2b7a64942a372bb2cbf2ee0b33605524772e8281e55a2e'
+            '5ef6cec6faa5b1dcfc23e16913d9c4f598d7f13ce8150360d945d7194831a6fe')
 
 prepare() {
   cd "${_realname}-${pkgver}"
@@ -45,6 +48,7 @@ prepare() {
   patch -Np1 -i "${srcdir}/0002-pass-native-local-paths-to-a-unicode-stormlib.patch"
   patch -Np1 -i "${srcdir}/0003-keep-archive-names-as-paths-until-they-are-encoded.patch"
   patch -Np1 -i "${srcdir}/0004-decode-archive-entry-names-as-utf-8-when-extracting.patch"
+  patch -Np1 -i "${srcdir}/0005-tests-expect-sizes-for-the-encoding-the-fixtures-use.patch"
 }
 
 build() {
@@ -70,6 +74,17 @@ build() {
       -S "${_realname}-${pkgver}"
 
   "${MINGW_PREFIX}"/bin/cmake.exe --build "build-${MSYSTEM}"
+}
+
+check() {
+  # The suite runs the binary it finds under build/bin in the source tree. It
+  # expects a plain Windows Python: native path separators, which MSYS2's
+  # Python swaps for / unless MSYSTEM is empty, and UTF-8 mode for the
+  # non-ASCII text its fixtures write.
+  mkdir -p "${_realname}-${pkgver}/build/bin"
+  cp "build-${MSYSTEM}/bin/${_realname}.exe" "${_realname}-${pkgver}/build/bin/"
+  cd "${_realname}-${pkgver}"
+  MSYSTEM= PYTHONUTF8=1 "${MINGW_PREFIX}"/bin/python -m pytest test
 }
 
 package() {

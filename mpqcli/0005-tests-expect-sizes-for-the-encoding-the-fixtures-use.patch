@@ -1,0 +1,59 @@
+Expect the listed sizes for the encoding the fixtures were written in
+
+The locale fixtures in conftest.py write "Dies ist eine Datei über Katzen."
+and its Swedish sibling with Path.write_text() and no encoding, so their sizes
+follow Python's default text encoding. test_list.py picks its expected sizes
+by operating system instead, assuming Windows writes one byte per character.
+That holds only while Python writes a single-byte code page such as cp1252,
+where upstream's CI runs. Under PYTHONUTF8=1, which a machine whose code page
+lacks ä and ü (cp1251 here) needs before the fixtures can be written at all,
+the three --detailed listings fail. Key the choice on the encoding; under
+cp1252 nothing changes.
+
+Upstream: not submitted yet
+Applies-to: all environments
+
+--- a/test/test_list.py
++++ b/test/test_list.py
+@@ -1,7 +1,14 @@
++import codecs
++import locale
+ import subprocess
+ from pathlib import Path
+ import platform
+ 
++# The locale fixtures write their non-ASCII text in Python's default
++# encoding, which decides the file sizes: UTF-8 on POSIX and in UTF-8
++# mode, the ANSI code page otherwise on Windows.
++WRITES_UTF8 = codecs.lookup(locale.getpreferredencoding(False)).name == "utf-8"
++
+ 
+ def test_list_mpq_with_output_v1(binary_path):
+     """
+@@ -187,7 +194,7 @@
+     assert output_lines == expected_output, f"Unexpected output: {output_lines}"
+ 
+     ## --all, --detailed flag
+-    if platform.system() != "Windows":
++    if WRITES_UTF8:
+         expected_output = {
+             "      31 enUS                      File00000000.xxx",
+             "      33 deDE                      File00000001.xxx",
+@@ -262,7 +269,7 @@
+     assert output_lines == expected_output, f"Unexpected output: {output_lines}"
+ 
+     ## --all, --detailed flag
+-    if platform.system() != "Windows":
++    if WRITES_UTF8:
+         expected_output = {
+             "      31 enUS                      File00000000.xxx",
+             "      27 041D                      File00000002.xxx",
+@@ -335,7 +342,7 @@
+     assert output_lines == expected_output, f"Unexpected output: {output_lines}"
+ 
+     ## --all, --detailed flag
+-    if platform.system() != "Windows":
++    if WRITES_UTF8:
+         expected_output = {
+             "      31 enUS                      capybaras.txt",
+             "      33 deDE                      cats.txt",

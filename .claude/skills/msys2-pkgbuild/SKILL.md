@@ -131,6 +131,23 @@ be built on x86_64, how CI builds the package: `ci/README.md` and these skills s
 How you verified the package, and what its tests need in order to run, go in your report, not
 in the PKGBUILD.
 
+## `check()`
+
+Every package has one. CI builds with `--nocheck`, so a local build is the only place a
+package's tests ever run.
+
+- **Upstream's suite first:** ctest, `meson test`, `make check`, `waf test`, a test program,
+  a pytest suite. Switch on the option that builds it if upstream leaves it off. A suite that
+  needs the network is fine here.
+- **Your own test where upstream has none,** or where its suite cannot run here, needing game
+  data or paths on upstream's machine. Exercise what the package built: compile a consumer
+  against the build tree and run it, or run the tool on real input. Ship the source beside
+  the PKGBUILD as `test-<what>.<ext>`, listed in `source=()`.
+- **Install nothing.** When the consumer needs the installed layout, `DESTDIR=` a stage
+  inside `srcdir` and point it there.
+- **A failure is a finding, not something to switch off.** Patch the harness when the harness
+  is wrong, and the package when the package is.
+
 ## `MSYS2_ARG_CONV_EXCL` — the path-mangling escape hatch
 
 MSYS2 rewrites Unix-looking command-line arguments into Windows paths before handing them to

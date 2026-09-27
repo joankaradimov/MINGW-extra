@@ -1,0 +1,20 @@
+Include stdlib.h for _set_fmode in ltcdecode
+
+ltcdecode.c calls _set_fmode() on Windows but includes only fcntl.h, while
+the CRT declares it in stdlib.h. GCC 14 made implicit function declarations
+an error, so the test program no longer compiles and `make check` stops
+before running anything. ltcencode.c already includes stdlib.h.
+
+Upstream: not submitted yet (master still lacks the include)
+Applies-to: all environments
+
+--- a/tests/ltcdecode.c
++++ b/tests/ltcdecode.c
+@@ -28,6 +28,7 @@
+ 
+ #ifdef _WIN32
+ #include <fcntl.h> // for _fmode
++#include <stdlib.h> // for _set_fmode
+ #endif
+ 
+ #define BUFFER_SIZE (1024)
