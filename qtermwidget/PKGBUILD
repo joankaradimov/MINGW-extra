@@ -4,7 +4,7 @@ _realname=qtermwidget
 pkgbase=mingw-w64-${_realname}
 pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
 pkgver=2.4.0
-pkgrel=1
+pkgrel=2
 pkgdesc="Terminal emulator widget for Qt, used by QTerminal (mingw-w64)"
 arch=('any')
 mingw_arch=('ucrt64' 'clang64')
@@ -34,6 +34,7 @@ source=("https://github.com/lxqt/${_realname}/releases/download/${pkgver}/${_rea
         "0008-launch-the-configured-shell-on-windows.patch"
         "0009-end-the-conpty-read-loop-on-any-error.patch"
         "0010-stop-the-reader-before-closing-its-pipe.patch"
+        "0011-name-the-shell-natively-and-quoted-on-the-command-line.patch"
         "test-conpty.cmake")
 sha256sums=('ceb7d1991ecc0e75b751b6b7786c4962598d367c6e9a0b55f78fc12a49f25304'
             'e80f96bd2322e3b18d9923ac46752108155c681749e87862b12c61f201ff2a11'
@@ -46,7 +47,8 @@ sha256sums=('ceb7d1991ecc0e75b751b6b7786c4962598d367c6e9a0b55f78fc12a49f25304'
             '1e8e09cfd0dd0cd63bcd4de1e7738c948e6914d99288e881e8df42915f3cb639'
             'f8b347831e0ce952dd69d34891d5e9d37cf781155ef4ff321becb7aaff546527'
             '2adca0f6879ce937772aa9688251638dc88016cd7fa04f2d6f4d81aa390af997'
-            '62747c6693ef308e0da753bbcc00d80fcc90075de588fd4da8cbb46522effd3c')
+            '0558c164de5f40d5cebae2e8b5c2d4312f33d4555e9a191931adac1254cd36f5'
+            '7cd9f827e6955c41c60588a11492eedf3ad1cd1aba249e5baf909adaffd631e5')
 # Unpacked by hand in prepare(); see the comment there.
 noextract=("${_realname}-${pkgver}.tar.xz")
 
@@ -82,6 +84,7 @@ prepare() {
   patch -Np1 -i "${srcdir}/0008-launch-the-configured-shell-on-windows.patch"
   patch -Np1 -i "${srcdir}/0009-end-the-conpty-read-loop-on-any-error.patch"
   patch -Np1 -i "${srcdir}/0010-stop-the-reader-before-closing-its-pipe.patch"
+  patch -Np1 -i "${srcdir}/0011-name-the-shell-natively-and-quoted-on-the-command-line.patch"
 }
 
 build() {
@@ -124,6 +127,7 @@ check() {
   cd check-consumer/build
   cp "${_stage}${MINGW_PREFIX}/bin/libqtermwidget6.dll" .
   QT_QPA_PLATFORM=offscreen ./check.exe
+  QT_QPA_PLATFORM=offscreen ./check.exe cmd.exe
 }
 
 package() {

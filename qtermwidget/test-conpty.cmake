@@ -1,7 +1,8 @@
-# A consumer of the installed library: starts the widget's default shell,
-# cmd.exe, through the ConPTY backend, types a command once the prompt appears
-# and waits for its output. The typed text reads ROUND^-TRIP, so ROUND-TRIP can
-# only come from cmd running it.
+# A consumer of the installed library: starts cmd.exe through the ConPTY
+# backend, either as the widget's default shell or as the program named on the
+# command line, types a command once the prompt appears and waits for its
+# output. The typed text reads ROUND^-TRIP, so ROUND-TRIP can only come from
+# cmd running it.
 cmake_minimum_required(VERSION 3.18)
 project(check CXX)
 
@@ -21,6 +22,8 @@ int main(int argc, char **argv)
     QString seen;
     bool typed = false;
 
+    if (argc > 1)
+        term.setShellProgram(QString::fromLocal8Bit(argv[1]));
     term.setArgs({QStringLiteral("/d")});
     QObject::connect(&term, &QTermWidget::receivedData, [&](const QString &text) {
         seen += text;
@@ -40,7 +43,7 @@ int main(int argc, char **argv)
     term.startShellProgram();
     const int status = app.exec();
     if (status == 0)
-        std::puts("cmd.exe answered through ConPTY");
+        std::printf("%s answered through ConPTY\n", argc > 1 ? argv[1] : "the default shell");
     return status;
 }
 ]=])

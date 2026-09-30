@@ -1,0 +1,36 @@
+Name the shell natively, in quotes, on the ConPTY command line
+
+startProcess() builds the command line by joining the shell path and its
+arguments with spaces. Session::run() (0008) resolves a bare program name
+with QStandardPaths::findExecutable(), which answers with forward slashes:
+
+    C:/WINDOWS/system32/cmd.exe /d
+
+cmd.exe parses its own command line, reads the "/c" in "/cmd.exe" as its /c
+switch and runs "md .exe /d", so a widget configured with "cmd.exe" gets a
+shell that exits at once with "The syntax of the command is incorrect".
+
+Put the path first with native separators, and in quotes, the form
+CreateProcess documents for a module name inside lpCommandLine. Unquoted, a
+path with spaces still starts the right program, but only because
+CreateProcess tries each space-separated prefix in turn, and an existing file
+at an earlier prefix would run instead. The arguments are joined as before.
+
+Upstream: not submitted; belongs on PR #578, which is not being merged --
+         see 0001's header
+Applies-to: all environments (the changed code is behind Q_OS_WIN)
+
+--- a/lib/ptyqt/conptyprocess.cpp
++++ b/lib/ptyqt/conptyprocess.cpp
+@@ -129,7 +129,10 @@
+     LPWSTR envArg = envV.empty() ? nullptr : envV.data();
+ 
+     QStringList exeAndArgs = arguments;
+-    exeAndArgs.prepend(m_shellPath);
++    // Native separators, because cmd.exe reads the "/c" in ".../cmd.exe" as its
++    // /c switch; quotes, because the path may contain spaces.
++    exeAndArgs.prepend(QLatin1Char('"') + QDir::toNativeSeparators(m_shellPath) +
++                       QLatin1Char('"'));
+     auto cmdArg = exeAndArgs.join(QLatin1String(" ")).toStdWString();
+ 
+     HRESULT hr{E_UNEXPECTED};
