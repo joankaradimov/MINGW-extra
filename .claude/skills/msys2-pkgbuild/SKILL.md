@@ -78,6 +78,12 @@ makedepends=("${MINGW_PACKAGE_PREFIX}-autotools" "${MINGW_PACKAGE_PREFIX}-cc")
 makedepends=("${MINGW_PACKAGE_PREFIX}-python-build" "${MINGW_PACKAGE_PREFIX}-python-installer")
 ```
 
+**Version floors.** When a package needs a fix or a feature from a newer release of a
+dependency, raise the floor to that release, say why in a comment, and bump `pkgrel` so the
+published package carries it (mpqcli: `stormlib>=9.40-4`). `makepkg --syncdeps` installs only
+what `pacman -T` reports missing, so without the floor an older installed release stays and
+`check()` runs against it.
+
 ### MSYS2 metadata
 
 `msys2_*` and `mingw_*` variables are MSYS2's extension to the PKGBUILD format. makepkg

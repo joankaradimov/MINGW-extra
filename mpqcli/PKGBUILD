@@ -4,7 +4,7 @@ _realname=mpqcli
 pkgbase=mingw-w64-${_realname}
 pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
 pkgver=0.10.2
-pkgrel=3
+pkgrel=4
 pkgdesc="A command line tool to create, read and modify MPQ archives (mingw-w64)"
 arch=('any')
 # mingw32 is missing on purpose: the library side builds and passes there, but
@@ -20,9 +20,10 @@ msys2_repository_url='https://github.com/TheGrayDot/mpqcli'
 # explicitly keeps `mpqcli version` honest and the build reproducible.
 _commit=4bd21908966bafbafc55c6dd293c68488684d212
 # stormlib 9.40-3 is the first UNICODE build; built against it, mpqcli passes
-# wide paths, which an older ANSI libStormLib.dll would misread.
+# wide paths, which an older ANSI libStormLib.dll would misread. 9.40-4 is the
+# first whose 64-bit builds sign and verify weak signatures correctly.
 depends=("${MINGW_PACKAGE_PREFIX}-cc-libs"
-         "${MINGW_PACKAGE_PREFIX}-stormlib>=9.40-3")
+         "${MINGW_PACKAGE_PREFIX}-stormlib>=9.40-4")
 makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
              "${MINGW_PACKAGE_PREFIX}-cli11"
              "${MINGW_PACKAGE_PREFIX}-cmake"
