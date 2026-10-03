@@ -45,9 +45,9 @@ already-published dependencies.
 **build** (Windows + MSYS2, one job per environment) walks its queue in order,
 with that copy in its pacman.conf as a `file://` repository. After each success
 it `repo-add`s the result into a local staging repository and refreshes pacman,
-so `sord` installs the `serd` this job built minutes earlier. A package that
-fails does not stop the queue — the remaining ones still build, and the job
-fails at the end with all of them listed.
+so `mpqcli` installs the `stormlib` this job built minutes earlier. A package
+that fails does not stop the queue — the remaining ones still build, and the
+job fails at the end with all of them listed.
 
 **msys** (Windows + MSYS2) builds the MSYS packages -- the ones whose names
 carry no `MINGW_PACKAGE_PREFIX` -- with plain `makepkg`, before any MinGW build
@@ -112,7 +112,7 @@ to users over HTTPS. The layout builds itself:
 <DEPLOY_PATH>/index.html                            -> https://packages.example.com/mingw-extra/
 <DEPLOY_PATH>/ucrt64/mingw-extra-ucrt64.db          -> https://packages.example.com/mingw-extra/ucrt64/...
 <DEPLOY_PATH>/ucrt64/mingw-extra-ucrt64.files
-<DEPLOY_PATH>/ucrt64/mingw-w64-ucrt-x86_64-serd-0.30.10-1-any.pkg.tar.zst
+<DEPLOY_PATH>/ucrt64/mingw-w64-ucrt-x86_64-stormlib-9.40-4-any.pkg.tar.zst
 <DEPLOY_PATH>/clang64/...
 <DEPLOY_PATH>/mingw32/...
 <DEPLOY_PATH>/msys/mingw-extra-msys.db              -> the MSYS packages
@@ -213,8 +213,8 @@ installed:
 
 ```console
 $ PYTHONPATH=ci python -m autobuild plan
-$ PYTHONPATH=ci python -m autobuild plan --package serd
-$ PYTHONPATH=ci python -m autobuild build --environment ucrt64 serd sord
+$ PYTHONPATH=ci python -m autobuild plan --package stormlib
+$ PYTHONPATH=ci python -m autobuild build --environment ucrt64 stormlib mpqcli
 ```
 
 Without `--published`, nothing counts as published, so `plan` queues
@@ -225,7 +225,7 @@ first, with `DEPLOY_HOST` and `DEPLOY_PATH` set and SSH access to the host:
 $ ci/fetch-published.sh databases published
 $ PYTHONPATH=ci python -m autobuild plan --published published
 $ ci/fetch-published.sh packages ucrt64 published
-$ PYTHONPATH=ci python -m autobuild build --published published --environment ucrt64 sord
+$ PYTHONPATH=ci python -m autobuild build --published published --environment ucrt64 mpqcli
 ```
 
 `--prebuilt DIR` makes packages another job built, laid out as

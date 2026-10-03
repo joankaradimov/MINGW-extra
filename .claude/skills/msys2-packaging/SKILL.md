@@ -6,7 +6,7 @@ description: Router for MSYS2 / MinGW-w64 packaging in the MINGW-extra repo. Use
 # MSYS2 packaging — router
 
 This repo (`MINGW-extra`) is a personal MSYS2 package repository. One directory per
-package, named after the **upstream project** (`aubio/`, `jack2/`, `lv2/`), each holding a
+package, named after the **upstream project** (`casclib/`, `suil/`, `unarr/`), each holding a
 `PKGBUILD` and any `*.patch` files. Note this differs from upstream `msys2/MINGW-packages`,
 which uses `mingw-w64-<name>/` — when copying a recipe from upstream, rename the directory.
 

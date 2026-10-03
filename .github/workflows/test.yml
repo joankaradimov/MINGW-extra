@@ -1,6 +1,6 @@
 # The planner's logic is testable without a Windows runner or MSYS2, so test it
-# on every change. A wrong topological sort does not crash; it just builds sord
-# before serd and fails on a runner twenty minutes later.
+# on every change. A wrong topological sort does not crash; it just builds
+# mpqcli before stormlib and fails on a runner twenty minutes later.
 name: test
 
 on:

@@ -4,9 +4,10 @@ The output is a GitHub Actions matrix with one entry per environment, each
 carrying an ordered list of package directories.  Ordering *inside* a job
 rather than fanning out one job per package is not a compromise: a matrix
 cannot express dependencies between its own entries, and packages in this
-repository do depend on each other (sord needs serd, qjackctl needs jack2).
-A job that walks its queue in topological order can hand each build the
-packages the previous ones just produced, with no artifact plumbing at all.
+repository do depend on each other (mpqcli needs stormlib, chkdraft needs
+casclib).  A job that walks its queue in topological order can hand each
+build the packages the previous ones just produced, with no artifact
+plumbing at all.
 
 The one dependency that does cross environments is a MinGW package needing an
 MSYS one (alpmrpc needs alpmrpcd), and that is why msys is not in the matrix:

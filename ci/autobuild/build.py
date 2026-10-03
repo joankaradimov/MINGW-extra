@@ -94,8 +94,8 @@ def local_repositories(environment: str, staging_root: str,
     Each entry is (pacman.conf section, directory, SigLevel).  Packages built
     earlier in this run come first -- by this job, or for msys by the job before
     it -- then what is already published; MSYS2's own repositories follow in
-    the stock configuration.  That order is what lets sord find the serd this
-    job built.
+    the stock configuration.  That order is what lets mpqcli find the stormlib
+    this job built.
 
     msys sits next to every MinGW environment, because a MinGW package may
     depend on an MSYS one from this repository, as alpmrpc does on alpmrpcd.

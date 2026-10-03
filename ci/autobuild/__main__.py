@@ -5,7 +5,7 @@ from CI.  Reproducing what a failed job did should not require pushing a
 commit:
 
     PYTHONPATH=ci python -m autobuild plan
-    PYTHONPATH=ci python -m autobuild build --environment ucrt64 serd sord
+    PYTHONPATH=ci python -m autobuild build --environment ucrt64 stormlib mpqcli
     PYTHONPATH=ci python -m autobuild build --environment msys alpmrpcd
 
 With a copy of the server made by ``ci/fetch-published.sh``, ``--published``

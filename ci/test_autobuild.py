@@ -418,7 +418,7 @@ class RepositoryLayout(unittest.TestCase):
 
     def test_every_package_directory_is_found(self):
         found = srcinfo.find_package_dirs(ROOT)
-        self.assertIn("serd", found)
+        self.assertIn("libltc", found)
         self.assertNotIn("ci", found)
         self.assertNotIn(".github", found)
 
@@ -431,7 +431,7 @@ class RepositoryLayout(unittest.TestCase):
                 srcinfo.read_environments(ROOT, directory)
 
     def test_the_default_is_rung_zero(self):
-        self.assertEqual(srcinfo.read_environments(ROOT, "serd"), ["ucrt64"])
+        self.assertEqual(srcinfo.read_environments(ROOT, "libltc"), ["ucrt64"])
 
     def test_an_empty_array_opts_out_entirely(self):
         self.assertEqual(srcinfo.read_environments(ROOT, "bitcoin"), [])
