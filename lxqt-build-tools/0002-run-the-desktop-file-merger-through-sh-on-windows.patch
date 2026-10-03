@@ -1,0 +1,37 @@
+Run the desktop-file merger through sh on Windows
+
+Without USE_YAML, lxqt_translate_desktop() makes LXQtTranslateDesktop.sh the
+custom command itself, counting on its #!/bin/sh line and execute bit. Windows
+honours neither. Ninja runs custom commands through cmd.exe /C, and cmd.exe
+hands a .sh to whatever program the extension is associated with -- normally
+none -- so the merge never runs. The step still succeeds, and the build carries
+on without the .desktop file, which surfaces only later, when something
+installs or reads it.
+
+On Windows, look up sh and run the script with it. The lookup sits in the
+branch that needs it, so a project that only uses USE_YAML configures as
+before. MSYS2 always has a sh, and the find and grep the script calls: all
+three come with its base system. Other platforms are unchanged:
+LXQT_SH_EXECUTABLE is never set there and expands to nothing.
+
+Upstream: not submitted
+Applies-to: all environments (only the WIN32 branch is new)
+
+--- a/cmake/modules/LXQtTranslateDesktop.cmake
++++ b/cmake/modules/LXQtTranslateDesktop.cmake
+@@ -76,8 +76,14 @@
+                 COMMENT "Generating ${_fileName}.${_fileExt}"
+             )
+         else ()
++            if (WIN32)
++                # cmd.exe cannot run a shell script as a command: it hands the
++                # file to the program associated with .sh, normally none, and
++                # the step succeeds without having run anything.
++                find_program(LXQT_SH_EXECUTABLE sh REQUIRED)
++            endif ()
+             add_custom_command(OUTPUT ${_outFile}
+-                COMMAND ${LXQT_CMAKE_MODULES_DIR}/LXQtTranslateDesktop.sh
++                COMMAND ${LXQT_SH_EXECUTABLE} ${LXQT_CMAKE_MODULES_DIR}/LXQtTranslateDesktop.sh
+                     ${_outFile}
+                     ${_inFile}
+                     ${_fileName}

@@ -4,7 +4,7 @@ _realname=lxqt-build-tools
 pkgbase=mingw-w64-${_realname}
 pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
 pkgver=2.4.0
-pkgrel=1
+pkgrel=2
 pkgdesc="Various packaging tools and scripts for LXQt applications (mingw-w64)"
 arch=('any')
 mingw_arch=('ucrt64' 'clang64')
@@ -25,10 +25,12 @@ makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
              "${MINGW_PACKAGE_PREFIX}-ninja")
 source=("https://github.com/lxqt/${_realname}/releases/download/${pkgver}/${_realname}-${pkgver}.tar.xz"
         "0001-do-not-use-elf-only-linker-flags-on-windows.patch"
+        "0002-run-the-desktop-file-merger-through-sh-on-windows.patch"
         "test-consumer.cmake")
 sha256sums=('14999ff954e820a23af44389b9f7c65f9e58b2f1c0a559f0badd38f9b459aee6'
             '96630f1a941ecd14480e91793fa29847d032657f1459eec8782488d72fd7327e'
-            'ce3ff45868b61c4cd20aa61fcb2e538cc11cb8ca9704a345035067129ca83504')
+            'bb892d88163dfacd6668c4eacd5ac2ebda81b736cdbe7b21376ce082e7d4cc27'
+            '76b7773fa9ff3535f10a32fe76529e78dcdccf9af9ec01a02c55eb291ddfe5c9')
 
 prepare() {
   cd "${_realname}-${pkgver}"
@@ -36,6 +38,7 @@ prepare() {
   # Without this every LXQt library fails to link in CLANG64, where the linker
   # is lld rather than GNU ld.
   patch -Np1 -i "${srcdir}/0001-do-not-use-elf-only-linker-flags-on-windows.patch"
+  patch -Np1 -i "${srcdir}/0002-run-the-desktop-file-merger-through-sh-on-windows.patch"
 }
 
 build() {

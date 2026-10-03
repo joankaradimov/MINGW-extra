@@ -100,6 +100,10 @@ tests failing on path comparison; `\` vs `/`.
 - **Drive letters and colons.** Code splitting `PATH`-like strings on `:` breaks on `C:/`.
 - **Symlinks.** Build systems that create symlinks (versioned library aliases, docs) fail or
   silently copy. Usually the symlink step must be dropped on Windows.
+- **Scripts run as commands.** A build step whose command is a `.sh` relies on its `#!` line
+  and execute bit. Ninja runs it through `cmd.exe /C`, which runs nothing for an unassociated
+  `.sh` and still succeeds, so the output just never appears. Name the interpreter
+  (`sh foo.sh`), as lxqt-build-tools' 0002 does.
 - **`/` vs `\`.** Prefer fixing comparisons to accept both rather than normalising everywhere.
 - **Case-insensitive filesystem.** A build generating both `Foo.h` and `foo.h` collides.
 
