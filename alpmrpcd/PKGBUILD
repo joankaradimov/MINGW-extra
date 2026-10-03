@@ -2,7 +2,7 @@
 
 _realname=alpmrpc
 pkgname=alpmrpcd
-pkgver=r29.15499d1
+pkgver=r30.9e594de
 pkgrel=1
 pkgdesc="Serves MSYS2's libalpm to native mingw programs over a named pipe"
 arch=('x86_64')

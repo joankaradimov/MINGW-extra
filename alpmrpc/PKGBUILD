@@ -3,7 +3,7 @@
 _realname=alpmrpc
 pkgbase=mingw-w64-${_realname}
 pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
-pkgver=r29.15499d1
+pkgver=r30.9e594de
 pkgrel=1
 pkgdesc="Drop-in libalpm for native programs, served over a pipe by MSYS2's own (mingw-w64)"
 arch=('any')
@@ -23,7 +23,9 @@ depends=("${MINGW_PACKAGE_PREFIX}-libarchive"
          # dependency rather than a suggestion -- and it is an MSYS package,
          # which is unusual for a mingw one but correct here: what this DLL
          # talks to is a Cygwin process in the MSYS2 root it was built against.
-         'alpmrpcd')
+         # r30 is the first whose server checks each handle's signatures
+         # against that handle's own gpgdir.
+         'alpmrpcd>=r30.9e594de')
 makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
              "${MINGW_PACKAGE_PREFIX}-clang"
              "${MINGW_PACKAGE_PREFIX}-cmake"
