@@ -1,7 +1,8 @@
 #!/bin/sh
 # Uses the Open Watcom tree in $1: a C and a C++ Win32 console program must
 # build, run and print what they should, and a DOS program built through the
-# toolchain file $2 must come out as an MZ executable.
+# toolchain file $2, with the caller's CFLAGS and LDFLAGS still set, must come
+# out as an MZ executable.
 set -eu
 rel=$(cygpath -am "$1")
 toolchain=$(cygpath -am "$2")
@@ -36,8 +37,7 @@ cmake_minimum_required(VERSION 3.20)
 project(hello C)
 add_executable(hello ../hello.c)
 EOF
-CFLAGS= CXXFLAGS= CPPFLAGS= LDFLAGS= \
-  cmake -S dos -B dos/build -G Ninja -DCMAKE_TOOLCHAIN_FILE="${toolchain}" \
+cmake -S dos -B dos/build -G Ninja -DCMAKE_TOOLCHAIN_FILE="${toolchain}" \
   -DWATCOM_ROOT="${rel}" > dos/configure.log
 cmake --build dos/build > dos/build.log
 [ "$(head -c 2 dos/build/hello.exe)" = "MZ" ]

@@ -39,6 +39,13 @@ set(CMAKE_ASM_COMPILER "${WATCOM_BIN}/wasm.exe")
 set(CMAKE_LINKER       "${WATCOM_BIN}/wlink.exe")
 set(CMAKE_AR           "${WATCOM_BIN}/wlib.exe")
 
+# CMake seeds the C, ASM and linker flags from these, but in the environment
+# they belong to the host compiler (makepkg exports its own), and Open Watcom
+# rejects them. Give Open Watcom flags through CMAKE_C_FLAGS and the like.
+unset(ENV{CFLAGS})
+unset(ENV{ASMFLAGS})
+unset(ENV{LDFLAGS})
+
 # wcl386 launches wcc386 and the other back ends, and wlink resolves the
 # libpath entries of its system definitions, both through WATCOM. Set it for
 # this CMake run if the caller has not; the build step needs it too.

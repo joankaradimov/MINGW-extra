@@ -20,6 +20,10 @@ Rule these out before reading any source:
 - **Parallel-build noise** → rebuild with `MAKEFLAGS=-j1` to get a readable error.
 - **Network fetch during build** → Meson wraps, CMake `FetchContent`, cargo/pip downloads. The
   build must be offline. Add `--wrap-mode=nodownload`, or package the dependency.
+- **Host flags in a cross build** → a cross compiler rejects `-march=nocona` and its kin (Open
+  Watcom: `E1073: Invalid option`). makepkg exports `CFLAGS` and `LDFLAGS` for the host
+  compiler, and CMake seeds every build's flags from them. A toolchain file a package ships
+  unsets them, as `OpenWatcomDOS.cmake` does; for anyone else's, clear them on that command.
 
 ## Step 2 — which axis?
 
