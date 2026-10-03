@@ -26,6 +26,7 @@
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body {
     margin: 0;
     background: var(--bg);
@@ -70,6 +71,48 @@
   th, td { text-align: left; padding: .4rem 1rem .4rem 0; border-bottom: 1px solid var(--rule); white-space: nowrap; }
   th { font-weight: 600; }
   footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule); color: var(--muted); font-size: .9rem; }
+  input, select {
+    font: inherit;
+    font-size: .92rem;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: .35rem .6rem;
+  }
+  .filters { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0 .25rem; }
+  .filters input { flex: 1 1 14rem; min-width: 0; }
+  .status { color: var(--muted); font-size: .92rem; }
+  .package { border-bottom: 1px solid var(--rule); }
+  .package > summary { list-style: none; cursor: pointer; position: relative; padding: .6rem 0 .6rem 1.25rem; overflow-wrap: anywhere; }
+  .package > summary::-webkit-details-marker { display: none; }
+  .package > summary::before {
+    content: "";
+    position: absolute;
+    left: .15rem;
+    top: 1.1rem;
+    border-style: solid;
+    border-width: .3rem 0 .3rem .45rem;
+    border-color: transparent transparent transparent var(--muted);
+  }
+  .package[open] > summary::before { transform: rotate(90deg); }
+  .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .1rem .6rem; }
+  .name { font-weight: 600; }
+  .version { font-family: ui-monospace, "Cascadia Mono", Consolas, "Liberation Mono", monospace; font-size: .85rem; color: var(--muted); }
+  .envs { display: flex; flex-wrap: wrap; gap: .3rem; margin-left: auto; }
+  .env { font-size: .7rem; font-weight: 600; letter-spacing: .03em; line-height: 1.6; color: var(--muted); border: 1px solid var(--rule); border-radius: 4px; padding: 0 .35rem; }
+  .desc { display: block; color: var(--muted); font-size: .92rem; }
+  .info { padding: 0 0 1rem 1.25rem; font-size: .92rem; }
+  .info dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .35rem 1rem; margin: .25rem 0 .5rem; }
+  .info dt { color: var(--muted); }
+  .info dd { margin: 0; overflow-wrap: anywhere; }
+  .deps { display: flex; flex-wrap: wrap; gap: .3rem .6rem; }
+  .deps.lines { flex-direction: column; }
+  .note { color: var(--muted); font-size: .8rem; }
+  @media (max-width: 32rem) {
+    .info dl { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .info dt { margin-top: .5rem; }
+  }
 </style>
 </head>
 <body>
@@ -124,7 +167,7 @@ pacman -S mingw-w64-ucrt-x86_64-stormlib
   what yours has.</p>
 
   <div class="table">
-    <table>
+    <table id="environments">
       <thead>
         <tr><th>Environment</th><th>Repository</th><th>Package names start with</th></tr>
       </thead>
@@ -138,6 +181,20 @@ pacman -S mingw-w64-ucrt-x86_64-stormlib
       </tbody>
     </table>
   </div>
+
+  <section id="packages" hidden>
+    <h2>Packages</h2>
+    <p>What the repository holds right now, read from the same databases <code>pacman -Sy</code>
+    downloads.</p>
+    <div class="filters">
+      <input id="package-filter" type="search" placeholder="Filter by name or description" aria-label="Filter packages">
+      <select id="package-environment" aria-label="Environment">
+        <option value="">All environments</option>
+      </select>
+    </div>
+    <p id="package-status" class="status" role="status">Reading the package databases…</p>
+    <div id="package-list"></div>
+  </section>
 
   <h2>Removing the repository</h2>
   <p>Delete the sections and run <code>pacman -Sy</code>. Installed packages stay installed;
@@ -184,6 +241,307 @@ pacman -S mingw-w64-ucrt-x86_64-stormlib
       wrapper.append(pre, button);
     }
   }
+</script>
+<script>
+  // The package list. It reads the databases pacman itself downloads, from this
+  // same server, rather than the PKGBUILDs: a PKGBUILD means nothing until bash
+  // has expanded it for one environment, and makepkg did exactly that for every
+  // package in these. They also list precisely what pacman can install, which
+  // the PKGBUILDs on master do not.
+  //
+  // The environments are the rows of the table above, which test_autobuild
+  // checks against ci/autobuild/config.py, so there is no second list here to
+  // forget one in. Without script, or without DecompressionStream to unpack a
+  // database, the section stays hidden; pacman -Sl shows the same packages.
+  (() => {
+    if (typeof DecompressionStream !== "function") return;
+
+    // A row names the database, mingw-extra-ucrt64, which lives in ucrt64/.
+    const environments = [...document.getElementById("environments").tBodies[0].rows].map(row => {
+      const db = row.cells[1].textContent.trim();
+      return {
+        name: db.slice(db.lastIndexOf("-") + 1),
+        label: row.cells[0].textContent.trim(),
+        db,
+        prefix: row.cells[2].querySelector("code")?.textContent.trim() ?? "",
+      };
+    });
+
+    document.getElementById("packages").hidden = false;
+    const filter = document.getElementById("package-filter");
+    const picker = document.getElementById("package-environment");
+    const status = document.getElementById("package-status");
+    const list = document.getElementById("package-list");
+
+    // The database fields listing other packages, in the order they are shown.
+    const RELATIONS = [
+      ["DEPENDS", "Depends on"],
+      ["OPTDEPENDS", "Optional"],
+      ["PROVIDES", "Provides"],
+      ["CONFLICTS", "Conflicts with"],
+      ["REPLACES", "Replaces"],
+      ["MAKEDEPENDS", "Built with"],
+      ["CHECKDEPENDS", "Tested with"],
+    ];
+
+    // Name without its prefix (msys/name for MSYS) -> package.
+    const packages = new Map();
+    let problems = "";
+
+    function h(tag, properties, ...children) {
+      const element = Object.assign(document.createElement(tag), properties);
+      element.append(...children);
+      return element;
+    }
+
+    const one = values => values?.[0] ?? "";
+    const strip = (name, prefix) => (prefix && name.startsWith(prefix) ? name.slice(prefix.length) : name);
+
+    async function readDatabase(environment) {
+      let response;
+      try {
+        response = await fetch(`${environment.name}/${environment.db}.db`);
+      } catch {
+        throw new Error("network error");
+      }
+      // Nothing has been published for this environment yet.
+      if (response.status === 404) return [];
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      let bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
+        const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+        try {
+          bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+        } catch {
+          throw new Error("damaged database");
+        }
+      }
+      return untar(bytes).filter(file => file.name.endsWith("/desc")).map(file => parseDesc(file.text));
+    }
+
+    // A database is a tar of <name>-<version>/desc files. repo-add's bsdtar
+    // writes ustar headers, with a pax header first for a name too long for one.
+    function untar(bytes) {
+      const decoder = new TextDecoder();
+      const text = (start, length) => {
+        const field = bytes.subarray(start, start + length);
+        const end = field.indexOf(0);
+        return decoder.decode(end < 0 ? field : field.subarray(0, end));
+      };
+      const files = [];
+      let longName = null;
+      for (let offset = 0; ;) {
+        // Every archive ends in a block of zeros, even an empty one. Running out
+        // of bytes first means something else was sent -- a challenge page from
+        // the host's bot protection, say -- or the archive was cut short.
+        if (offset + 512 > bytes.length) throw new Error(offset ? "damaged database" : "not a package database");
+        if (bytes.subarray(offset, offset + 512).every(byte => byte === 0)) return files;
+        if (!text(offset + 257, 6).startsWith("ustar")) throw new Error("not a package database");
+        const size = parseInt(text(offset + 124, 12).trim() || "0", 8);
+        if (Number.isNaN(size)) throw new Error("damaged database");
+        const type = text(offset + 156, 1);
+        const prefix = text(offset + 345, 155);
+        const name = prefix ? `${prefix}/${text(offset, 100)}` : text(offset, 100);
+        const body = bytes.subarray(offset + 512, offset + 512 + size);
+        offset += 512 + Math.ceil(size / 512) * 512;
+        if (type === "x") {
+          longName = /(?:^|\n)\d+ path=([^\n]*)\n/.exec(decoder.decode(body))?.[1] ?? null;
+        } else if (type === "L") {
+          longName = decoder.decode(body).replace(/\0+$/, "");
+        } else if (type !== "g" && type !== "K") {
+          if (type === "0" || type === "") files.push({ name: longName ?? name, text: decoder.decode(body) });
+          longName = null;
+        }
+      }
+    }
+
+    // desc is a %KEY% line followed by its values, then a blank line, per key.
+    function parseDesc(text) {
+      const entry = {};
+      let key = null;
+      for (const line of text.split("\n")) {
+        const header = /^%([A-Z0-9]+)%$/.exec(line);
+        if (header) entry[key = header[1]] = [];
+        else if (!line) key = null;
+        else if (key) entry[key].push(line);
+      }
+      return entry;
+    }
+
+    function collect(environment, entries) {
+      for (const entry of entries) {
+        const full = one(entry.NAME);
+        if (!full) continue;
+        // An MSYS package has no prefix to lose, so it is kept apart from a
+        // MinGW package whose name, without its prefix, is the same.
+        const msys = !environment.prefix;
+        const name = strip(full, environment.prefix);
+        const key = msys ? `msys/${name}` : name;
+        if (!packages.has(key)) {
+          packages.set(key, { name, msys, id: msys ? `pkg-msys-${name}` : `pkg-${name}`, builds: new Map() });
+        }
+        packages.get(key).builds.set(environment.name, { environment, entry });
+      }
+    }
+
+    // The package of this repository that a dependency names, if any.
+    function resolve(name) {
+      const owner = environments.find(environment => environment.prefix && name.startsWith(environment.prefix));
+      return packages.get(owner ? name.slice(owner.prefix.length) : `msys/${name}`);
+    }
+
+    // Each environment names a dependency with its own prefix. Without it the
+    // lists are mostly the same, so they are merged, and an entry only some
+    // environments have says which.
+    function relations(pkg, key) {
+      const merged = new Map();
+      for (const { environment, entry } of pkg.builds.values()) {
+        for (const value of entry[key] ?? []) {
+          const shown = strip(value, environment.prefix);
+          if (!merged.has(shown)) merged.set(shown, { value, labels: [] });
+          merged.get(shown).labels.push(environment.label);
+        }
+      }
+      return [...merged].map(([shown, { value, labels }]) => {
+        // An optional dependency is followed by ": " and what it is for.
+        const colon = key === "OPTDEPENDS" ? shown.indexOf(": ") : -1;
+        const code = h("code", {}, colon < 0 ? shown : shown.slice(0, colon));
+        const target = resolve(/^[^:<>=]*/.exec(value)[0]);
+        const item = h("span", {}, target ? h("a", { href: `#${target.id}` }, code) : code);
+        if (colon >= 0) item.append(` ${shown.slice(colon + 2)}`);
+        if (labels.length < pkg.builds.size) item.append(" ", h("span", { className: "note" }, labels.join(", ")));
+        return item;
+      });
+    }
+
+    function size(bytes) {
+      let value = Number(bytes);
+      if (!bytes || !Number.isFinite(value)) return "";
+      const units = ["B", "KiB", "MiB", "GiB"];
+      let unit = 0;
+      for (; value >= 1024 && unit < units.length - 1; unit++) value /= 1024;
+      return `${unit ? value.toFixed(value < 10 ? 1 : 0) : value} ${units[unit]}`;
+    }
+
+    function date(seconds) {
+      const time = new Date(Number(seconds) * 1000);
+      return seconds && !isNaN(time) ? time.toISOString().slice(0, 10) : "";
+    }
+
+    function render(pkg) {
+      const builds = [...pkg.builds.values()];
+      const first = builds[0].entry;
+      const versions = [...new Set(builds.map(({ entry }) => one(entry.VERSION)))];
+      // MSYS2 marks every MinGW package's description with "(mingw-w64)".
+      const description = one(first.DESC).replace(/\s*\(mingw-w64\)$/, "");
+      pkg.text = `${pkg.name} ${description}`.toLowerCase();
+
+      const facts = h("dl");
+      const fact = (term, definition) => facts.append(h("dt", {}, term), definition);
+      fact("Install", h("dd", {}, h("code", {}, "pacman -S " + (pkg.msys ? "" : "${MINGW_PACKAGE_PREFIX}-") + pkg.name)));
+      const url = one(first.URL);
+      if (/^https?:\/\//.test(url)) fact("Upstream", h("dd", {}, h("a", { href: url }, url)));
+      const licenses = (first.LICENSE ?? []).map(license => license.replace(/^spdx:/, ""));
+      if (licenses.length) fact("License", h("dd", {}, licenses.join(", ")));
+      for (const [key, term] of RELATIONS) {
+        const items = relations(pkg, key);
+        if (items.length) fact(term, h("dd", { className: key === "OPTDEPENDS" ? "deps lines" : "deps" }, ...items));
+      }
+
+      const rows = builds.map(({ environment, entry }) => {
+        const file = one(entry.FILENAME);
+        const download = size(one(entry.CSIZE));
+        const built = date(one(entry.BUILDDATE));
+        // CI's PACKAGER links the run that built the package.
+        const run = /https:\/\/[^\s<>()]+/.exec(one(entry.PACKAGER))?.[0];
+        return h("tr", {},
+          h("td", {}, environment.label),
+          h("td", {}, h("code", {}, one(entry.VERSION))),
+          h("td", {}, file ? h("a", { href: `${environment.name}/${encodeURIComponent(file)}` }, download) : download),
+          h("td", {}, size(one(entry.ISIZE))),
+          h("td", {}, run ? h("a", { href: run }, built || "CI run") : built));
+      });
+      const table = h("div", { className: "table" }, h("table", {},
+        h("thead", {}, h("tr", {}, ...["Environment", "Version", "Download", "Installed", "Built"].map(title => h("th", {}, title)))),
+        h("tbody", {}, ...rows)));
+
+      pkg.element = h("details", { className: "package", id: pkg.id },
+        h("summary", {},
+          h("span", { className: "head" },
+            h("span", { className: "name" }, pkg.name),
+            h("span", { className: "version" }, versions.join(", ")),
+            h("span", { className: "envs" }, ...builds.map(({ environment }) => h("span", { className: "env" }, environment.label)))),
+          h("span", { className: "desc" }, description)),
+        h("div", { className: "info" }, facts, table));
+      return pkg.element;
+    }
+
+    function applyFilter() {
+      const words = filter.value.toLowerCase().split(/\s+/).filter(Boolean);
+      const wanted = picker.value;
+      let shown = 0;
+      for (const pkg of packages.values()) {
+        pkg.element.hidden = !((!wanted || pkg.builds.has(wanted)) && words.every(word => pkg.text.includes(word)));
+        if (!pkg.element.hidden) shown++;
+      }
+      const total = packages.size;
+      let count = "";
+      if (shown < total) count = `Showing ${shown} of ${total} packages.`;
+      else if (total) count = `${total} package${total === 1 ? "" : "s"}.`;
+      else if (!problems) count = "Nothing has been published yet.";
+      status.textContent = [count, problems].filter(Boolean).join(" ");
+    }
+
+    // Opens the package a #pkg-... fragment names, clearing the filters first
+    // if they hide it.
+    function reveal(hash) {
+      let element;
+      try {
+        element = document.getElementById(decodeURIComponent(hash.slice(1)));
+      } catch {
+        return null;
+      }
+      if (!element || !element.classList.contains("package")) return null;
+      if (element.hidden) {
+        filter.value = "";
+        picker.value = "";
+        applyFilter();
+      }
+      element.open = true;
+      return element;
+    }
+
+    Promise.allSettled(environments.map(readDatabase)).then(results => {
+      const failed = [];
+      results.forEach((result, index) => {
+        const environment = environments[index];
+        if (result.status === "rejected") {
+          failed.push(`${environment.db} (${result.reason?.message ?? result.reason})`);
+          return;
+        }
+        collect(environment, result.value);
+        picker.append(new Option(`${environment.label} (${result.value.length})`, environment.name));
+      });
+      if (failed.length) {
+        problems = `Could not read ${failed.join(", ")}${packages.size ? ", so the list is incomplete" : ""}.`;
+      }
+
+      const sorted = [...packages.values()].sort((a, b) => a.name.localeCompare(b.name));
+      list.append(...sorted.map(render));
+      document.querySelector("#packages .filters").hidden = !packages.size;
+      applyFilter();
+
+      filter.addEventListener("input", applyFilter);
+      picker.addEventListener("change", applyFilter);
+      // A dependency link may lead to a closed or filtered-out package.
+      list.addEventListener("click", event => {
+        const link = event.target.closest("a[href^='#']");
+        if (link) reveal(link.hash);
+      });
+      addEventListener("hashchange", () => reveal(location.hash));
+      reveal(location.hash)?.scrollIntoView();
+    });
+  })();
 </script>
 </body>
 </html>

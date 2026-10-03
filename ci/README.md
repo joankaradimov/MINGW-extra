@@ -152,6 +152,13 @@ the repository means editing it. A test checks that it lists a section for
 every environment in `ci/autobuild/config.py`, so adding an environment there
 without adding it to the page fails the build.
 
+The page also lists the packages, with their versions, environments and
+dependencies. A script in it reads each environment's database from the server
+the way pacman does, so the list is always what is published, and CI has
+nothing to generate for it. It does not read PKGBUILDs: makepkg has already
+expanded them, once per environment, into those databases. The environments it
+reads are the rows of the page's table, the same rows that test checks.
+
 ## Using the repository
 
 Users add one section per environment to `/etc/pacman.conf`, after the MSYS2
