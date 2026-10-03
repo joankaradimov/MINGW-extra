@@ -122,6 +122,10 @@ class DatabaseParsing(unittest.TestCase):
             database.files(),
             ["serd-0.30.10-1-any.pkg.tar.zst", "sord-0.16.6-1-any.pkg.tar.zst"])
 
+    def test_package_names_are_listed_for_removals(self):
+        database = repodb.parse(make_db([("sord", "0.16.6-1"), ("serd", "0.30.10-1")]))
+        self.assertEqual(database.names(), ["serd", "sord"])
+
 
 class VersionNormalisation(unittest.TestCase):
     """MSYS2 spells the epoch separator '~' because ':' cannot be in a filename."""
@@ -389,7 +393,74 @@ class PlanOutputs(unittest.TestCase):
 
     def test_nothing_to_build(self):
         # The workflows compare against these exact strings.
-        self.assertEqual(plan.outputs([]), {"matrix": "[]", "msys": "", "mirror": "[]"})
+        self.assertEqual(plan.outputs([]),
+                         {"matrix": "[]", "msys": "", "mirror": "[]", "remove": ""})
+
+    def test_removals_are_environment_and_package_pairs(self):
+        values = plan.outputs([], {"ucrt64": ["p-b", "p-a"], MSYS: ["old-tool"]})
+        # ENVIRONMENTS order, names sorted: these are publish.sh's arguments.
+        self.assertEqual(values["remove"], "msys/old-tool ucrt64/p-a ucrt64/p-b")
+        # With nothing to build there is still nothing to mirror or build.
+        self.assertEqual(values["mirror"], "[]")
+        self.assertEqual(values["matrix"], "[]")
+
+    def test_the_report_names_what_is_taken_out(self):
+        text = plan.report([], {"ucrt64": ["p-dropped"]})
+        self.assertIn("Nothing to build", text)
+        self.assertIn("| `ucrt64` | p-dropped |", text)
+
+
+class Removals(TemporaryTree):
+    """Publishing only adds, so what no PKGBUILD produces any more is taken out."""
+
+    def published_dbs(self, databases: dict[str, list[str]]) -> str:
+        """A copy of the published repository holding these names per environment."""
+        copy = os.path.join(self.directory, "published")
+        self.write(os.path.join("published", PUBLISHED_MARKER))
+        for environment, names in databases.items():
+            self.write(os.path.relpath(db_path(copy, environment), self.directory),
+                       make_db([(name, "1-1") for name in names]))
+        return copy
+
+    def test_a_dropped_package_is_taken_out(self):
+        copy = self.published_dbs({"ucrt64": ["p-kept", "p-dropped"]})
+        self.assertEqual(plan.removals([fake("kept", ["p-kept"], [])], copy),
+                         {"ucrt64": ["p-dropped"]})
+
+    def test_an_environment_left_out_of_mingw_arch_is_taken_out(self):
+        copy = self.published_dbs({"ucrt64": ["p-a", "p-b"], "clang64": ["p-a", "p-b"]})
+        infos = [fake("a", ["p-a"], []), fake("a", ["p-a"], [], environment="clang64"),
+                 fake("b", ["p-b"], [])]
+        self.assertEqual(plan.removals(infos, copy), {"clang64": ["p-b"]})
+
+    def test_every_name_of_a_split_package_counts(self):
+        copy = self.published_dbs({"ucrt64": ["p-cli", "p-qt"]})
+        self.assertEqual(plan.removals([fake("split", ["p-cli", "p-qt"], [])], copy), {})
+
+    def test_the_msys_lane_is_cleaned_up_too(self):
+        copy = self.published_dbs({MSYS: ["alpmrpcd", "old-tool"]})
+        infos = [fake("alpmrpcd", ["alpmrpcd"], [], environment=MSYS)]
+        self.assertEqual(plan.removals(infos, copy), {MSYS: ["old-tool"]})
+
+    def test_a_database_is_never_emptied(self):
+        copy = self.published_dbs({"ucrt64": ["p-a"], "clang64": ["p-x", "p-y"]})
+        infos = [fake("x", ["p-x"], [], environment="clang64")]
+        with mock.patch("builtins.print") as printed:
+            self.assertEqual(plan.removals(infos, copy), {"clang64": ["p-y"]})
+        said = " ".join(str(call.args[0]) for call in printed.call_args_list)
+        self.assertIn(f"not emptying {db_name('ucrt64')}", said)
+
+    def test_nothing_published_means_nothing_to_take_out(self):
+        self.assertEqual(plan.removals([fake("a", ["p-a"], [])], None), {})
+
+    def test_only_a_plan_that_read_every_pkgbuild_takes_anything_out(self):
+        copy = self.published_dbs({"ucrt64": ["p-a", "p-b"]})
+        with mock.patch.object(srcinfo, "find_package_dirs", return_value=["a", "b"]), \
+             mock.patch.object(srcinfo, "load_all", return_value=[fake("a", ["p-a"], [])]):
+            _, restricted = plan.plan(self.directory, only=["a"], published=copy)
+            _, everything = plan.plan(self.directory, published=copy)
+        self.assertEqual(restricted, {})
+        self.assertEqual(everything, {"ucrt64": ["p-b"]})
 
 
 class HomePage(unittest.TestCase):

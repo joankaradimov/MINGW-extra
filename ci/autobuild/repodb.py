@@ -53,6 +53,10 @@ class Database:
         """Every package file the database references, sorted."""
         return sorted(self._filenames.values())
 
+    def names(self) -> list[str]:
+        """Every package name the database holds, sorted."""
+        return sorted(self._versions)
+
 
 def normalize_version(version: str) -> str:
     """Make MSYS2's ``2~1.0-1`` and pacman's ``2:1.0-1`` compare equal.

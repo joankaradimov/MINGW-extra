@@ -22,7 +22,7 @@ import os
 import subprocess
 
 from . import repodb, srcinfo
-from .config import ENVIRONMENTS, MSYS
+from .config import ENVIRONMENTS, MSYS, db_name
 from .srcinfo import SrcInfo
 
 
@@ -56,6 +56,35 @@ def unpublished(infos: list[SrcInfo], published: str | None) -> list[SrcInfo]:
             if missing:
                 queue.append(info)
     return queue
+
+
+def removals(infos: list[SrcInfo], published: str | None) -> dict[str, list[str]]:
+    """Published packages that no PKGBUILD here produces any more, per environment.
+
+    Publishing only ever adds to a database, so a dropped package directory --
+    or an environment taken out of a package's mingw_arch -- would otherwise
+    stay published, and listed on the home page, for good.  These are the
+    entries the publish job takes back out.
+
+    `infos` has to be every (package, environment) pair the repository
+    declares: from a partial list, everything else would look dropped.  A
+    database that would be left empty is not touched, and a warning says so; a
+    broken checkout is a likelier cause than a repository that dropped every
+    package of an environment at once, so emptying one is left to a person.
+    """
+    current = {(info.environment, name) for info in infos for name in info.pkgnames}
+    stale = {}
+    for environment in ENVIRONMENTS:
+        database = repodb.published(published, environment)
+        names = [name for name in database.names() if (environment, name) not in current]
+        if not names:
+            continue
+        if len(names) == len(database):
+            print(f"::warning::not emptying {db_name(environment)}: no PKGBUILD "
+                  f"here produces any of {', '.join(names)}")
+            continue
+        stale[environment] = names
+    return stale
 
 
 def with_dependencies(selected: list[SrcInfo], candidates: list[SrcInfo]) -> list[SrcInfo]:
@@ -129,8 +158,11 @@ def order(infos: list[SrcInfo]) -> list[SrcInfo]:
 
 def plan(root: str, changed_since: str | None = None,
          only: list[str] | None = None,
-         published: str | None = None) -> list[dict[str, str]]:
-    """Every environment's queue, msys included, in build order."""
+         published: str | None = None
+         ) -> tuple[list[dict[str, str]], dict[str, list[str]]]:
+    """Every environment's queue, msys included, in build order; and what to
+    take out of the published databases (see removals)."""
+    removed: dict[str, list[str]] = {}
     directories = only
     if directories:
         known = set(srcinfo.find_package_dirs(root))
@@ -142,7 +174,7 @@ def plan(root: str, changed_since: str | None = None,
         directories = changed_directories(root, changed_since)
         if not directories:
             print("no package directories changed")
-            return []
+            return [], removed
         print(f"changed since {changed_since}: {', '.join(directories)}")
 
         everything = srcinfo.load_all(root)
@@ -157,6 +189,9 @@ def plan(root: str, changed_since: str | None = None,
     else:
         infos = srcinfo.load_all(root, directories)
         queue = unpublished(infos, published)
+        # Only a plan that read every PKGBUILD knows what is no longer produced.
+        if directories is None:
+            removed = removals(infos, published)
 
     matrix = []
     for name in ENVIRONMENTS:
@@ -170,10 +205,11 @@ def plan(root: str, changed_since: str | None = None,
             "runner": ENVIRONMENTS[name].runner,
             "packages": " ".join(info.directory for info in ordered),
         })
-    return matrix
+    return matrix, removed
 
 
-def outputs(matrix: list[dict[str, str]]) -> dict[str, str]:
+def outputs(matrix: list[dict[str, str]],
+            removed: dict[str, list[str]] | None = None) -> dict[str, str]:
     """What the workflows need from a plan, as step outputs.
 
     * ``matrix``: the MinGW environments' entries, as JSON.
@@ -182,35 +218,50 @@ def outputs(matrix: list[dict[str, str]]) -> dict[str, str]:
     * ``mirror``: the environments to copy published packages for, as JSON --
       every MinGW environment in the matrix, plus msys whenever anything at all
       is built, since any build may need an already-published msys package.
+    * ``remove``: what to take out of the published databases, as
+      space-separated ``<environment>/<package>`` pairs, or empty.  These are
+      ci/publish.sh's arguments after the artifacts directory.
     """
     mingw = [entry for entry in matrix if entry["environment"] != MSYS]
     msys = next((entry["packages"] for entry in matrix if entry["environment"] == MSYS), "")
     mirror = [{"environment": entry["environment"]} for entry in mingw]
     if matrix:
         mirror.append({"environment": MSYS})
+    removed = removed or {}
+    remove = [f"{environment}/{name}"
+              for environment in ENVIRONMENTS
+              for name in sorted(removed.get(environment, []))]
     return {
         "matrix": json.dumps(mingw, separators=(",", ":")),
         "msys": msys,
         "mirror": json.dumps(mirror, separators=(",", ":")),
+        "remove": " ".join(remove),
     }
 
 
-def report(matrix: list[dict[str, str]]) -> str:
+def report(matrix: list[dict[str, str]],
+           removed: dict[str, list[str]] | None = None) -> str:
     if not matrix:
-        return "Nothing to build; every package is published at its current version."
-    lines = ["| environment | packages (in build order) |", "| --- | --- |"]
-    for entry in matrix:
-        lines.append(f"| `{entry['environment']}` | {entry['packages']} |")
+        lines = ["Nothing to build; every package is published at its current version."]
+    else:
+        lines = ["| environment | packages (in build order) |", "| --- | --- |"]
+        for entry in matrix:
+            lines.append(f"| `{entry['environment']}` | {entry['packages']} |")
+    if removed:
+        lines += ["", "No PKGBUILD here produces these any more; publishing takes them out:", "",
+                  "| environment | packages |", "| --- | --- |"]
+        for environment, names in removed.items():
+            lines.append(f"| `{environment}` | {' '.join(names)} |")
     return "\n".join(lines)
 
 
 def main(args) -> int:
     root = os.path.abspath(args.root)
-    matrix = plan(root, changed_since=args.changed_since,
-                  only=args.package or None, published=args.published)
+    matrix, removed = plan(root, changed_since=args.changed_since,
+                           only=args.package or None, published=args.published)
 
-    print(report(matrix))
-    values = outputs(matrix)
+    print(report(matrix, removed))
+    values = outputs(matrix, removed)
 
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
@@ -220,7 +271,7 @@ def main(args) -> int:
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
-            handle.write(report(matrix) + "\n")
+            handle.write(report(matrix, removed) + "\n")
     if not output:
         for key, value in values.items():
             print(f"{key}={value}")

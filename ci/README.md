@@ -60,6 +60,16 @@ currently live, and rsyncs packages first and databases last, so a client
 syncing mid-upload never sees a database referencing a package that is not there
 yet.
 
+It also takes out of each database what no PKGBUILD here produces any more: a
+dropped package directory, or an environment taken out of a package's
+`mingw_arch`. Publishing only adds, so without this such a package would stay
+published, and listed on the home page, for good. **plan** works out what to
+take out, since it reads every PKGBUILD and the live databases anyway, and
+publish runs for that alone when there is nothing to build. A run restricted to
+some packages takes nothing out, having not read the others, and neither does a
+pull request. A database is never emptied this way: the plan warns instead, and
+leaves that to a person.
+
 **site** (Linux) uploads `ci/site/`, the home page users land on, to the top
 of `DEPLOY_PATH`. It runs on every run, alongside the rest; the page is small,
 and this way the one on the server never drifts from the one in the repository.
@@ -282,7 +292,8 @@ build scripts, which is exactly what the current split avoids.
   `.failed` marker to stop retrying; worth copying if the queue grows.
 - **Pruning old versions.** Nothing deletes superseded packages from the
   server, so the repository grows without bound. `paccache -r` over
-  `DEPLOY_PATH` on a timer is the usual answer.
+  `DEPLOY_PATH` on a timer is the usual answer. The files of packages taken out
+  of a database stay too, unreferenced.
 - **Mirroring only what a queue needs.** The mirror job copies every current
   package of an environment, even when the queue needs two of them. Resolving
   the queue's dependencies against the database would cut that down, once the

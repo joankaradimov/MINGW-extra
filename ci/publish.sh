@@ -1,5 +1,6 @@
 #!/bin/bash
-# Publish built packages to the pacman repository.
+# Publish built packages to the pacman repository, and take out of it what no
+# PKGBUILD here produces any more.
 #
 # Together with ci/fetch-published.sh, this is the only part of the pipeline
 # that knows where packages are hosted, and the jobs that run the two are the
@@ -10,8 +11,10 @@
 # Swapping rsync for S3, or for anything else, means rewriting these two files
 # and nothing else.
 #
-# Usage: ci/publish.sh <artifacts-dir>
+# Usage: ci/publish.sh <artifacts-dir> [<environment>/<package> ...]
 #   <artifacts-dir>/<environment>/*.pkg.tar.zst
+#   Each <environment>/<package> is a package to take out of that environment's
+#   database: the planner's "remove" output (removals in ci/autobuild/plan.py).
 #
 # Environment:
 #   DEPLOY_HOST      ssh destination, e.g. deploy@packages.example.com
@@ -21,7 +24,8 @@
 
 set -euo pipefail
 
-artifacts=${1:?usage: ci/publish.sh <artifacts-dir>}
+artifacts=${1:?usage: ci/publish.sh <artifacts-dir> [<environment>/<package> ...]}
+shift
 : "${DEPLOY_HOST:?DEPLOY_HOST is not set}"
 : "${DEPLOY_PATH:?DEPLOY_PATH is not set}"
 
@@ -38,17 +42,38 @@ fi
 
 shopt -s nullglob
 
-published=0
-for environment_dir in "$artifacts"/*/; do
-    environment=$(basename "$environment_dir")
-    packages=("$environment_dir"*.pkg.tar.zst)
-    if [[ ${#packages[@]} -eq 0 ]]; then
-        continue
+declare -A remove=()
+for pair in "$@"; do
+    environment=${pair%%/*}
+    package=${pair#*/}
+    if [[ -z $environment || -z $package || $package == "$pair" ]]; then
+        echo "error: '$pair' is not <environment>/<package>" >&2
+        exit 1
     fi
+    remove[$environment]+=" $package"
+done
+
+# Every environment with packages to add or entries to take out.
+environments=("${!remove[@]}")
+for environment_dir in "$artifacts"/*/; do
+    packages=("$environment_dir"*.pkg.tar.zst)
+    if [[ ${#packages[@]} -gt 0 ]]; then
+        environments+=("$(basename "$environment_dir")")
+    fi
+done
+mapfile -t environments < <(printf '%s\n' "${environments[@]}" | sed '/^$/d' | sort -u)
+
+published=0
+removed=0
+for environment in "${environments[@]}"; do
+    packages=("$artifacts/$environment/"*.pkg.tar.zst)
+    read -ra unwanted <<< "${remove[$environment]:-}"
 
     db="${repo_name}-${environment}"
     work=$(mktemp -d)
-    cp "${packages[@]}" "$work/"
+    if [[ ${#packages[@]} -gt 0 ]]; then
+        cp "${packages[@]}" "$work/"
+    fi
 
     # Start from the database that is live right now, so this run adds to the
     # repository rather than replacing it. It is copied over SSH, not fetched
@@ -75,8 +100,39 @@ for environment_dir in "$artifacts"/*/; do
     done
     rm -rf "$live"
 
-    echo "==> $environment: adding ${#packages[@]} package(s) to $db"
-    repo-add "$work/${db}.db.tar.gz" "$work"/*.pkg.tar.zst
+    # Only names the live database still holds: repo-remove leaves the database
+    # alone and fails over a single name it cannot find, and one may have been
+    # taken out by hand since the plan read the database.
+    if [[ ${#unwanted[@]} -gt 0 ]]; then
+        held=()
+        if [[ -f "$work/${db}.db.tar.gz" ]]; then
+            mapfile -t held < <(bsdtar -xOf "$work/${db}.db.tar.gz" '*/desc' |
+                                awk '/^%NAME%$/ { getline; print }')
+        fi
+        present=()
+        for package in "${unwanted[@]}"; do
+            if printf '%s\n' "${held[@]}" | grep -qxF -- "$package"; then
+                present+=("$package")
+            else
+                echo "note: $package is not in $db, so there is nothing to take out"
+            fi
+        done
+        unwanted=("${present[@]}")
+    fi
+    if [[ ${#unwanted[@]} -gt 0 ]]; then
+        echo "==> $environment: taking ${#unwanted[@]} package(s) out of $db: ${unwanted[*]}"
+        repo-remove "$work/${db}.db.tar.gz" "${unwanted[@]}"
+    fi
+
+    if [[ ${#packages[@]} -gt 0 ]]; then
+        echo "==> $environment: adding ${#packages[@]} package(s) to $db"
+        repo-add "$work/${db}.db.tar.gz" "$work"/*.pkg.tar.zst
+    fi
+
+    if [[ ${#packages[@]} -eq 0 && ${#unwanted[@]} -eq 0 ]]; then
+        rm -rf "$work"
+        continue
+    fi
 
     # repo-add leaves .db and .files as symlinks; a web server needs real files.
     for link in "$work/${db}.db" "$work/${db}.files"; do
@@ -106,16 +162,22 @@ for environment_dir in "$artifacts"/*/; do
     # --mkpath creates the environment directory, so the deploy key can stay
     # restricted to rsync (command="rrsync ..." in authorized_keys) instead of
     # needing a shell to run mkdir.
+    #
+    # A package taken out keeps its file on the server, as a superseded version
+    # does; the database no longer references it.
     cp "$htaccess" "$work/.htaccess"
     rsync -av --mkpath "$work/.htaccess" "$work"/*.pkg.tar.zst "$DEPLOY_HOST:$DEPLOY_PATH/$environment/"
     rsync -av "${db_files[@]}" "$DEPLOY_HOST:$DEPLOY_PATH/$environment/"
 
     rm -rf "$work"
     published=$((published + ${#packages[@]}))
+    removed=$((removed + ${#unwanted[@]}))
 done
 
-if [[ $published -eq 0 ]]; then
+# Without anything to take out, publish only runs when something was to be
+# built, so publishing nothing means every build failed.
+if [[ $published -eq 0 && $# -eq 0 ]]; then
     echo "error: no packages to publish -- every build must have failed" >&2
     exit 1
 fi
-echo "published $published package file(s)"
+echo "published $published package file(s), took $removed out"
