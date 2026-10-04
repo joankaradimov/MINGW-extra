@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: TheShermanTanker <tanksherman27@gmail.com>
 Date: Wed, 9 Mar 2022 20:36:48 +0800
-Subject: [PATCH 03/18] Refactor
+Subject: [PATCH] Refactor
 
 From the Windows/gcc port in https://github.com/TheShermanTanker/jdk,
 branch experimental, commit dc01c7cb, rebased onto jdk-27+35. The rebranding

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: TheShermanTanker <tanksherman27@gmail.com>
 Date: Thu, 17 Apr 2025 21:06:00 +0800
-Subject: [PATCH 05/18] Use lowercase Windows header names
+Subject: [PATCH] Use lowercase Windows header names
 
 From the Windows/gcc port in https://github.com/TheShermanTanker/jdk,
 branch experimental, commit 9abbd169, rebased onto jdk-27+35. Only the

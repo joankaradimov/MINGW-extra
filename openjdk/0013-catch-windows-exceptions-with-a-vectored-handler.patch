@@ -1,8 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Joan Karadimov <joan.karadimov@gmail.com>
 Date: Sun, 4 Oct 2026 16:18:25 +0300
-Subject: [PATCH 13/18] Catch Windows exceptions with a vectored handler under
- gcc
+Subject: [PATCH] Catch Windows exceptions with a vectored handler under gcc
 
 gcc has no __try/__except, so WIN32_TRY and WIN32_EXCEPT expand to
 nothing and faults outside the code cache went unhandled: SafeFetch,

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: TheShermanTanker <tanksherman27@gmail.com>
 Date: Wed, 30 Aug 2023 15:11:26 +0800
-Subject: [PATCH 04/18] Prefer discarding static_cast over do while (false)
+Subject: [PATCH] Prefer discarding static_cast over do while (false)
 
 From the Windows/gcc port in https://github.com/TheShermanTanker/jdk,
 branch experimental, commit 21d5e23c, rebased onto jdk-27+35.

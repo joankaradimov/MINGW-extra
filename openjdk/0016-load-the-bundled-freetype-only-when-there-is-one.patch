@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Joan Karadimov <joan.karadimov@gmail.com>
 Date: Sun, 4 Oct 2026 16:39:42 +0300
-Subject: [PATCH 16/18] Load the bundled freetype only when there is one
+Subject: [PATCH] Load the bundled freetype only when there is one
 
 With system freetype there is no freetype.dll for the Windows font
 manager to load ahead of itself.

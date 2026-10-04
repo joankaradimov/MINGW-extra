@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: TheShermanTanker <tanksherman27@gmail.com>
 Date: Sat, 19 Aug 2023 16:12:16 +0800
-Subject: [PATCH 01/18] Initial Support for using gcc to compile a Windows JDK
+Subject: [PATCH] Initial Support for using gcc to compile a Windows JDK
 
 From the Windows/gcc port in https://github.com/TheShermanTanker/jdk,
 branch experimental, commit 777c26e8, rebased onto jdk-27+35. Conflicts resolved

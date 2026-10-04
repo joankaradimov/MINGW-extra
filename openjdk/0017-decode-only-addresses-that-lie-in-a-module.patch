@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Joan Karadimov <joan.karadimov@gmail.com>
 Date: Sun, 4 Oct 2026 16:49:16 +0300
-Subject: [PATCH 17/18] Decode only addresses that lie in a module
+Subject: [PATCH] Decode only addresses that lie in a module
 
 RtlPcToFileHeader leaves no image base for an address outside every
 module, and GetModuleFileNameExA then names the executable, so the gcc

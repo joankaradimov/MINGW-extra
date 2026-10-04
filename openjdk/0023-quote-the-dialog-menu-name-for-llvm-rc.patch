@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Joan Karadimov <joan.karadimov@gmail.com>
 Date: Sun, 4 Oct 2026 20:48:32 +0300
-Subject: [PATCH 5/5] Quote the dialog menu name for llvm-rc
+Subject: [PATCH] Quote the dialog menu name for llvm-rc
 
 llvm-rc, which is windres in CLANG64, wants a string or number after
 MENU in a dialog. rc.exe and GNU windres accept the quoted form too.

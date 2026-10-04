@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Joan Karadimov <joan.karadimov@gmail.com>
 Date: Sun, 4 Oct 2026 20:22:52 +0300
-Subject: [PATCH 18/18] Mark the gcc decoder's raw allocations as deliberate
+Subject: [PATCH] Mark the gcc decoder's raw allocations as deliberate
 
 It allocates with malloc, which HotSpot forbids in favour of
 os::malloc; it can run while the VM reports a crash, so keep the raw

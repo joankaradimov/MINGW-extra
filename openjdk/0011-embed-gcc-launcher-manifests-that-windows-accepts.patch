@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Joan Karadimov <joan.karadimov@gmail.com>
 Date: Sun, 4 Oct 2026 16:18:23 +0300
-Subject: [PATCH 11/18] Embed gcc launcher manifests that Windows accepts
+Subject: [PATCH] Embed gcc launcher manifests that Windows accepts
 
 WriteFile strips the newline after the #include, so windres saw the
 resource statement as junk after it and embedded nothing. Once

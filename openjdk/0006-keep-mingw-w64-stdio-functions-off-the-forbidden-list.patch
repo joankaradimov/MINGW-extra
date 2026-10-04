@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Joan Karadimov <joan.karadimov@gmail.com>
 Date: Sun, 4 Oct 2026 20:22:46 +0300
-Subject: [PATCH 06/18] Keep mingw-w64's stdio functions off the forbidden list
+Subject: [PATCH] Keep mingw-w64's stdio functions off the forbidden list
 
 libstdc++ turns on mingw-w64's ANSI stdio, whose stdio.h declares
 sprintf, snprintf, vsprintf and vsnprintf with C++ linkage; the

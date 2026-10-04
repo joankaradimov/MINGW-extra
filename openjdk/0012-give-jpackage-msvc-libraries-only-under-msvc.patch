@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Joan Karadimov <joan.karadimov@gmail.com>
 Date: Sun, 4 Oct 2026 16:18:24 +0300
-Subject: [PATCH 12/18] Give jpackage's launcher MSVC libraries only under MSVC
+Subject: [PATCH] Give jpackage's launcher MSVC libraries only under MSVC
 
 gcc was handed shell32.lib and friends besides its own -l flags.
 

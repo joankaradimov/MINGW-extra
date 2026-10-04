@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Joan Karadimov <joan.karadimov@gmail.com>
 Date: Sun, 4 Oct 2026 20:48:29 +0300
-Subject: [PATCH 1/5] Name the Windows-only gcc settings for Windows
+Subject: [PATCH] Name the Windows-only gcc settings for Windows
 
 Inside Windows-only blocks these were LIBS_gcc and the like, which the
 toolchain-and-OS lookup never offers to clang. As LIBS_gcc_windows they

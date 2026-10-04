@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: TheShermanTanker <tanksherman27@gmail.com>
 Date: Mon, 24 Jul 2023 13:31:10 +0800
-Subject: [PATCH 02/18] Attributes
+Subject: [PATCH] Attributes
 
 From the Windows/gcc port in https://github.com/TheShermanTanker/jdk,
 branch experimental, commit e72c5816, rebased onto jdk-27+35.

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Joan Karadimov <joan.karadimov@gmail.com>
 Date: Sun, 4 Oct 2026 20:48:30 +0300
-Subject: [PATCH 2/5] Build with clang on Windows
+Subject: [PATCH] Build with clang on Windows
 
 clang on MinGW takes the same flags, libraries and tools as gcc there:
 MSYS2 path handling, windres resources and manifests, no stack
