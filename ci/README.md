@@ -167,7 +167,9 @@ dependencies. A script in it reads each environment's database from the server
 the way pacman does, so the list is always what is published, and CI has
 nothing to generate for it. It does not read PKGBUILDs: makepkg has already
 expanded them, once per environment, into those databases. The environments it
-reads are the rows of the page's table, the same rows that test checks.
+reads are the rows of the page's table, the same rows that test checks. A
+dependency links to its entry on the page, or, if this repository does not have
+it, to MSYS2's own index at `packages.msys2.org`.
 
 ## Using the repository
 

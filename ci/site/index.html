@@ -108,6 +108,17 @@
   .info dd { margin: 0; overflow-wrap: anywhere; }
   .deps { display: flex; flex-wrap: wrap; gap: .3rem .6rem; }
   .deps.lines { flex-direction: column; }
+  .external::after {
+    --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 3H4a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V9M10 2h4v4M14 2 8 8'/%3E%3C/svg%3E");
+    content: "";
+    display: inline-block;
+    width: .75em;
+    height: .75em;
+    margin-left: .2em;
+    background: currentColor;
+    -webkit-mask: var(--icon) no-repeat center / contain;
+    mask: var(--icon) no-repeat center / contain;
+  }
   .note { color: var(--muted); font-size: .8rem; }
   @media (max-width: 32rem) {
     .info dl { grid-template-columns: minmax(0, 1fr); gap: 0; }
@@ -273,15 +284,17 @@ pacman -S mingw-w64-ucrt-x86_64-stormlib
     const status = document.getElementById("package-status");
     const list = document.getElementById("package-list");
 
-    // The database fields listing other packages, in the order they are shown.
+    // The database fields listing other packages, in the order they are shown,
+    // and whether what they name is something to install. Only such a name is
+    // sure to exist; the others can name a package no repository has.
     const RELATIONS = [
-      ["DEPENDS", "Depends on"],
-      ["OPTDEPENDS", "Optional"],
-      ["PROVIDES", "Provides"],
-      ["CONFLICTS", "Conflicts with"],
-      ["REPLACES", "Replaces"],
-      ["MAKEDEPENDS", "Built with"],
-      ["CHECKDEPENDS", "Tested with"],
+      ["DEPENDS", "Depends on", true],
+      ["OPTDEPENDS", "Optional", true],
+      ["PROVIDES", "Provides", false],
+      ["CONFLICTS", "Conflicts with", false],
+      ["REPLACES", "Replaces", false],
+      ["MAKEDEPENDS", "Built with", true],
+      ["CHECKDEPENDS", "Tested with", true],
     ];
 
     // Name without its prefix (msys/name for MSYS) -> package.
@@ -392,8 +405,11 @@ pacman -S mingw-w64-ucrt-x86_64-stormlib
 
     // Each environment names a dependency with its own prefix. Without it the
     // lists are mostly the same, so they are merged, and an entry only some
-    // environments have says which.
-    function relations(pkg, key) {
+    // environments have says which. A package to install that this repository
+    // does not have is MSYS2's, and links to MSYS2's own index, which also
+    // answers for a name like cc that packages only provide. The link names the
+    // first environment's package.
+    function relations(pkg, key, installable) {
       const merged = new Map();
       for (const { environment, entry } of pkg.builds.values()) {
         for (const value of entry[key] ?? []) {
@@ -406,8 +422,19 @@ pacman -S mingw-w64-ucrt-x86_64-stormlib
         // An optional dependency is followed by ": " and what it is for.
         const colon = key === "OPTDEPENDS" ? shown.indexOf(": ") : -1;
         const code = h("code", {}, colon < 0 ? shown : shown.slice(0, colon));
-        const target = resolve(/^[^:<>=]*/.exec(value)[0]);
-        const item = h("span", {}, target ? h("a", { href: `#${target.id}` }, code) : code);
+        const name = /^[^:<>=]*/.exec(value)[0];
+        const target = resolve(name);
+        let link = code;
+        if (target) {
+          link = h("a", { href: `#${target.id}` }, code);
+        } else if (installable) {
+          link = h("a", {
+            href: `https://packages.msys2.org/packages/${encodeURIComponent(name)}`,
+            className: "external",
+            title: "packages.msys2.org",
+          }, code);
+        }
+        const item = h("span", {}, link);
         if (colon >= 0) item.append(` ${shown.slice(colon + 2)}`);
         if (labels.length < pkg.builds.size) item.append(" ", h("span", { className: "note" }, labels.join(", ")));
         return item;
@@ -443,8 +470,8 @@ pacman -S mingw-w64-ucrt-x86_64-stormlib
       if (/^https?:\/\//.test(url)) fact("Upstream", h("dd", {}, h("a", { href: url }, url)));
       const licenses = (first.LICENSE ?? []).map(license => license.replace(/^spdx:/, ""));
       if (licenses.length) fact("License", h("dd", {}, licenses.join(", ")));
-      for (const [key, term] of RELATIONS) {
-        const items = relations(pkg, key);
+      for (const [key, term, installable] of RELATIONS) {
+        const items = relations(pkg, key, installable);
         if (items.length) fact(term, h("dd", { className: key === "OPTDEPENDS" ? "deps lines" : "deps" }, ...items));
       }
 
