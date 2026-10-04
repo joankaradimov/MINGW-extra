@@ -1,0 +1,154 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sun, 4 Oct 2026 16:18:25 +0300
+Subject: [PATCH 13/18] Catch Windows exceptions with a vectored handler under
+ gcc
+
+gcc has no __try/__except, so WIN32_TRY and WIN32_EXCEPT expand to
+nothing and faults outside the code cache went unhandled: SafeFetch,
+crash protection and error reporting for VM threads. Windows/AArch64
+already runs on a vectored handler and static assembly SafeFetch; use
+the same scheme for x64 with gcc.
+
+Upstream: not submitted; part of the Windows/gcc port, not upstream OpenJDK
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/hotspot/os/windows/os_windows.cpp         |  8 ++-
+ .../os_cpu/windows_x86/os_windows_x86.cpp     |  4 ++
+ .../windows_x86/safefetch_windows_x86_64.S    | 59 +++++++++++++++++++
+ src/hotspot/share/runtime/safefetch.hpp       |  2 +-
+ .../share/utilities/globalDefinitions_gcc.hpp |  1 +
+ 5 files changed, 72 insertions(+), 2 deletions(-)
+ create mode 100644 src/hotspot/os_cpu/windows_x86/safefetch_windows_x86_64.S
+
+diff --git a/src/hotspot/os/windows/os_windows.cpp b/src/hotspot/os/windows/os_windows.cpp
+index 5fe8d79f0..41e39ec58 100644
+--- a/src/hotspot/os/windows/os_windows.cpp
++++ b/src/hotspot/os/windows/os_windows.cpp
+@@ -2688,6 +2688,12 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
+ #elif defined(_M_AMD64)
+   address pc = (address) exceptionInfo->ContextRecord->Rip;
+ 
++#ifdef SAFEFETCH_METHOD_STATIC_ASSEMBLY
++  if (handle_safefetch(exception_code, pc, (void*)exceptionInfo->ContextRecord)) {
++    return EXCEPTION_CONTINUE_EXECUTION;
++  }
++#endif
++
+   if ((exception_code == EXCEPTION_ACCESS_VIOLATION) &&
+       VM_Version::is_cpuinfo_segv_addr(pc)) {
+     // Verify that OS save/restore AVX registers.
+@@ -2859,7 +2865,7 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
+ 
+   bool should_report_error = (exception_code != EXCEPTION_BREAKPOINT);
+ 
+-#if defined(_M_ARM64)
++#if defined(USE_VECTORED_EXCEPTION_HANDLING)
+   should_report_error = should_report_error &&
+                         FAILED(exception_code) &&
+                         (exception_code != EXCEPTION_UNCAUGHT_CXX_EXCEPTION);
+diff --git a/src/hotspot/os_cpu/windows_x86/os_windows_x86.cpp b/src/hotspot/os_cpu/windows_x86/os_windows_x86.cpp
+index 01d8340a1..611aec2bf 100644
+--- a/src/hotspot/os_cpu/windows_x86/os_windows_x86.cpp
++++ b/src/hotspot/os_cpu/windows_x86/os_windows_x86.cpp
+@@ -197,6 +197,10 @@ bool handle_FLT_exception(struct _EXCEPTION_POINTERS* exceptionInfo) {
+   return false;
+ }
+ 
++void os::win32::context_set_pc(CONTEXT* uc, address pc) {
++  uc->Rip = (intptr_t)pc;
++}
++
+ address os::fetch_frame_from_context(const void* ucVoid,
+                     intptr_t** ret_sp, intptr_t** ret_fp) {
+ 
+diff --git a/src/hotspot/os_cpu/windows_x86/safefetch_windows_x86_64.S b/src/hotspot/os_cpu/windows_x86/safefetch_windows_x86_64.S
+new file mode 100644
+index 000000000..c8e97ef2b
+--- /dev/null
++++ b/src/hotspot/os_cpu/windows_x86/safefetch_windows_x86_64.S
+@@ -0,0 +1,59 @@
++#
++# Copyright (c) 2022 SAP SE. All rights reserved.
++# Copyright (c) 2022, 2024, Oracle and/or its affiliates. All rights reserved.
++# DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
++#
++# This code is free software; you can redistribute it and/or modify it
++# under the terms of the GNU General Public License version 2 only, as
++# published by the Free Software Foundation.
++#
++# This code is distributed in the hope that it will be useful, but WITHOUT
++# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
++# version 2 for more details (a copy is included in the LICENSE file that
++# accompanied this code).
++#
++# You should have received a copy of the GNU General Public License version
++# 2 along with this work; if not, write to the Free Software Foundation,
++# Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
++#
++# Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
++# or visit www.oracle.com if you need additional information or have any
++# questions.
++#
++
++    # The Windows x64 calling convention, in GNU as syntax for gcc.
++    # Faults at the _fault labels are redirected to the _continuation
++    # labels by handle_safefetch() in safefetch_static_windows.cpp.
++
++    .text
++
++    # Support for int SafeFetch32(int* address, int defaultval);
++    #
++    #  %rcx : address
++    #  %edx : defaultval
++    .globl SafeFetch32_impl
++    .globl _SafeFetch32_fault
++    .globl _SafeFetch32_continuation
++SafeFetch32_impl:
++_SafeFetch32_fault:
++    movl (%rcx), %eax       # load target value, may fault
++    ret
++_SafeFetch32_continuation:
++    movl %edx, %eax         # return default
++    ret
++
++    # Support for intptr_t SafeFetchN(intptr_t* address, intptr_t defaultval);
++    #
++    #  %rcx : address
++    #  %rdx : defaultval
++    .globl SafeFetchN_impl
++    .globl _SafeFetchN_fault
++    .globl _SafeFetchN_continuation
++SafeFetchN_impl:
++_SafeFetchN_fault:
++    movq (%rcx), %rax       # load target value, may fault
++    ret
++_SafeFetchN_continuation:
++    movq %rdx, %rax         # return default
++    ret
+diff --git a/src/hotspot/share/runtime/safefetch.hpp b/src/hotspot/share/runtime/safefetch.hpp
+index 43872c781..2be81d475 100644
+--- a/src/hotspot/share/runtime/safefetch.hpp
++++ b/src/hotspot/share/runtime/safefetch.hpp
+@@ -31,7 +31,7 @@
+ // Safefetch allows to load a value from a location that's not known
+ // to be valid. If the load causes a fault, the error value is returned.
+ 
+-#if defined(_WIN32) && !defined(_M_ARM64)
++#if defined(_WIN32) && !defined(_M_ARM64) && !defined(__GNUC__)
+   // Windows x86_64 uses Structured Exception Handling
+   #include "safefetch_windows.hpp"
+ #elif defined(ZERO) || defined (_AIX)
+diff --git a/src/hotspot/share/utilities/globalDefinitions_gcc.hpp b/src/hotspot/share/utilities/globalDefinitions_gcc.hpp
+index 38b9cd473..c675f2ee4 100644
+--- a/src/hotspot/share/utilities/globalDefinitions_gcc.hpp
++++ b/src/hotspot/share/utilities/globalDefinitions_gcc.hpp
+@@ -91,6 +91,7 @@ inline int g_isfinite(jdouble f)                 { return isfinite(f); }
+ 
+ #ifdef _WIN32
+ #define M_PI 3.14159265358979323846
++#define USE_VECTORED_EXCEPTION_HANDLING
+ #define WIN32_TRY
+ #define WIN32_EXCEPT(filter) if (false)
+ #endif

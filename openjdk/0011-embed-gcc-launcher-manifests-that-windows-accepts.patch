@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sun, 4 Oct 2026 16:18:23 +0300
+Subject: [PATCH 11/18] Embed gcc launcher manifests that Windows accepts
+
+WriteFile strips the newline after the #include, so windres saw the
+resource statement as junk after it and embedded nothing. Once
+embedded, the manifest still needs the identity that mt -identity
+fills in under Visual Studio, or Windows refuses to start the
+executable.
+
+Upstream: not submitted; fixes the Windows/gcc port, not upstream OpenJDK
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ make/common/native/Link.gmk | 13 +++++++++++--
+ 1 file changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/make/common/native/Link.gmk b/make/common/native/Link.gmk
+index 910f1d155..f5df90e31 100644
+--- a/make/common/native/Link.gmk
++++ b/make/common/native/Link.gmk
+@@ -178,11 +178,20 @@ define CreateDynamicLibraryOrExecutable
+           endif
+         endif
+         ifeq ($(TOOLCHAIN_TYPE)+$(call isTargetOs, windows), gcc+true)
++          # windres embeds the manifest as it is, so fill in the identity
++          # that mt -identity sets under Visual Studio; Windows refuses to
++          # start an executable whose manifest names nothing. 24 is
++          # RT_MANIFEST: WriteFile strips newlines, which leaves no room to
++          # #include winuser.h. windres reads the manifest itself, so it
++          # needs a Windows path.
+           ifneq ($$($1_MANIFEST), )
+             ifeq ($$($1_TYPE), EXECUTABLE)
+-	    $$(call WriteFile, $$(HASH)include $$(DQUOTE)winuser.h$$(DQUOTE)$$(NEWLINE)1 RT_MANIFEST $$(DQUOTE)$$($1_MANIFEST)$$(DQUOTE), $$($1_OBJECT_DIR)/manifest.rc)
++	    $(SED) -e 's/name=""/name="$$($1_NAME).exe"/' \
++	        -e 's/version=""/version="$$($1_MANIFEST_VERSION)"/' \
++	        $$($1_MANIFEST) > $$($1_OBJECT_DIR)/$$($1_NAME).manifest
++	    $$(call WriteFile, 1 24 $$(DQUOTE)$$(call FixPath, $$($1_OBJECT_DIR)/$$($1_NAME).manifest)$$(DQUOTE), $$($1_OBJECT_DIR)/manifest.rc)
+             else ifeq ($$($1_TYPE), LIBRARY)
+-	    $$(call WriteFile, $$(HASH)include $$(DQUOTE)winuser.h$$(DQUOTE)$$(NEWLINE)2 RT_MANIFEST $$(DQUOTE)$$($1_MANIFEST)$$(DQUOTE), $$($1_OBJECT_DIR)/manifest.rc)
++	    $$(call WriteFile, 2 24 $$(DQUOTE)$$(call FixPath, $$($1_MANIFEST))$$(DQUOTE), $$($1_OBJECT_DIR)/manifest.rc)
+             endif
+ 	    $$(call ExecuteWithLog, $$($1_OBJECT_DIR)/$$($1_SAFE_NAME)_compile_manifest, $$($1_RC) $$($1_RCFLAGS) $$($1_SYSROOT_CFLAGS) -o $$($1_OBJECT_DIR)/manifest.res -O coff $$($1_OBJECT_DIR)/manifest.rc)
+           endif

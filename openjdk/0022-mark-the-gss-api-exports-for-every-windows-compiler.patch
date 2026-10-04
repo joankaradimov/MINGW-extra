@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sun, 4 Oct 2026 20:48:31 +0300
+Subject: [PATCH 4/5] Mark the GSS-API exports for every Windows compiler
+
+sspi.cpp defines GSS_DLL_FILE and exports its functions, but gssapi.h
+declared them plain unless the compiler was Visual Studio. clang
+refuses to add dllexport on a later declaration.
+
+Upstream: not submitted; OpenJDK itself only builds Windows with Visual Studio
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/java.security.jgss/share/native/libj2gss/gssapi.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/java.security.jgss/share/native/libj2gss/gssapi.h b/src/java.security.jgss/share/native/libj2gss/gssapi.h
+index 44ea62dd0..b2cee611b 100644
+--- a/src/java.security.jgss/share/native/libj2gss/gssapi.h
++++ b/src/java.security.jgss/share/native/libj2gss/gssapi.h
+@@ -295,7 +295,7 @@ typedef int             gss_cred_usage_t;
+  * Finally, function prototypes for the GSSAPI routines.
+  */
+ 
+-#if defined (_WIN32) && defined (_MSC_VER)
++#if defined (_WIN32)
+ # ifdef GSS_DLL_FILE
+ #  define GSS_DLLIMP __declspec(dllexport)
+ # else

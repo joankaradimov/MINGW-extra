@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sun, 4 Oct 2026 20:22:46 +0300
+Subject: [PATCH 06/18] Keep mingw-w64's stdio functions off the forbidden list
+
+libstdc++ turns on mingw-w64's ANSI stdio, whose stdio.h declares
+sprintf, snprintf, vsprintf and vsnprintf with C++ linkage; the
+extern "C" redeclarations that forbid them do not compile.
+
+Upstream: not submitted; part of the Windows/gcc port, not upstream OpenJDK
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/hotspot/share/utilities/forbiddenFunctions.hpp | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/hotspot/share/utilities/forbiddenFunctions.hpp b/src/hotspot/share/utilities/forbiddenFunctions.hpp
+index 9b3c65b06..676faf410 100644
+--- a/src/hotspot/share/utilities/forbiddenFunctions.hpp
++++ b/src/hotspot/share/utilities/forbiddenFunctions.hpp
+@@ -46,6 +46,9 @@
+ FORBID_IMPORTED_C_FUNCTION(char* strerror(int), noexcept, "use os::strerror");
+ FORBID_IMPORTED_C_FUNCTION(char* strtok(char*, const char*), noexcept, "use strtok_r");
+ 
++// mingw-w64's stdio.h declares these with C++ linkage when its ANSI stdio
++// is on, as libstdc++ always turns it on, so they cannot be redeclared here.
++#ifndef __MINGW32__
+ // AIX declarations for sprintf and snprintf are not noexcept, which is
+ // inconsistent with most other system header declarations, including being
+ // inconsistent with vsprintf and fsnprintf.
+@@ -57,6 +60,7 @@ FORBIDDEN_FUNCTION_IGNORE_CLANG_FORTIFY_WARNING
+ FORBID_C_FUNCTION(int vsprintf(char*, const char*, va_list), noexcept, "use os::vsnprintf");
+ FORBID_C_FUNCTION(int vsnprintf(char*, size_t, const char*, va_list), noexcept, "use os::vsnprintf");
+ PRAGMA_DIAG_POP
++#endif
+ 
+ // All of the following functions return raw C-heap pointers.  We generally
+ // want allocation to be done through NMT.

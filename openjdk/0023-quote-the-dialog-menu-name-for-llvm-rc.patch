@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sun, 4 Oct 2026 20:48:32 +0300
+Subject: [PATCH 5/5] Quote the dialog menu name for llvm-rc
+
+llvm-rc, which is windres in CLANG64, wants a string or number after
+MENU in a dialog. rc.exe and GNU windres accept the quoted form too.
+
+Upstream: not submitted; OpenJDK itself only builds Windows with Visual Studio
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../windows/native/jaccessinspector/jaccessinspectorWindow.rc   | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/jdk.accessibility/windows/native/jaccessinspector/jaccessinspectorWindow.rc b/src/jdk.accessibility/windows/native/jaccessinspector/jaccessinspectorWindow.rc
+index fcddea564..9e5c939d8 100644
+--- a/src/jdk.accessibility/windows/native/jaccessinspector/jaccessinspectorWindow.rc
++++ b/src/jdk.accessibility/windows/native/jaccessinspector/jaccessinspectorWindow.rc
+@@ -44,7 +44,7 @@
+ JACCESSINSPECTORWINDOW DIALOG  160, 78, 354, 214
+ STYLE DS_SETFONT | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_VISIBLE | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
+ CAPTION "jaccessinspector"
+-MENU cjaccessinspectorMenus
++MENU "cjaccessinspectorMenus"
+ FONT 8, "MS Sans Serif"
+ BEGIN
+     EDITTEXT        cjaccessinspectorText,4,24,340,184,ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL

@@ -1,0 +1,1116 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: TheShermanTanker <tanksherman27@gmail.com>
+Date: Mon, 24 Jul 2023 13:31:10 +0800
+Subject: [PATCH 02/18] Attributes
+
+From the Windows/gcc port in https://github.com/TheShermanTanker/jdk,
+branch experimental, commit e72c5816, rebased onto jdk-27+35.
+
+Upstream: JEP draft 8288293 (https://openjdk.org/jeps/8288293), not merged
+---
+ src/hotspot/cpu/aarch64/assembler_aarch64.hpp |   3 +-
+ src/hotspot/cpu/aarch64/immediate_aarch64.cpp |   2 +-
+ .../cpu/aarch64/macroAssembler_aarch64.cpp    |   2 +-
+ src/hotspot/cpu/x86/macroAssembler_x86.hpp    | 128 +++++++++---------
+ src/hotspot/cpu/x86/sharedRuntime_x86_64.cpp  |   4 +-
+ src/hotspot/cpu/zero/bytes_zero.hpp           |   4 +-
+ src/hotspot/os/linux/os_linux.cpp             |   2 +-
+ src/hotspot/os/linux/os_perf_linux.cpp        |   9 +-
+ .../os/posix/safefetch_static_posix.cpp       |   8 +-
+ .../linux_riscv/atomicAccess_linux_riscv.hpp  |   8 +-
+ src/hotspot/share/c1/c1_CFGPrinter.hpp        |   3 +-
+ src/hotspot/share/cds/aotMetaspace.hpp        |   2 +-
+ src/hotspot/share/cds/classListParser.hpp     |   8 +-
+ src/hotspot/share/classfile/verifier.hpp      |   4 +-
+ src/hotspot/share/compiler/compileLog.hpp     |   7 +-
+ src/hotspot/share/gc/shared/gcLogPrecious.hpp |  15 +-
+ .../heuristics/shenandoahHeuristics.hpp       |   2 +-
+ src/hotspot/share/gc/z/zInitialize.hpp        |   4 +-
+ src/hotspot/share/gc/z/zPage.hpp              |   3 +-
+ src/hotspot/share/gc/z/zStat.cpp              |   9 +-
+ src/hotspot/share/logging/log.hpp             |   9 +-
+ src/hotspot/share/logging/logHandle.hpp       |   9 +-
+ .../share/logging/logMessageBuffer.hpp        |   4 +-
+ src/hotspot/share/logging/logStream.hpp       |   3 +-
+ src/hotspot/share/oops/generateOopMap.hpp     |   9 +-
+ src/hotspot/share/prims/forte.cpp             |   2 +-
+ src/hotspot/share/runtime/arguments.hpp       |   2 +-
+ src/hotspot/share/runtime/flags/jvmFlag.hpp   |   4 +-
+ src/hotspot/share/runtime/nonJavaThread.hpp   |   3 +-
+ src/hotspot/share/sanitizers/address.hpp      |   2 +-
+ src/hotspot/share/sanitizers/ub.hpp           |   6 +-
+ .../share/utilities/compilerWarnings_gcc.hpp  |   4 +-
+ src/hotspot/share/utilities/events.hpp        |  33 +++--
+ src/hotspot/share/utilities/exceptions.hpp    |   3 +-
+ src/hotspot/share/utilities/formatBuffer.hpp  |  12 +-
+ .../share/utilities/globalDefinitions_gcc.hpp |   6 +-
+ src/hotspot/share/utilities/json.hpp          |   3 +-
+ src/hotspot/share/utilities/ostream.hpp       |  17 +--
+ src/hotspot/share/utilities/vmError.cpp       |   4 +-
+ src/hotspot/share/utilities/xmlstream.hpp     |  45 ++++--
+ test/hotspot/gtest/utilities/test_json.cpp    |   3 +-
+ 41 files changed, 232 insertions(+), 178 deletions(-)
+
+diff --git a/src/hotspot/cpu/aarch64/assembler_aarch64.hpp b/src/hotspot/cpu/aarch64/assembler_aarch64.hpp
+index c8d5ee2ea..2c6bc775f 100644
+--- a/src/hotspot/cpu/aarch64/assembler_aarch64.hpp
++++ b/src/hotspot/cpu/aarch64/assembler_aarch64.hpp
+@@ -214,7 +214,8 @@ class Instruction_aarch64 {
+     return extend(uval, msb - lsb);
+   }
+ 
+-  static ALWAYSINLINE void patch(address a, int msb, int lsb, uint64_t val) {
++  ALWAYSINLINE
++  static void patch(address a, int msb, int lsb, uint64_t val) {
+     int nbits = msb - lsb + 1;
+     guarantee(val < (1ULL << nbits), "Field too big for insn");
+     assert_cond(msb >= lsb);
+diff --git a/src/hotspot/cpu/aarch64/immediate_aarch64.cpp b/src/hotspot/cpu/aarch64/immediate_aarch64.cpp
+index eb4cb2310..51dc7e123 100644
+--- a/src/hotspot/cpu/aarch64/immediate_aarch64.cpp
++++ b/src/hotspot/cpu/aarch64/immediate_aarch64.cpp
+@@ -334,7 +334,7 @@ static int expandLogicalImmediate(uint32_t immN, uint32_t immr,
+ // constructor to initialise the lookup tables
+ 
+ static void initLITables();
+-// Use an empty struct with a constructor as MSVC doesn't support `__attribute__ ((constructor))`
++// Use an empty struct with a constructor as MSVC doesn't support `[[gnu::constructor]]`
+ // See https://stackoverflow.com/questions/1113409/attribute-constructor-equivalent-in-vc
+ static struct initLITables_t { initLITables_t(void) { initLITables(); } } _initLITables;
+ static void initLITables()
+diff --git a/src/hotspot/cpu/aarch64/macroAssembler_aarch64.cpp b/src/hotspot/cpu/aarch64/macroAssembler_aarch64.cpp
+index 2afbfa471..9421ae182 100644
+--- a/src/hotspot/cpu/aarch64/macroAssembler_aarch64.cpp
++++ b/src/hotspot/cpu/aarch64/macroAssembler_aarch64.cpp
+@@ -159,7 +159,7 @@ class RelocActions : public AllStatic {
+ 
+ public:
+ 
+-  static int ALWAYSINLINE run(address insn_addr, address &target) {
++  ALWAYSINLINE static int run(address insn_addr, address &target) {
+     int instructions = 1;
+     uint32_t insn = insn_at(insn_addr, 0);
+ 
+diff --git a/src/hotspot/cpu/x86/macroAssembler_x86.hpp b/src/hotspot/cpu/x86/macroAssembler_x86.hpp
+index de5ec02fe..a9a842300 100644
+--- a/src/hotspot/cpu/x86/macroAssembler_x86.hpp
++++ b/src/hotspot/cpu/x86/macroAssembler_x86.hpp
+@@ -918,72 +918,72 @@ class MacroAssembler: public Assembler {
+   void jump(ArrayAddress entry, Register rscratch);
+ 
+   // Adding more natural conditional jump instructions
+-  void ALWAYSINLINE jo(Label& L, bool maybe_short = true) { jcc(Assembler::overflow, L, maybe_short); }
+-  void ALWAYSINLINE jno(Label& L, bool maybe_short = true) { jcc(Assembler::noOverflow, L, maybe_short); }
+-  void ALWAYSINLINE js(Label& L, bool maybe_short = true) { jcc(Assembler::negative, L, maybe_short); }
+-  void ALWAYSINLINE jns(Label& L, bool maybe_short = true) { jcc(Assembler::positive, L, maybe_short); }
+-  void ALWAYSINLINE je(Label& L, bool maybe_short = true) { jcc(Assembler::equal, L, maybe_short); }
+-  void ALWAYSINLINE jz(Label& L, bool maybe_short = true) { jcc(Assembler::zero, L, maybe_short); }
+-  void ALWAYSINLINE jne(Label& L, bool maybe_short = true) { jcc(Assembler::notEqual, L, maybe_short); }
+-  void ALWAYSINLINE jnz(Label& L, bool maybe_short = true) { jcc(Assembler::notZero, L, maybe_short); }
+-  void ALWAYSINLINE jb(Label& L, bool maybe_short = true) { jcc(Assembler::below, L, maybe_short); }
+-  void ALWAYSINLINE jnae(Label& L, bool maybe_short = true) { jcc(Assembler::below, L, maybe_short); }
+-  void ALWAYSINLINE jc(Label& L, bool maybe_short = true) { jcc(Assembler::carrySet, L, maybe_short); }
+-  void ALWAYSINLINE jnb(Label& L, bool maybe_short = true) { jcc(Assembler::aboveEqual, L, maybe_short); }
+-  void ALWAYSINLINE jae(Label& L, bool maybe_short = true) { jcc(Assembler::aboveEqual, L, maybe_short); }
+-  void ALWAYSINLINE jnc(Label& L, bool maybe_short = true) { jcc(Assembler::carryClear, L, maybe_short); }
+-  void ALWAYSINLINE jbe(Label& L, bool maybe_short = true) { jcc(Assembler::belowEqual, L, maybe_short); }
+-  void ALWAYSINLINE jna(Label& L, bool maybe_short = true) { jcc(Assembler::belowEqual, L, maybe_short); }
+-  void ALWAYSINLINE ja(Label& L, bool maybe_short = true) { jcc(Assembler::above, L, maybe_short); }
+-  void ALWAYSINLINE jnbe(Label& L, bool maybe_short = true) { jcc(Assembler::above, L, maybe_short); }
+-  void ALWAYSINLINE jl(Label& L, bool maybe_short = true) { jcc(Assembler::less, L, maybe_short); }
+-  void ALWAYSINLINE jnge(Label& L, bool maybe_short = true) { jcc(Assembler::less, L, maybe_short); }
+-  void ALWAYSINLINE jge(Label& L, bool maybe_short = true) { jcc(Assembler::greaterEqual, L, maybe_short); }
+-  void ALWAYSINLINE jnl(Label& L, bool maybe_short = true) { jcc(Assembler::greaterEqual, L, maybe_short); }
+-  void ALWAYSINLINE jle(Label& L, bool maybe_short = true) { jcc(Assembler::lessEqual, L, maybe_short); }
+-  void ALWAYSINLINE jng(Label& L, bool maybe_short = true) { jcc(Assembler::lessEqual, L, maybe_short); }
+-  void ALWAYSINLINE jg(Label& L, bool maybe_short = true) { jcc(Assembler::greater, L, maybe_short); }
+-  void ALWAYSINLINE jnle(Label& L, bool maybe_short = true) { jcc(Assembler::greater, L, maybe_short); }
+-  void ALWAYSINLINE jp(Label& L, bool maybe_short = true) { jcc(Assembler::parity, L, maybe_short); }
+-  void ALWAYSINLINE jpe(Label& L, bool maybe_short = true) { jcc(Assembler::parity, L, maybe_short); }
+-  void ALWAYSINLINE jnp(Label& L, bool maybe_short = true) { jcc(Assembler::noParity, L, maybe_short); }
+-  void ALWAYSINLINE jpo(Label& L, bool maybe_short = true) { jcc(Assembler::noParity, L, maybe_short); }
+-  // * No condition for this *  void ALWAYSINLINE jcxz(Label& L, bool maybe_short = true) { jcc(Assembler::cxz, L, maybe_short); }
+-  // * No condition for this *  void ALWAYSINLINE jecxz(Label& L, bool maybe_short = true) { jcc(Assembler::cxz, L, maybe_short); }
++  ALWAYSINLINE void jo(Label& L, bool maybe_short = true) { jcc(Assembler::overflow, L, maybe_short); }
++  ALWAYSINLINE void jno(Label& L, bool maybe_short = true) { jcc(Assembler::noOverflow, L, maybe_short); }
++  ALWAYSINLINE void js(Label& L, bool maybe_short = true) { jcc(Assembler::negative, L, maybe_short); }
++  ALWAYSINLINE void jns(Label& L, bool maybe_short = true) { jcc(Assembler::positive, L, maybe_short); }
++  ALWAYSINLINE void je(Label& L, bool maybe_short = true) { jcc(Assembler::equal, L, maybe_short); }
++  ALWAYSINLINE void jz(Label& L, bool maybe_short = true) { jcc(Assembler::zero, L, maybe_short); }
++  ALWAYSINLINE void jne(Label& L, bool maybe_short = true) { jcc(Assembler::notEqual, L, maybe_short); }
++  ALWAYSINLINE void jnz(Label& L, bool maybe_short = true) { jcc(Assembler::notZero, L, maybe_short); }
++  ALWAYSINLINE void jb(Label& L, bool maybe_short = true) { jcc(Assembler::below, L, maybe_short); }
++  ALWAYSINLINE void jnae(Label& L, bool maybe_short = true) { jcc(Assembler::below, L, maybe_short); }
++  ALWAYSINLINE void jc(Label& L, bool maybe_short = true) { jcc(Assembler::carrySet, L, maybe_short); }
++  ALWAYSINLINE void jnb(Label& L, bool maybe_short = true) { jcc(Assembler::aboveEqual, L, maybe_short); }
++  ALWAYSINLINE void jae(Label& L, bool maybe_short = true) { jcc(Assembler::aboveEqual, L, maybe_short); }
++  ALWAYSINLINE void jnc(Label& L, bool maybe_short = true) { jcc(Assembler::carryClear, L, maybe_short); }
++  ALWAYSINLINE void jbe(Label& L, bool maybe_short = true) { jcc(Assembler::belowEqual, L, maybe_short); }
++  ALWAYSINLINE void jna(Label& L, bool maybe_short = true) { jcc(Assembler::belowEqual, L, maybe_short); }
++  ALWAYSINLINE void ja(Label& L, bool maybe_short = true) { jcc(Assembler::above, L, maybe_short); }
++  ALWAYSINLINE void jnbe(Label& L, bool maybe_short = true) { jcc(Assembler::above, L, maybe_short); }
++  ALWAYSINLINE void jl(Label& L, bool maybe_short = true) { jcc(Assembler::less, L, maybe_short); }
++  ALWAYSINLINE void jnge(Label& L, bool maybe_short = true) { jcc(Assembler::less, L, maybe_short); }
++  ALWAYSINLINE void jge(Label& L, bool maybe_short = true) { jcc(Assembler::greaterEqual, L, maybe_short); }
++  ALWAYSINLINE void jnl(Label& L, bool maybe_short = true) { jcc(Assembler::greaterEqual, L, maybe_short); }
++  ALWAYSINLINE void jle(Label& L, bool maybe_short = true) { jcc(Assembler::lessEqual, L, maybe_short); }
++  ALWAYSINLINE void jng(Label& L, bool maybe_short = true) { jcc(Assembler::lessEqual, L, maybe_short); }
++  ALWAYSINLINE void jg(Label& L, bool maybe_short = true) { jcc(Assembler::greater, L, maybe_short); }
++  ALWAYSINLINE void jnle(Label& L, bool maybe_short = true) { jcc(Assembler::greater, L, maybe_short); }
++  ALWAYSINLINE void jp(Label& L, bool maybe_short = true) { jcc(Assembler::parity, L, maybe_short); }
++  ALWAYSINLINE void jpe(Label& L, bool maybe_short = true) { jcc(Assembler::parity, L, maybe_short); }
++  ALWAYSINLINE void jnp(Label& L, bool maybe_short = true) { jcc(Assembler::noParity, L, maybe_short); }
++  ALWAYSINLINE void jpo(Label& L, bool maybe_short = true) { jcc(Assembler::noParity, L, maybe_short); }
++  // * No condition for this *  ALWAYSINLINE void jcxz(Label& L, bool maybe_short = true) { jcc(Assembler::cxz, L, maybe_short); }
++  // * No condition for this *  ALWAYSINLINE void jecxz(Label& L, bool maybe_short = true) { jcc(Assembler::cxz, L, maybe_short); }
+ 
+   // Short versions of the above
+-  void ALWAYSINLINE jo_b(Label& L) { jccb(Assembler::overflow, L); }
+-  void ALWAYSINLINE jno_b(Label& L) { jccb(Assembler::noOverflow, L); }
+-  void ALWAYSINLINE js_b(Label& L) { jccb(Assembler::negative, L); }
+-  void ALWAYSINLINE jns_b(Label& L) { jccb(Assembler::positive, L); }
+-  void ALWAYSINLINE je_b(Label& L) { jccb(Assembler::equal, L); }
+-  void ALWAYSINLINE jz_b(Label& L) { jccb(Assembler::zero, L); }
+-  void ALWAYSINLINE jne_b(Label& L) { jccb(Assembler::notEqual, L); }
+-  void ALWAYSINLINE jnz_b(Label& L) { jccb(Assembler::notZero, L); }
+-  void ALWAYSINLINE jb_b(Label& L) { jccb(Assembler::below, L); }
+-  void ALWAYSINLINE jnae_b(Label& L) { jccb(Assembler::below, L); }
+-  void ALWAYSINLINE jc_b(Label& L) { jccb(Assembler::carrySet, L); }
+-  void ALWAYSINLINE jnb_b(Label& L) { jccb(Assembler::aboveEqual, L); }
+-  void ALWAYSINLINE jae_b(Label& L) { jccb(Assembler::aboveEqual, L); }
+-  void ALWAYSINLINE jnc_b(Label& L) { jccb(Assembler::carryClear, L); }
+-  void ALWAYSINLINE jbe_b(Label& L) { jccb(Assembler::belowEqual, L); }
+-  void ALWAYSINLINE jna_b(Label& L) { jccb(Assembler::belowEqual, L); }
+-  void ALWAYSINLINE ja_b(Label& L) { jccb(Assembler::above, L); }
+-  void ALWAYSINLINE jnbe_b(Label& L) { jccb(Assembler::above, L); }
+-  void ALWAYSINLINE jl_b(Label& L) { jccb(Assembler::less, L); }
+-  void ALWAYSINLINE jnge_b(Label& L) { jccb(Assembler::less, L); }
+-  void ALWAYSINLINE jge_b(Label& L) { jccb(Assembler::greaterEqual, L); }
+-  void ALWAYSINLINE jnl_b(Label& L) { jccb(Assembler::greaterEqual, L); }
+-  void ALWAYSINLINE jle_b(Label& L) { jccb(Assembler::lessEqual, L); }
+-  void ALWAYSINLINE jng_b(Label& L) { jccb(Assembler::lessEqual, L); }
+-  void ALWAYSINLINE jg_b(Label& L) { jccb(Assembler::greater, L); }
+-  void ALWAYSINLINE jnle_b(Label& L) { jccb(Assembler::greater, L); }
+-  void ALWAYSINLINE jp_b(Label& L) { jccb(Assembler::parity, L); }
+-  void ALWAYSINLINE jpe_b(Label& L) { jccb(Assembler::parity, L); }
+-  void ALWAYSINLINE jnp_b(Label& L) { jccb(Assembler::noParity, L); }
+-  void ALWAYSINLINE jpo_b(Label& L) { jccb(Assembler::noParity, L); }
+-  // * No condition for this *  void ALWAYSINLINE jcxz_b(Label& L) { jccb(Assembler::cxz, L); }
+-  // * No condition for this *  void ALWAYSINLINE jecxz_b(Label& L) { jccb(Assembler::cxz, L); }
++  ALWAYSINLINE void jo_b(Label& L) { jccb(Assembler::overflow, L); }
++  ALWAYSINLINE void jno_b(Label& L) { jccb(Assembler::noOverflow, L); }
++  ALWAYSINLINE void js_b(Label& L) { jccb(Assembler::negative, L); }
++  ALWAYSINLINE void jns_b(Label& L) { jccb(Assembler::positive, L); }
++  ALWAYSINLINE void je_b(Label& L) { jccb(Assembler::equal, L); }
++  ALWAYSINLINE void jz_b(Label& L) { jccb(Assembler::zero, L); }
++  ALWAYSINLINE void jne_b(Label& L) { jccb(Assembler::notEqual, L); }
++  ALWAYSINLINE void jnz_b(Label& L) { jccb(Assembler::notZero, L); }
++  ALWAYSINLINE void jb_b(Label& L) { jccb(Assembler::below, L); }
++  ALWAYSINLINE void jnae_b(Label& L) { jccb(Assembler::below, L); }
++  ALWAYSINLINE void jc_b(Label& L) { jccb(Assembler::carrySet, L); }
++  ALWAYSINLINE void jnb_b(Label& L) { jccb(Assembler::aboveEqual, L); }
++  ALWAYSINLINE void jae_b(Label& L) { jccb(Assembler::aboveEqual, L); }
++  ALWAYSINLINE void jnc_b(Label& L) { jccb(Assembler::carryClear, L); }
++  ALWAYSINLINE void jbe_b(Label& L) { jccb(Assembler::belowEqual, L); }
++  ALWAYSINLINE void jna_b(Label& L) { jccb(Assembler::belowEqual, L); }
++  ALWAYSINLINE void ja_b(Label& L) { jccb(Assembler::above, L); }
++  ALWAYSINLINE void jnbe_b(Label& L) { jccb(Assembler::above, L); }
++  ALWAYSINLINE void jl_b(Label& L) { jccb(Assembler::less, L); }
++  ALWAYSINLINE void jnge_b(Label& L) { jccb(Assembler::less, L); }
++  ALWAYSINLINE void jge_b(Label& L) { jccb(Assembler::greaterEqual, L); }
++  ALWAYSINLINE void jnl_b(Label& L) { jccb(Assembler::greaterEqual, L); }
++  ALWAYSINLINE void jle_b(Label& L) { jccb(Assembler::lessEqual, L); }
++  ALWAYSINLINE void jng_b(Label& L) { jccb(Assembler::lessEqual, L); }
++  ALWAYSINLINE void jg_b(Label& L) { jccb(Assembler::greater, L); }
++  ALWAYSINLINE void jnle_b(Label& L) { jccb(Assembler::greater, L); }
++  ALWAYSINLINE void jp_b(Label& L) { jccb(Assembler::parity, L); }
++  ALWAYSINLINE void jpe_b(Label& L) { jccb(Assembler::parity, L); }
++  ALWAYSINLINE void jnp_b(Label& L) { jccb(Assembler::noParity, L); }
++  ALWAYSINLINE void jpo_b(Label& L) { jccb(Assembler::noParity, L); }
++  // * No condition for this *  ALWAYSINLINE void jcxz_b(Label& L) { jccb(Assembler::cxz, L); }
++  // * No condition for this *  ALWAYSINLINE void jecxz_b(Label& L) { jccb(Assembler::cxz, L); }
+ 
+   // Floating
+ 
+diff --git a/src/hotspot/cpu/x86/sharedRuntime_x86_64.cpp b/src/hotspot/cpu/x86/sharedRuntime_x86_64.cpp
+index 8bb9982a8..30ac72741 100644
+--- a/src/hotspot/cpu/x86/sharedRuntime_x86_64.cpp
++++ b/src/hotspot/cpu/x86/sharedRuntime_x86_64.cpp
+@@ -3262,7 +3262,7 @@ do {                                                    \
+ // in  A Cryptographic Library for the Motorola DSP56000,
+ // Dusse and Kaliski, Proc. EUROCRYPT 90, pp. 230-237.
+ 
+-static void NOINLINE
++NOINLINE static void
+ montgomery_multiply(julong a[], julong b[], julong n[],
+                     julong m[], julong inv, int len) {
+   julong t0 = 0, t1 = 0, t2 = 0; // Triple-precision accumulator
+@@ -3304,7 +3304,7 @@ montgomery_multiply(julong a[], julong b[], julong n[],
+ // multiplication.  However, its loop control is more complex and it
+ // may actually run slower on some machines.
+ 
+-static void NOINLINE
++NOINLINE static void
+ montgomery_square(julong a[], julong n[],
+                   julong m[], julong inv, int len) {
+   julong t0 = 0, t1 = 0, t2 = 0; // Triple-precision accumulator
+diff --git a/src/hotspot/cpu/zero/bytes_zero.hpp b/src/hotspot/cpu/zero/bytes_zero.hpp
+index 15d0fc326..1e055f344 100644
+--- a/src/hotspot/cpu/zero/bytes_zero.hpp
++++ b/src/hotspot/cpu/zero/bytes_zero.hpp
+@@ -28,11 +28,11 @@
+ 
+ #include "memory/allStatic.hpp"
+ 
+-typedef union unaligned {
++typedef union [[gnu::packed]] unaligned {
+   u4 u;
+   u2 us;
+   u8 ul;
+-} __attribute__((packed)) unaligned;
++} unaligned;
+ 
+ class Bytes: AllStatic {
+  public:
+diff --git a/src/hotspot/os/linux/os_linux.cpp b/src/hotspot/os/linux/os_linux.cpp
+index ba48f2b4e..14a518ec2 100644
+--- a/src/hotspot/os/linux/os_linux.cpp
++++ b/src/hotspot/os/linux/os_linux.cpp
+@@ -824,7 +824,7 @@ void os::Linux::libpthread_init() {
+ // _expand_stack_to() assumes its frame size is less than page size, which
+ // should always be true if the function is not inlined.
+ 
+-static void NOINLINE _expand_stack_to(address bottom) {
++NOINLINE static void _expand_stack_to(address bottom) {
+   address sp;
+   size_t size;
+   volatile char *p;
+diff --git a/src/hotspot/os/linux/os_perf_linux.cpp b/src/hotspot/os/linux/os_perf_linux.cpp
+index c0e863ed2..657916d6b 100644
+--- a/src/hotspot/os/linux/os_perf_linux.cpp
++++ b/src/hotspot/os/linux/os_perf_linux.cpp
+@@ -229,7 +229,8 @@ static double get_cpu_load(int which_logical_cpu, CPUPerfCounters* counters, dou
+ /** reads /proc/<pid>/stat data, with some checks and some skips.
+  *  Ensure that 'fmt' does _NOT_ contain the first two "%d %s"
+  */
+-static int SCANF_ARGS(2, 0) vread_statdata(const char* procfile, _SCANFMT_ const char* fmt, va_list args) {
++SCANF_ARGS(2, 0)
++static int vread_statdata(const char* procfile, _SCANFMT_ const char* fmt, va_list args) {
+   FILE*f;
+   ssize_t n;
+   char buf[2048];
+@@ -258,7 +259,8 @@ static int SCANF_ARGS(2, 0) vread_statdata(const char* procfile, _SCANFMT_ const
+   return n;
+ }
+ 
+-static int SCANF_ARGS(2, 3) read_statdata(const char* procfile, _SCANFMT_ const char* fmt, ...) {
++SCANF_ARGS(2, 3)
++static int read_statdata(const char* procfile, _SCANFMT_ const char* fmt, ...) {
+   int   n;
+   va_list args;
+ 
+@@ -393,7 +395,8 @@ static double get_cpu_load(int which_logical_cpu, CPUPerfCounters* counters, dou
+   return user_load;
+ }
+ 
+-static int SCANF_ARGS(1, 2) parse_stat(_SCANFMT_ const char* fmt, ...) {
++SCANF_ARGS(1, 2)
++static int parse_stat(_SCANFMT_ const char* fmt, ...) {
+   FILE *f;
+   va_list args;
+ 
+diff --git a/src/hotspot/os/posix/safefetch_static_posix.cpp b/src/hotspot/os/posix/safefetch_static_posix.cpp
+index 0e8f47fb2..349c34e6e 100644
+--- a/src/hotspot/os/posix/safefetch_static_posix.cpp
++++ b/src/hotspot/os/posix/safefetch_static_posix.cpp
+@@ -36,12 +36,12 @@
+ // SafeFetch32 and SafeFetchN are implemented via static assembly
+ // and live in os_cpu/xx_xx/safefetch_xx_xx.S
+ 
+-extern "C" char _SafeFetch32_continuation[] __attribute__ ((visibility ("hidden")));
+-extern "C" char _SafeFetch32_fault[] __attribute__ ((visibility ("hidden")));
++extern "C" [[gnu::visibility ("hidden")]] char _SafeFetch32_continuation[];
++extern "C" [[gnu::visibility ("hidden")]] char _SafeFetch32_fault[];
+ 
+ #ifdef _LP64
+-extern "C" char _SafeFetchN_continuation[] __attribute__ ((visibility ("hidden")));
+-extern "C" char _SafeFetchN_fault[] __attribute__ ((visibility ("hidden")));
++extern "C" [[gnu::visibility ("hidden")]] char _SafeFetchN_continuation[];
++extern "C" [[gnu::visibility ("hidden")]] char _SafeFetchN_fault[];
+ #endif // _LP64
+ 
+ bool handle_safefetch(int sig, address pc, void* context) {
+diff --git a/src/hotspot/os_cpu/linux_riscv/atomicAccess_linux_riscv.hpp b/src/hotspot/os_cpu/linux_riscv/atomicAccess_linux_riscv.hpp
+index bdbc0b8ac..b5715836f 100644
+--- a/src/hotspot/os_cpu/linux_riscv/atomicAccess_linux_riscv.hpp
++++ b/src/hotspot/os_cpu/linux_riscv/atomicAccess_linux_riscv.hpp
+@@ -71,7 +71,7 @@ struct AtomicAccess::PlatformAdd {
+ #ifndef FULL_COMPILER_ATOMIC_SUPPORT
+ template<>
+ template<typename T>
+-inline T AtomicAccess::PlatformCmpxchg<1>::operator()(T volatile* dest __attribute__((unused)),
++inline T AtomicAccess::PlatformCmpxchg<1>::operator()([[maybe_unused]] T volatile* dest,
+                                                       T compare_value,
+                                                       T exchange_value,
+                                                       atomic_memory_order order) const {
+@@ -122,7 +122,7 @@ inline T AtomicAccess::PlatformCmpxchg<1>::operator()(T volatile* dest __attribu
+ // See also JDK-8326936.
+ template<>
+ template<typename T>
+-inline T AtomicAccess::PlatformCmpxchg<4>::operator()(T volatile* dest __attribute__((unused)),
++inline T AtomicAccess::PlatformCmpxchg<4>::operator()([[maybe_unused]] T volatile* dest,
+                                                       T compare_value,
+                                                       T exchange_value,
+                                                       atomic_memory_order order) const {
+@@ -181,10 +181,10 @@ inline T AtomicAccess::PlatformXchg<byte_size>::operator()(T volatile* dest,
+   return res;
+ }
+ 
+-// __attribute__((unused)) on dest is to get rid of spurious GCC warnings.
++// [[maybe_unused]] on dest is to get rid of spurious GCC warnings.
+ template<size_t byte_size>
+ template<typename T>
+-inline T AtomicAccess::PlatformCmpxchg<byte_size>::operator()(T volatile* dest __attribute__((unused)),
++inline T AtomicAccess::PlatformCmpxchg<byte_size>::operator()([[maybe_unused]] T volatile* dest,
+                                                               T compare_value,
+                                                               T exchange_value,
+                                                               atomic_memory_order order) const {
+diff --git a/src/hotspot/share/c1/c1_CFGPrinter.hpp b/src/hotspot/share/c1/c1_CFGPrinter.hpp
+index 6dab5fc9f..9e6b9b0e5 100644
+--- a/src/hotspot/share/c1/c1_CFGPrinter.hpp
++++ b/src/hotspot/share/c1/c1_CFGPrinter.hpp
+@@ -62,7 +62,8 @@ class CFGPrinterOutput : public CHeapObj<mtCompiler> {
+ 
+   void inc_indent();
+   void dec_indent();
+-  void print(const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
++  ATTRIBUTE_PRINTF(2, 3)
++  void print(const char* format, ...);
+   void print_begin(const char* tag);
+   void print_end(const char* tag);
+ 
+diff --git a/src/hotspot/share/cds/aotMetaspace.hpp b/src/hotspot/share/cds/aotMetaspace.hpp
+index 975b6be76..cff444b8b 100644
+--- a/src/hotspot/share/cds/aotMetaspace.hpp
++++ b/src/hotspot/share/cds/aotMetaspace.hpp
+@@ -121,7 +121,7 @@ class AOTMetaspace : AllStatic {
+   static bool preimage_static_archive_dumped() NOT_CDS_RETURN_(false);
+ 
+   static void unrecoverable_loading_error(const char* message = "unrecoverable error");
+-  static void report_loading_error(const char* format, ...) ATTRIBUTE_PRINTF(1, 0);
++  ATTRIBUTE_PRINTF(1, 0) static void report_loading_error(const char* format, ...);
+   static void unrecoverable_writing_error(const char* message = nullptr);
+   static void writing_error(const char* message = nullptr);
+ 
+diff --git a/src/hotspot/share/cds/classListParser.hpp b/src/hotspot/share/cds/classListParser.hpp
+index 1bac56e2a..45d135782 100644
+--- a/src/hotspot/share/cds/classListParser.hpp
++++ b/src/hotspot/share/cds/classListParser.hpp
+@@ -133,10 +133,10 @@ class ClassListParser : public StackObj {
+   FILE* do_open(const char* file);
+   ClassListParser(const char* file, ParseMode _parse_mode);
+   ~ClassListParser();
+-  void print_diagnostic_info(outputStream* st, const char* msg, va_list ap) ATTRIBUTE_PRINTF(3, 0);
+-  void print_diagnostic_info(outputStream* st, const char* msg, ...) ATTRIBUTE_PRINTF(3, 0);
+-  void constant_pool_resolution_warning(const char* msg, ...) ATTRIBUTE_PRINTF(2, 0);
+-  void error(const char* msg, ...) ATTRIBUTE_PRINTF(2, 0);
++  ATTRIBUTE_PRINTF(3, 0) void print_diagnostic_info(outputStream* st, const char* msg, va_list ap);
++  ATTRIBUTE_PRINTF(3, 0) void print_diagnostic_info(outputStream* st, const char* msg, ...);
++  ATTRIBUTE_PRINTF(2, 0) void constant_pool_resolution_warning(const char* msg, ...);
++  ATTRIBUTE_PRINTF(2, 0) void error(const char* msg, ...);
+   GrowableArray<InstanceKlass*> get_specified_interfaces();
+   void check_supertype_obstruction(int specified_supertype_id, const InstanceKlass* specified_supertype, TRAPS);
+ 
+diff --git a/src/hotspot/share/classfile/verifier.hpp b/src/hotspot/share/classfile/verifier.hpp
+index 89e994fd0..877b1b335 100644
+--- a/src/hotspot/share/classfile/verifier.hpp
++++ b/src/hotspot/share/classfile/verifier.hpp
+@@ -420,8 +420,8 @@ class ClassVerifier : public StackObj {
+ 
+   // Called when verify or class format errors are encountered.
+   // May throw an exception based upon the mode.
+-  void verify_error(ErrorContext ctx, const char* fmt, ...) ATTRIBUTE_PRINTF(3, 4);
+-  void class_format_error(const char* fmt, ...) ATTRIBUTE_PRINTF(2, 3);
++  ATTRIBUTE_PRINTF(3, 4) void verify_error(ErrorContext ctx, const char* fmt, ...);
++  ATTRIBUTE_PRINTF(2, 3) void class_format_error(const char* fmt, ...);
+ 
+   Klass* load_class(Symbol* name, TRAPS);
+ 
+diff --git a/src/hotspot/share/compiler/compileLog.hpp b/src/hotspot/share/compiler/compileLog.hpp
+index a92d03862..3343ca0d3 100644
+--- a/src/hotspot/share/compiler/compileLog.hpp
++++ b/src/hotspot/share/compiler/compileLog.hpp
+@@ -55,7 +55,8 @@ class CompileLog : public xmlStream {
+ 
+   static CompileLog* volatile _list_head; // head of static chain
+ 
+-  void va_tag(bool push, const char* format, va_list ap) ATTRIBUTE_PRINTF(3, 0);
++  ATTRIBUTE_PRINTF(3, 0)
++  void va_tag(bool push, const char* format, va_list ap);
+ 
+  public:
+   CompileLog(const char* file_name, FILE* fp, intx thread_id);
+@@ -69,7 +70,9 @@ class CompileLog : public xmlStream {
+   // or reset, context string will be silently ignored
+   stringStream* context()                        { return &_context; }
+   void    clear_context()                        { context()->reset(); }
+-  void      set_context(const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
++
++  ATTRIBUTE_PRINTF(2, 3)
++  void      set_context(const char* format, ...);
+ 
+   void          name(ciSymbol* s);               // name='s'
+   void          name(Symbol* s)                  { xmlStream::name(s); }
+diff --git a/src/hotspot/share/gc/shared/gcLogPrecious.hpp b/src/hotspot/share/gc/shared/gcLogPrecious.hpp
+index 127a30f6b..12e872a2d 100644
+--- a/src/hotspot/share/gc/shared/gcLogPrecious.hpp
++++ b/src/hotspot/share/gc/shared/gcLogPrecious.hpp
+@@ -60,22 +60,25 @@ class GCLogPrecious : public AllStatic {
+   // Protects the buffers
+   static Mutex* _lock;
+ 
++  ATTRIBUTE_PRINTF(2, 0)
+   static void vwrite_inner(LogTargetHandle log,
+                            const char* format,
+-                           va_list args) ATTRIBUTE_PRINTF(2, 0);
++                           va_list args);
+ 
+ public:
+   static void initialize();
+ 
++  ATTRIBUTE_PRINTF(2, 0)
+   static void vwrite(LogTargetHandle log,
+                      const char* format,
+-                     va_list args) ATTRIBUTE_PRINTF(2, 0);
++                     va_list args);
+ 
++  ATTRIBUTE_PRINTF(2, 0)
+   static void vwrite_and_debug(LogTargetHandle log,
+                                const char* format,
+                                va_list args
+                                DEBUG_ONLY(COMMA const char* file)
+-                               DEBUG_ONLY(COMMA int line)) ATTRIBUTE_PRINTF(2, 0);
++                               DEBUG_ONLY(COMMA int line));
+ 
+   static void print_on_error(outputStream* st);
+ };
+@@ -94,14 +97,16 @@ class GCLogPreciousHandle {
+       DEBUG_ONLY(COMMA _line(line))
+  {}
+ 
+-  void write(const char* format, ...) ATTRIBUTE_PRINTF(2, 3) {
++  ATTRIBUTE_PRINTF(2, 3)
++  void write(const char* format, ...) {
+     va_list args;
+     va_start(args, format);
+     GCLogPrecious::vwrite(_log, format, args);
+     va_end(args);
+   }
+ 
+-  void write_and_debug(const char* format, ...) ATTRIBUTE_PRINTF(2, 3) {
++  ATTRIBUTE_PRINTF(2, 3)
++  void write_and_debug(const char* format, ...) {
+     va_list args;
+     va_start(args, format);
+     GCLogPrecious::vwrite_and_debug(_log, format, args DEBUG_ONLY(COMMA _file COMMA _line));
+diff --git a/src/hotspot/share/gc/shenandoah/heuristics/shenandoahHeuristics.hpp b/src/hotspot/share/gc/shenandoah/heuristics/shenandoahHeuristics.hpp
+index 3f3b3898f..f0d8d8b1b 100644
+--- a/src/hotspot/share/gc/shenandoah/heuristics/shenandoahHeuristics.hpp
++++ b/src/hotspot/share/gc/shenandoah/heuristics/shenandoahHeuristics.hpp
+@@ -282,7 +282,7 @@ class ShenandoahHeuristics : public CHeapObj<mtGC> {
+   double elapsed_degenerated_cycle_time() const;
+ 
+   // Format prefix and emit log message indicating a GC cycle hs been triggered
+-  void log_trigger(const char* fmt, ...) ATTRIBUTE_PRINTF(2, 3);
++  ATTRIBUTE_PRINTF(2, 3) void log_trigger(const char* fmt, ...);
+ 
+   DEBUG_ONLY(static void assert_humongous_mark_consistency(ShenandoahHeapRegion* region));
+ };
+diff --git a/src/hotspot/share/gc/z/zInitialize.hpp b/src/hotspot/share/gc/z/zInitialize.hpp
+index 6d2976553..d34bbd910 100644
+--- a/src/hotspot/share/gc/z/zInitialize.hpp
++++ b/src/hotspot/share/gc/z/zInitialize.hpp
+@@ -50,8 +50,8 @@ class ZInitialize : public AllStatic {
+   static void pd_initialize();
+ 
+ public:
+-  static void error(const char* msg_format, ...) ATTRIBUTE_PRINTF(1, 2);
+-  static void error_d(const char* msg_format, ...) ATTRIBUTE_PRINTF(1, 2);
++  ATTRIBUTE_PRINTF(1, 2) static void error(const char* msg_format, ...);
++  ATTRIBUTE_PRINTF(1, 2) static void error_d(const char* msg_format, ...);
+ 
+   static bool had_error();
+   static const char* error_message();
+diff --git a/src/hotspot/share/gc/z/zPage.hpp b/src/hotspot/share/gc/z/zPage.hpp
+index 0fc134e17..e41dbad3b 100644
+--- a/src/hotspot/share/gc/z/zPage.hpp
++++ b/src/hotspot/share/gc/z/zPage.hpp
+@@ -183,7 +183,8 @@ class ZPage : public CHeapObj<mtGC> {
+   bool undo_alloc_object(zaddress addr, size_t size);
+   bool undo_alloc_object_atomic(zaddress addr, size_t size);
+ 
+-  void log_msg(const char* msg_format, ...) const ATTRIBUTE_PRINTF(2, 3);
++  ATTRIBUTE_PRINTF(2, 3)
++  void log_msg(const char* msg_format, ...) const;
+ 
+   void print_on_msg(outputStream* st, const char* msg) const;
+   void print_on(outputStream* st) const;
+diff --git a/src/hotspot/share/gc/z/zStat.cpp b/src/hotspot/share/gc/z/zStat.cpp
+index 5a429f028..52a7b0aeb 100644
+--- a/src/hotspot/share/gc/z/zStat.cpp
++++ b/src/hotspot/share/gc/z/zStat.cpp
+@@ -1135,7 +1135,8 @@ class ZStatTablePrinter {
+         _width(width),
+         _width_next(width_next) {}
+ 
+-    ZColumn left(const char* fmt, ...) ATTRIBUTE_PRINTF(2, 3) {
++    ATTRIBUTE_PRINTF(2, 3)
++    ZColumn left(const char* fmt, ...) {
+       va_list va;
+ 
+       va_start(va, fmt);
+@@ -1150,7 +1151,8 @@ class ZStatTablePrinter {
+       return next();
+     }
+ 
+-    ZColumn right(const char* fmt, ...) ATTRIBUTE_PRINTF(2, 3) {
++    ATTRIBUTE_PRINTF(2, 3)
++    ZColumn right(const char* fmt, ...) {
+       va_list va;
+ 
+       va_start(va, fmt);
+@@ -1173,7 +1175,8 @@ class ZStatTablePrinter {
+       return next();
+     }
+ 
+-    ZColumn center(const char* fmt, ...) ATTRIBUTE_PRINTF(2, 3) {
++    ATTRIBUTE_PRINTF(2, 3)
++    ZColumn center(const char* fmt, ...) {
+       va_list va;
+ 
+       va_start(va, fmt);
+diff --git a/src/hotspot/share/logging/log.hpp b/src/hotspot/share/logging/log.hpp
+index e2541f346..af5f85a69 100644
+--- a/src/hotspot/share/logging/log.hpp
++++ b/src/hotspot/share/logging/log.hpp
+@@ -148,12 +148,14 @@ class LogImpl {
+     LogTagSetMapping<T0, T1, T2, T3, T4>::tagset().vwrite(level, fmt, args);
+   }
+ 
+-#define LOG_LEVEL(level, name) ATTRIBUTE_PRINTF(2, 0) \
++#define LOG_LEVEL(level, name) \
++  ATTRIBUTE_PRINTF(2, 0) \
+   LogImpl& v##name(const char* fmt, va_list args) { \
+     vwrite(LogLevel::level, fmt, args); \
+     return *this; \
+   } \
+-  LogImpl& name(const char* fmt, ...) ATTRIBUTE_PRINTF(2, 3) { \
++  ATTRIBUTE_PRINTF(2, 3) \
++  LogImpl& name(const char* fmt, ...) { \
+     va_list args; \
+     va_start(args, fmt); \
+     vwrite(LogLevel::level, fmt, args); \
+@@ -189,7 +191,8 @@ class LogTargetImpl {
+     PRODUCT_ONLY(return false);
+   }
+ 
+-  static void print(const char* fmt, ...) ATTRIBUTE_PRINTF(1, 2) {
++  ATTRIBUTE_PRINTF(1, 2)
++  static void print(const char* fmt, ...) {
+     va_list args;
+     va_start(args, fmt);
+     LogTagSetMapping<T0, T1, T2, T3, T4, GuardTag>::tagset().vwrite(level, fmt, args);
+diff --git a/src/hotspot/share/logging/logHandle.hpp b/src/hotspot/share/logging/logHandle.hpp
+index 41d0ecd40..4213f30b2 100644
+--- a/src/hotspot/share/logging/logHandle.hpp
++++ b/src/hotspot/share/logging/logHandle.hpp
+@@ -47,12 +47,14 @@ class LogHandle {
+     return _tagset;
+   }
+ 
+-#define LOG_LEVEL(level, name) ATTRIBUTE_PRINTF(2, 0)   \
++#define LOG_LEVEL(level, name) \
++  ATTRIBUTE_PRINTF(2, 0)   \
+   LogHandle& v##name(const char* fmt, va_list args) { \
+     _tagset.vwrite(LogLevel::level, fmt, args); \
+     return *this; \
+   } \
+-  LogHandle& name(const char* fmt, ...) ATTRIBUTE_PRINTF(2, 3) { \
++  ATTRIBUTE_PRINTF(2, 3) \
++  LogHandle& name(const char* fmt, ...) { \
+     va_list args; \
+     va_start(args, fmt); \
+     _tagset.vwrite(LogLevel::level, fmt, args); \
+@@ -90,7 +92,8 @@ class LogTargetHandle {
+     return LogTargetHandle(LogTargetImpl<level, T0, T1, T2, T3, T4, GuardTag>());
+   }
+ 
+-  void print(const char* fmt, ...) ATTRIBUTE_PRINTF(2, 3) {
++  ATTRIBUTE_PRINTF(2, 3)
++  void print(const char* fmt, ...) {
+     va_list args;
+     va_start(args, fmt);
+     if (is_enabled()) {
+diff --git a/src/hotspot/share/logging/logMessageBuffer.hpp b/src/hotspot/share/logging/logMessageBuffer.hpp
+index b1b8fe8cd..48f381190 100644
+--- a/src/hotspot/share/logging/logMessageBuffer.hpp
++++ b/src/hotspot/share/logging/logMessageBuffer.hpp
+@@ -121,8 +121,8 @@ class LogMessageBuffer : public StackObj {
+   virtual void vwrite(LogLevelType level, const char* fmt, va_list args);
+ 
+ #define LOG_LEVEL(level, name) \
+-  LogMessageBuffer& v##name(const char* fmt, va_list args) ATTRIBUTE_PRINTF(2, 0); \
+-  LogMessageBuffer& name(const char* fmt, ...) ATTRIBUTE_PRINTF(2, 3);
++  ATTRIBUTE_PRINTF(2, 0) LogMessageBuffer& v##name(const char* fmt, va_list args); \
++  ATTRIBUTE_PRINTF(2, 3) LogMessageBuffer& name(const char* fmt, ...);
+   LOG_LEVEL_LIST
+ #undef LOG_LEVEL
+ };
+diff --git a/src/hotspot/share/logging/logStream.hpp b/src/hotspot/share/logging/logStream.hpp
+index d02961cd8..6560dc4d7 100644
+--- a/src/hotspot/share/logging/logStream.hpp
++++ b/src/hotspot/share/logging/logStream.hpp
+@@ -148,7 +148,8 @@ class LogMessageHandle {
+     return _lm.is_level(_level);
+   }
+ 
+-  void print(const char* fmt, ...) ATTRIBUTE_PRINTF(2, 3) {
++  ATTRIBUTE_PRINTF(2, 3)
++  void print(const char* fmt, ...) {
+     va_list args;
+     va_start(args, fmt);
+     if (is_enabled()) {
+diff --git a/src/hotspot/share/oops/generateOopMap.hpp b/src/hotspot/share/oops/generateOopMap.hpp
+index f0fdfeda5..71bfae04b 100644
+--- a/src/hotspot/share/oops/generateOopMap.hpp
++++ b/src/hotspot/share/oops/generateOopMap.hpp
+@@ -406,9 +406,12 @@ class GenerateOopMap {
+   int copy_cts                              (CellTypeState *dst, CellTypeState *src);
+ 
+   // Error handling
+-  void  error_work                          (const char *format, va_list ap) ATTRIBUTE_PRINTF(2, 0);
+-  void  report_error                        (const char *format, ...) ATTRIBUTE_PRINTF(2, 3);
+-  void  verify_error                        (const char *format, ...) ATTRIBUTE_PRINTF(2, 3);
++  ATTRIBUTE_PRINTF(2, 0)
++  void  error_work                          (const char *format, va_list ap);
++  ATTRIBUTE_PRINTF(2, 3)
++  void  report_error                        (const char *format, ...);
++  ATTRIBUTE_PRINTF(2, 3)
++  void  verify_error                        (const char *format, ...);
+   bool  got_error()                         { return _got_error; }
+ 
+   // Create result set
+diff --git a/src/hotspot/share/prims/forte.cpp b/src/hotspot/share/prims/forte.cpp
+index 10e8b45dc..fb28ad28e 100644
+--- a/src/hotspot/share/prims/forte.cpp
++++ b/src/hotspot/share/prims/forte.cpp
+@@ -679,7 +679,7 @@ void AsyncGetCallTrace(ASGCT_CallTrace *trace, jint depth, void* ucontext) {
+ // Because it is weakly bound, the calls become NOP's when the library
+ // isn't present.
+ #if defined(__APPLE__) || defined(_AIX)
+-// XXXDARWIN: Link errors occur even when __attribute__((weak_import))
++// XXXDARWIN: Link errors occur even when [[clang::weak_import]]
+ // is added
+ #define collector_func_load(x0,x1,x2,x3,x4,x5,x6) ((void) 0)
+ #define collector_func_load_enabled() false
+diff --git a/src/hotspot/share/runtime/arguments.hpp b/src/hotspot/share/runtime/arguments.hpp
+index 4367806a7..b7816eb89 100644
+--- a/src/hotspot/share/runtime/arguments.hpp
++++ b/src/hotspot/share/runtime/arguments.hpp
+@@ -42,7 +42,7 @@ class JVMFlag;
+ extern "C" {
+   typedef void (JNICALL *abort_hook_t)(void);
+   typedef void (JNICALL *exit_hook_t)(jint code);
+-  typedef jint (JNICALL *vfprintf_hook_t)(FILE *fp, const char *format, va_list args)  ATTRIBUTE_PRINTF(2, 0);
++  typedef jint (JNICALL *vfprintf_hook_t ATTRIBUTE_PRINTF(2, 0))(FILE *fp, const char *format, va_list args);
+ }
+ 
+ // Obsolete or deprecated -XX flag.
+diff --git a/src/hotspot/share/runtime/flags/jvmFlag.hpp b/src/hotspot/share/runtime/flags/jvmFlag.hpp
+index 324504099..81658533f 100644
+--- a/src/hotspot/share/runtime/flags/jvmFlag.hpp
++++ b/src/hotspot/share/runtime/flags/jvmFlag.hpp
+@@ -311,7 +311,9 @@ class JVMFlag {
+ 
+   // printRanges will print out flags type, name and range values as expected by -XX:+PrintFlagsRanges
+   static void printFlags(outputStream* out, bool withComments, bool printRanges = false, bool skipDefaults = false);
+-  static void printError(bool verbose, const char* msg, ...) ATTRIBUTE_PRINTF(2, 3);
++
++  ATTRIBUTE_PRINTF(2, 3)
++  static void printError(bool verbose, const char* msg, ...);
+ 
+   static void verify() PRODUCT_RETURN;
+ };
+diff --git a/src/hotspot/share/runtime/nonJavaThread.hpp b/src/hotspot/share/runtime/nonJavaThread.hpp
+index aaf0dcdfa..28aa160ca 100644
+--- a/src/hotspot/share/runtime/nonJavaThread.hpp
++++ b/src/hotspot/share/runtime/nonJavaThread.hpp
+@@ -93,7 +93,8 @@ class NamedThread: public NonJavaThread {
+   NamedThread();
+   ~NamedThread();
+   // May only be called once per thread.
+-  void set_name(const char* format, ...)  ATTRIBUTE_PRINTF(2, 3);
++  ATTRIBUTE_PRINTF(2, 3)
++  void set_name(const char* format, ...);
+   virtual bool is_Named_thread() const { return true; }
+   virtual const char* name() const { return _name == nullptr ? "Unknown Thread" : _name; }
+   virtual const char* type_name() const { return "NamedThread"; }
+diff --git a/src/hotspot/share/sanitizers/address.hpp b/src/hotspot/share/sanitizers/address.hpp
+index 109aa59da..83cd61cd8 100644
+--- a/src/hotspot/share/sanitizers/address.hpp
++++ b/src/hotspot/share/sanitizers/address.hpp
+@@ -39,7 +39,7 @@
+ #ifdef ADDRESS_SANITIZER
+ #if defined(TARGET_COMPILER_gcc)
+ // GCC-like, including Clang.
+-#define ATTRIBUTE_NO_ASAN __attribute__((no_sanitize_address))
++#define ATTRIBUTE_NO_ASAN [[gnu::no_sanitize_address]]
+ #elif defined(TARGET_COMPILER_visCPP)
+ // Microsoft Visual C++
+ #define ATTRIBUTE_NO_ASAN __declspec(no_sanitize_address)
+diff --git a/src/hotspot/share/sanitizers/ub.hpp b/src/hotspot/share/sanitizers/ub.hpp
+index 8a6bfa50f..9c425f25b 100644
+--- a/src/hotspot/share/sanitizers/ub.hpp
++++ b/src/hotspot/share/sanitizers/ub.hpp
+@@ -33,8 +33,10 @@
+ // Useful if the function or method is known to do something special or even 'dangerous', for
+ // example causing desired signals/crashes.
+ #ifdef UNDEFINED_BEHAVIOR_SANITIZER
+-#if defined(__clang__) || defined(__GNUC__)
+-#define ATTRIBUTE_NO_UBSAN __attribute__((no_sanitize("undefined","float-divide-by-zero")))
++#ifdef __clang__
++#define ATTRIBUTE_NO_UBSAN [[clang::no_sanitize("undefined","float-divide-by-zero")]]
++#elif defined(__GNUC__)
++#define ATTRIBUTE_NO_UBSAN [[gnu::no_sanitize("undefined","float-divide-by-zero")]]
+ #endif
+ #endif
+ 
+diff --git a/src/hotspot/share/utilities/compilerWarnings_gcc.hpp b/src/hotspot/share/utilities/compilerWarnings_gcc.hpp
+index 754d007f5..f7b08316b 100644
+--- a/src/hotspot/share/utilities/compilerWarnings_gcc.hpp
++++ b/src/hotspot/share/utilities/compilerWarnings_gcc.hpp
+@@ -28,10 +28,10 @@
+ // Macros related to control of compiler warnings.
+ 
+ #ifndef ATTRIBUTE_PRINTF
+-#define ATTRIBUTE_PRINTF(fmt,vargs)  NOT_WINDOWS(__attribute__((format(printf, fmt, vargs))))
++#define ATTRIBUTE_PRINTF(fmt,vargs)  NOT_WINDOWS([[gnu::format(printf, fmt, vargs)]])
+ #endif
+ #ifndef ATTRIBUTE_SCANF
+-#define ATTRIBUTE_SCANF(fmt,vargs)  NOT_WINDOWS(__attribute__((format(scanf, fmt, vargs))))
++#define ATTRIBUTE_SCANF(fmt,vargs)  NOT_WINDOWS([[gnu::format(scanf, fmt, vargs)]])
+ #endif
+ 
+ #define PRAGMA_DISABLE_GCC_WARNING(optstring) _Pragma(STR(GCC diagnostic ignored optstring))
+diff --git a/src/hotspot/share/utilities/events.hpp b/src/hotspot/share/utilities/events.hpp
+index 0d1c08548..d94561849 100644
+--- a/src/hotspot/share/utilities/events.hpp
++++ b/src/hotspot/share/utilities/events.hpp
+@@ -169,7 +169,8 @@ class FormatStringEventLog : public EventLogBase< FormatStringLogMessage<bufsz>
+   FormatStringEventLog(const char* name, const char* short_name, int count = LogEventsBufferEntries)
+    : EventLogBase< FormatStringLogMessage<bufsz> >(name, short_name, count) {}
+ 
+-  void logv(Thread* thread, const char* format, va_list ap) ATTRIBUTE_PRINTF(3, 0) {
++  ATTRIBUTE_PRINTF(3, 0)
++  void logv(Thread* thread, const char* format, va_list ap) {
+     if (!this->should_log()) return;
+ 
+     double timestamp = this->fetch_timestamp();
+@@ -180,7 +181,8 @@ class FormatStringEventLog : public EventLogBase< FormatStringLogMessage<bufsz>
+     this->_records[index].data.printv(format, ap);
+   }
+ 
+-  void log(Thread* thread, const char* format, ...) ATTRIBUTE_PRINTF(3, 4) {
++  ATTRIBUTE_PRINTF(3, 4)
++  void log(Thread* thread, const char* format, ...) {
+     va_list ap;
+     va_start(ap, format);
+     this->logv(thread, format, ap);
+@@ -262,29 +264,29 @@ class Events : AllStatic {
+   static void print();
+ 
+   // Logs a generic message with timestamp and format as printf.
+-  static void log(Thread* thread, const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
++  ATTRIBUTE_PRINTF(2, 3) static void log(Thread* thread, const char* format, ...);
+ 
+-  static void log_memprotect(Thread* thread, const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
++  ATTRIBUTE_PRINTF(2, 3) static void log_memprotect(Thread* thread, const char* format, ...);
+ 
+-  static void log_nmethod_flush(Thread* thread, const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
++  ATTRIBUTE_PRINTF(2, 3) static void log_nmethod_flush(Thread* thread, const char* format, ...);
+ 
+-  static void log_vm_operation(Thread* thread, const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
++  ATTRIBUTE_PRINTF(2, 3) static void log_vm_operation(Thread* thread, const char* format, ...);
+ 
+-  static void log_zgc_phase_switch(const char* format, ...) ATTRIBUTE_PRINTF(1, 2);
++  ATTRIBUTE_PRINTF(1, 2) static void log_zgc_phase_switch(const char* format, ...);
+ 
+   // Log exception related message
+-  static void log_exception(Thread* thread, const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
++  ATTRIBUTE_PRINTF(2, 3) static void log_exception(Thread* thread, const char* format, ...);
+   static void log_exception(Thread* thread, Handle h_exception, const char* message, const char* file, int line, int message_length_limit = 0);
+ 
+-  static void log_redefinition(Thread* thread, const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
++  ATTRIBUTE_PRINTF(2, 3) static void log_redefinition(Thread* thread, const char* format, ...);
+ 
+   static void log_class_unloading(Thread* thread, InstanceKlass* ik);
+ 
+-  static void log_class_loading(Thread* thread, const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
++  ATTRIBUTE_PRINTF(2, 3) static void log_class_loading(Thread* thread, const char* format, ...);
+ 
+-  static void log_deopt_message(Thread* thread, const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
++  ATTRIBUTE_PRINTF(2, 3) static void log_deopt_message(Thread* thread, const char* format, ...);
+ 
+-  static void log_dll_message(Thread* thread, const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
++  ATTRIBUTE_PRINTF(2, 3) static void log_dll_message(Thread* thread, const char* format, ...);
+ 
+   // Register default loggers
+   static void init();
+@@ -508,7 +510,8 @@ class EventMarkBase : public StackObj {
+   NONCOPYABLE(EventMarkBase);
+ 
+  protected:
+-  void log_start(const char* format, va_list argp) ATTRIBUTE_PRINTF(2, 0);
++  ATTRIBUTE_PRINTF(2, 0)
++  void log_start(const char* format, va_list argp);
+   void log_end();
+ 
+  public:
+@@ -522,8 +525,8 @@ class EventMarkWithLogFunction : public EventMarkBase {
+ 
+  public:
+   // log a begin event, format as printf
+-  EventMarkWithLogFunction(const char* format, ...) ATTRIBUTE_PRINTF(2, 3) :
+-      EventMarkBase(log_function) {
++  ATTRIBUTE_PRINTF(2, 3)
++  EventMarkWithLogFunction(const char* format, ...) : EventMarkBase(log_function) {
+     if (LogEvents) {
+       va_list ap;
+       va_start(ap, format);
+diff --git a/src/hotspot/share/utilities/exceptions.hpp b/src/hotspot/share/utilities/exceptions.hpp
+index b9e544b28..9d4f595f6 100644
+--- a/src/hotspot/share/utilities/exceptions.hpp
++++ b/src/hotspot/share/utilities/exceptions.hpp
+@@ -152,8 +152,9 @@ class Exceptions {
+ 
+   // There is no THROW... macro for this method. Caller should remember
+   // to do a return after calling it.
++  ATTRIBUTE_PRINTF(5, 6)
+   static void fthrow(JavaThread* thread, const char* file, int line, Symbol* name,
+-                     const char* format, ...) ATTRIBUTE_PRINTF(5, 6);
++                     const char* format, ...);
+ 
+   // Create and initialize a new exception
+   static Handle new_exception(JavaThread* thread, Symbol* name,
+diff --git a/src/hotspot/share/utilities/formatBuffer.hpp b/src/hotspot/share/utilities/formatBuffer.hpp
+index d5f97ae72..31010f844 100644
+--- a/src/hotspot/share/utilities/formatBuffer.hpp
++++ b/src/hotspot/share/utilities/formatBuffer.hpp
+@@ -43,7 +43,7 @@ class FormatBufferBase {
+ // Use resource area for buffer
+ class FormatBufferResource : public FormatBufferBase {
+  public:
+-  FormatBufferResource(const char * format, ...) ATTRIBUTE_PRINTF(2, 3);
++  ATTRIBUTE_PRINTF(2, 3) FormatBufferResource(const char * format, ...);
+ };
+ 
+ class FormatBufferDummy {};
+@@ -52,12 +52,12 @@ class FormatBufferDummy {};
+ template <size_t bufsz = FormatBufferBase::BufferSize>
+ class FormatBuffer : public FormatBufferBase {
+  public:
+-  inline FormatBuffer(const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
++  ATTRIBUTE_PRINTF(2, 3) inline FormatBuffer(const char* format, ...);
+   // since va_list is unspecified type (can be char*), we use FormatBufferDummy to disambiguate these constructors
+-  inline FormatBuffer(FormatBufferDummy dummy, const char* format, va_list ap) ATTRIBUTE_PRINTF(3, 0);
+-  inline void append(const char* format, ...)  ATTRIBUTE_PRINTF(2, 3);
+-  inline void print(const char* format, ...)  ATTRIBUTE_PRINTF(2, 3);
+-  inline void printv(const char* format, va_list ap) ATTRIBUTE_PRINTF(2, 0);
++  ATTRIBUTE_PRINTF(3, 0) inline FormatBuffer(FormatBufferDummy dummy, const char* format, va_list ap);
++  ATTRIBUTE_PRINTF(2, 3) inline void append(const char* format, ...);
++  ATTRIBUTE_PRINTF(2, 3) inline void print(const char* format, ...);
++  ATTRIBUTE_PRINTF(2, 0) inline void printv(const char* format, va_list ap);
+ 
+   char* buffer() { return _buf; }
+   int size() { return bufsz; }
+diff --git a/src/hotspot/share/utilities/globalDefinitions_gcc.hpp b/src/hotspot/share/utilities/globalDefinitions_gcc.hpp
+index 1caffb75e..5e1bcc198 100644
+--- a/src/hotspot/share/utilities/globalDefinitions_gcc.hpp
++++ b/src/hotspot/share/utilities/globalDefinitions_gcc.hpp
+@@ -86,9 +86,9 @@ inline int g_isfinite(jdouble f)                 { return isfinite(f); }
+ #define THREAD_LOCAL __thread
+ 
+ // Inlining support
+-#define NOINLINE     __attribute__ ((noinline))
+-#define ALWAYSINLINE inline __attribute__ ((always_inline))
+-#define ATTRIBUTE_FLATTEN __attribute__ ((flatten))
++#define NOINLINE     [[gnu::noinline]]
++#define ALWAYSINLINE [[gnu::always_inline]] inline
++#define ATTRIBUTE_FLATTEN [[gnu::flatten]]
+ 
+ #ifdef _WIN32
+ #define M_PI 3.14159265358979323846
+diff --git a/src/hotspot/share/utilities/json.hpp b/src/hotspot/share/utilities/json.hpp
+index 7dc8f4c92..109e0af35 100644
+--- a/src/hotspot/share/utilities/json.hpp
++++ b/src/hotspot/share/utilities/json.hpp
+@@ -68,7 +68,8 @@ class JSON : public ResourceObj {
+     VALUE_ERROR
+   } JSON_ERROR;
+ 
+-  void error(JSON_ERROR e, const char* format, ...) ATTRIBUTE_PRINTF(3, 4);
++  ATTRIBUTE_PRINTF(3, 4)
++  void error(JSON_ERROR e, const char* format, ...);
+   outputStream* _st;
+ 
+  private:
+diff --git a/src/hotspot/share/utilities/ostream.hpp b/src/hotspot/share/utilities/ostream.hpp
+index c3a4026f4..6794417e1 100644
+--- a/src/hotspot/share/utilities/ostream.hpp
++++ b/src/hotspot/share/utilities/ostream.hpp
+@@ -77,17 +77,18 @@ class outputStream : public CHeapObjBase {
+   // If add_cr is true then the cr will always be placed in the buffer (buffer minimum size is 2).
+   //
+   // In a debug build, if truncation occurs a VM warning is issued.
++   ATTRIBUTE_PRINTF(3, 0)
+    static const char* do_vsnprintf(char* buffer, size_t buflen,
+                                    const char* format, va_list ap,
+                                    bool add_cr,
+-                                   size_t& result_len)  ATTRIBUTE_PRINTF(3, 0);
++                                   size_t& result_len);
+ 
+    // calls do_vsnprintf and writes output to stream; uses an on-stack buffer.
+-   void do_vsnprintf_and_write_with_automatic_buffer(const char* format, va_list ap, bool add_cr) ATTRIBUTE_PRINTF(2, 0);
++   ATTRIBUTE_PRINTF(2, 0) void do_vsnprintf_and_write_with_automatic_buffer(const char* format, va_list ap, bool add_cr);
+    // calls do_vsnprintf and writes output to stream; uses the user-provided buffer;
+-   void do_vsnprintf_and_write_with_scratch_buffer(const char* format, va_list ap, bool add_cr) ATTRIBUTE_PRINTF(2, 0);
++   ATTRIBUTE_PRINTF(2, 0) void do_vsnprintf_and_write_with_scratch_buffer(const char* format, va_list ap, bool add_cr);
+    // calls do_vsnprintf, then writes output to stream.
+-   void do_vsnprintf_and_write(const char* format, va_list ap, bool add_cr) ATTRIBUTE_PRINTF(2, 0);
++   ATTRIBUTE_PRINTF(2, 0) void do_vsnprintf_and_write(const char* format, va_list ap, bool add_cr);
+ 
+    // Automatic indentation. Returns old autoindent state.
+    bool set_autoindent(bool value);
+@@ -120,10 +121,10 @@ class outputStream : public CHeapObjBase {
+    // appending of the "cr". This can lead to truncation if the buffer is
+    // too small.
+ 
+-   void print(const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
+-   void print_cr(const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
+-   void vprint(const char *format, va_list argptr) ATTRIBUTE_PRINTF(2, 0);
+-   void vprint_cr(const char* format, va_list argptr) ATTRIBUTE_PRINTF(2, 0);
++   ATTRIBUTE_PRINTF(2, 3) void print(const char* format, ...);
++   ATTRIBUTE_PRINTF(2, 3) void print_cr(const char* format, ...);
++   ATTRIBUTE_PRINTF(2, 0) void vprint(const char *format, va_list argptr);
++   ATTRIBUTE_PRINTF(2, 0) void vprint_cr(const char* format, va_list argptr);
+    void print_raw(const char* str)                { print_raw(str, strlen(str)); }
+    void print_raw(const char* str, size_t len);
+    void print_raw_cr(const char* str)             { print_raw(str); cr(); }
+diff --git a/src/hotspot/share/utilities/vmError.cpp b/src/hotspot/share/utilities/vmError.cpp
+index 045fcc23d..6190d5ec6 100644
+--- a/src/hotspot/share/utilities/vmError.cpp
++++ b/src/hotspot/share/utilities/vmError.cpp
+@@ -2127,7 +2127,7 @@ typedef void (*voidfun_t)();
+ volatile int sigfpe_int = 0;
+ 
+ ATTRIBUTE_NO_UBSAN
+-static void ALWAYSINLINE crash_with_sigfpe() {
++ALWAYSINLINE static void crash_with_sigfpe() {
+ 
+   // generate a native synchronous SIGFPE where possible;
+   sigfpe_int = sigfpe_int/sigfpe_int;
+@@ -2143,7 +2143,7 @@ static void ALWAYSINLINE crash_with_sigfpe() {
+ } // end: crash_with_sigfpe
+ 
+ // crash with sigsegv at non-null address.
+-static void ALWAYSINLINE crash_with_segfault() {
++ALWAYSINLINE static void crash_with_segfault() {
+ 
+   int* crash_addr = reinterpret_cast<int*>(VMError::segfault_address);
+   *crash_addr = 1;
+diff --git a/src/hotspot/share/utilities/xmlstream.hpp b/src/hotspot/share/utilities/xmlstream.hpp
+index a933d2c47..1fcd39347 100644
+--- a/src/hotspot/share/utilities/xmlstream.hpp
++++ b/src/hotspot/share/utilities/xmlstream.hpp
+@@ -80,7 +80,8 @@ class xmlStream : public outputStream {
+   outputStream* out()                            { return _out; }
+ 
+   // helpers for writing XML elements
+-  void          va_tag(bool push, const char* format, va_list ap) ATTRIBUTE_PRINTF(3, 0);
++  ATTRIBUTE_PRINTF(3, 0)
++  void          va_tag(bool push, const char* format, va_list ap);
+   virtual void see_tag(const char* tag, bool push) NOT_DEBUG({});
+   virtual void pop_tag(const char* tag) NOT_DEBUG({});
+ 
+@@ -109,29 +110,43 @@ class xmlStream : public outputStream {
+   int unflushed_count() { return (int)(out()->count() - _last_flush); }
+ 
+   // writing complete XML elements
+-  void          elem(const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
+-  void    begin_elem(const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
+-  void      end_elem(const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
++  ATTRIBUTE_PRINTF(2, 3)
++  void          elem(const char* format, ...);
++  ATTRIBUTE_PRINTF(2, 3)
++  void    begin_elem(const char* format, ...);
++  ATTRIBUTE_PRINTF(2, 3)
++  void      end_elem(const char* format, ...);
+   void      end_elem();
+-  void          head(const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
+-  void    begin_head(const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
+-  void      end_head(const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
++  ATTRIBUTE_PRINTF(2, 3)
++  void          head(const char* format, ...);
++  ATTRIBUTE_PRINTF(2, 3)
++  void    begin_head(const char* format, ...);
++  ATTRIBUTE_PRINTF(2, 3)
++  void      end_head(const char* format, ...);
+   void      end_head();
+-  void          done(const char* format, ...) ATTRIBUTE_PRINTF(2, 3);  // xxx_done event, plus tail
++  ATTRIBUTE_PRINTF(2, 3)
++  void          done(const char* format, ...);  // xxx_done event, plus tail
+   void          done_raw(const char * kind);
+   void          tail(const char* kind);
+ 
+   // va_list versions
+-  void       va_elem(const char* format, va_list ap) ATTRIBUTE_PRINTF(2, 0);
+-  void va_begin_elem(const char* format, va_list ap) ATTRIBUTE_PRINTF(2, 0);
+-  void       va_head(const char* format, va_list ap) ATTRIBUTE_PRINTF(2, 0);
+-  void va_begin_head(const char* format, va_list ap) ATTRIBUTE_PRINTF(2, 0);
+-  void       va_done(const char* format, va_list ap) ATTRIBUTE_PRINTF(2, 0);
++  ATTRIBUTE_PRINTF(2, 0)
++  void       va_elem(const char* format, va_list ap);
++  ATTRIBUTE_PRINTF(2, 0)
++  void va_begin_elem(const char* format, va_list ap);
++  ATTRIBUTE_PRINTF(2, 0)
++  void       va_head(const char* format, va_list ap);
++  ATTRIBUTE_PRINTF(2, 0)
++  void va_begin_head(const char* format, va_list ap);
++  ATTRIBUTE_PRINTF(2, 0)
++  void       va_done(const char* format, va_list ap);
+ 
+   // write text (with quoting of special XML characters <>&'" etc.)
+   outputStream* text() { return _text; }
+-  void          text(const char* format, ...) ATTRIBUTE_PRINTF(2, 3);
+-  void       va_text(const char* format, va_list ap) ATTRIBUTE_PRINTF(2, 0) {
++  ATTRIBUTE_PRINTF(2, 3)
++  void          text(const char* format, ...);
++  ATTRIBUTE_PRINTF(2, 0)
++  void       va_text(const char* format, va_list ap) {
+     text()->vprint(format, ap);
+   }
+ 
+diff --git a/test/hotspot/gtest/utilities/test_json.cpp b/test/hotspot/gtest/utilities/test_json.cpp
+index 04ed72cff..439e97a17 100644
+--- a/test/hotspot/gtest/utilities/test_json.cpp
++++ b/test/hotspot/gtest/utilities/test_json.cpp
+@@ -35,7 +35,8 @@ class JSON_GTest : public JSON {
+   JSON_GTest(const char* text);
+   stringStream output;
+ 
+-  void log(uint level, const char* format, ...) ATTRIBUTE_PRINTF(3, 4);
++  ATTRIBUTE_PRINTF(3, 4)
++  void log(uint level, const char* format, ...);
+ 
+   bool callback(JSON_TYPE t, JSON_VAL* v, uint level);
+   JSON_TYPE prev;

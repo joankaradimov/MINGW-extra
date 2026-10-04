@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sun, 4 Oct 2026 16:39:42 +0300
+Subject: [PATCH 16/18] Load the bundled freetype only when there is one
+
+With system freetype there is no freetype.dll for the Windows font
+manager to load ahead of itself.
+
+Upstream: not submitted; part of the Windows/gcc port, not upstream OpenJDK
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../share/classes/sun/font/FontManagerNativeLibrary.java   | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/src/java.desktop/share/classes/sun/font/FontManagerNativeLibrary.java b/src/java.desktop/share/classes/sun/font/FontManagerNativeLibrary.java
+index df67a40fd..7f05aced2 100644
+--- a/src/java.desktop/share/classes/sun/font/FontManagerNativeLibrary.java
++++ b/src/java.desktop/share/classes/sun/font/FontManagerNativeLibrary.java
+@@ -50,7 +50,12 @@ top of freetype library (that is used in binary form).
+ 
+               NB: consider moving freetype wrapper part to separate
+                   shared library in order to avoid dependency. */
+-           System.loadLibrary("freetype");
++           try {
++               System.loadLibrary("freetype");
++           } catch (UnsatisfiedLinkError e) {
++               /* Built against a system freetype, which fontmanager
++                  links directly. */
++           }
+        }
+        System.loadLibrary("fontmanager");
+     }

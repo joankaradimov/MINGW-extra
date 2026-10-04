@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sun, 4 Oct 2026 16:18:18 +0300
+Subject: [PATCH 07/18] Include dlfcn.h only where it exists
+
+The unguarded include breaks MinGW, which has no dlfcn.h; the platform
+block below already includes it for Linux, BSD and AIX.
+
+Upstream: not submitted; fixes the Windows/gcc port, not upstream OpenJDK
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/hotspot/share/utilities/globalDefinitions_gcc.hpp | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/src/hotspot/share/utilities/globalDefinitions_gcc.hpp b/src/hotspot/share/utilities/globalDefinitions_gcc.hpp
+index 5e1bcc198..38b9cd473 100644
+--- a/src/hotspot/share/utilities/globalDefinitions_gcc.hpp
++++ b/src/hotspot/share/utilities/globalDefinitions_gcc.hpp
+@@ -34,7 +34,6 @@
+ #include "cppstdlib/cstdlib.hpp"
+ 
+ #include <ctype.h>
+-#include <dlfcn.h>
+ #include <errno.h>
+ #include <fcntl.h>
+ #include <inttypes.h>

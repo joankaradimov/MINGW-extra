@@ -1,0 +1,206 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=openjdk
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+_majorver=27
+_updatever=35
+pkgver=${_majorver}.u${_updatever}
+pkgrel=1
+# OpenJDK builds with a JDK of its own or the previous major version. MSYS2
+# has none, so the build runs on Adoptium's Temurin binaries; nothing of
+# them is installed.
+_bootjdk=27+35
+_gtestver=1.14.0
+pkgdesc="OpenJDK Java ${_majorver} development kit (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://openjdk.org/'
+msys2_repository_url='https://github.com/openjdk/jdk'
+msys2_references=(
+  'archlinux: java-openjdk'
+)
+license=('spdx:GPL-2.0-only WITH Classpath-exception-2.0')
+depends=("${MINGW_PACKAGE_PREFIX}-cc-libs"
+         "${MINGW_PACKAGE_PREFIX}-freetype"
+         "${MINGW_PACKAGE_PREFIX}-giflib"
+         "${MINGW_PACKAGE_PREFIX}-harfbuzz"
+         "${MINGW_PACKAGE_PREFIX}-lcms2"
+         "${MINGW_PACKAGE_PREFIX}-libjpeg-turbo"
+         "${MINGW_PACKAGE_PREFIX}-libpng"
+         "${MINGW_PACKAGE_PREFIX}-zlib")
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-pkgconf"
+             'autoconf'
+             'make'
+             'unzip'
+             'zip')
+# The build has no -g, so stripping would only drop the symbol tables that
+# name the VM's functions in hs_err crash reports.
+options=('!strip')
+_tag=jdk-${_majorver}+${_updatever}
+# The patches port the build to gcc and clang, starting from the Windows/gcc
+# port in https://github.com/TheShermanTanker/jdk; each says where it comes
+# from.
+source=("${_realname}-${pkgver}.tar.gz::https://github.com/openjdk/jdk/archive/refs/tags/${_tag}.tar.gz"
+        "https://github.com/adoptium/temurin${_bootjdk%%[.+]*}-binaries/releases/download/jdk-${_bootjdk/+/%2B}/OpenJDK${_bootjdk%%[.+]*}U-jdk_x64_windows_hotspot_${_bootjdk/+/_}.zip"
+        "googletest-${_gtestver}.tar.gz::https://github.com/google/googletest/archive/refs/tags/v${_gtestver}.tar.gz"
+        '0001-initial-support-for-gcc-on-windows.patch'
+        '0002-move-attributes-for-gcc.patch'
+        '0003-refactor-the-build-for-gcc-on-windows.patch'
+        '0004-prefer-discarding-static-cast-over-do-while.patch'
+        '0005-use-lowercase-windows-header-names.patch'
+        '0006-keep-mingw-w64-stdio-functions-off-the-forbidden-list.patch'
+        '0007-include-dlfcn-h-only-where-it-exists.patch'
+        '0008-rewrite-drive-letters-in-gcc-dependency-files.patch'
+        '0009-find-the-stack-pointer-without-an-msvc-intrinsic.patch'
+        '0010-define-somaxconn-hint-where-winsock2-h-lacks-it.patch'
+        '0011-embed-gcc-launcher-manifests-that-windows-accepts.patch'
+        '0012-give-jpackage-msvc-libraries-only-under-msvc.patch'
+        '0013-catch-windows-exceptions-with-a-vectored-handler.patch'
+        '0014-leave-out-libjsvml-when-building-with-gcc.patch'
+        '0015-allow-system-freetype-with-gcc-on-windows.patch'
+        '0016-load-the-bundled-freetype-only-when-there-is-one.patch'
+        '0017-decode-only-addresses-that-lie-in-a-module.patch'
+        '0018-mark-the-gcc-decoders-raw-allocations-as-deliberate.patch'
+        '0019-name-the-windows-only-gcc-settings-for-windows.patch'
+        '0020-build-with-clang-on-windows.patch'
+        '0021-include-errno-h-where-winntfilesystem-sets-enomem.patch'
+        '0022-mark-the-gss-api-exports-for-every-windows-compiler.patch'
+        '0023-quote-the-dialog-menu-name-for-llvm-rc.patch'
+        'launcher.cmd'
+        'launcher.ps1'
+        'openjdk.sh'
+        'test-openjdk.java')
+sha256sums=('73e6536bbcc31a5397bdb91ef976109bb648d794c3628e43908463647c54bd76'
+            '2031c9c5c624737ed29a0624caaf5bcc25e74235834c28b4bfa88f7ba7a40e4a'
+            '8ad598c73ad796e0d8280b082cebd82a630d73e73cd3c70057938a6501bba5d7'
+            'b19f7db6e9ab69fca1199c489fef83413e0209d1737247439ae25539e0d39132'
+            '89813686875499dd237257896b605537dd1faf99da676353f169355f25dcae79'
+            '478b9363b31135c4218b6787d57c398d266d68c4e7209d36d1af67a0cfda729a'
+            'aca7d94dddce5481b4a11c39311147adf77e75b64a247895c498e109f67effe5'
+            'b4238edf9c9fc3213a7ac695aa38c72f6fca239293282e9e8541122fe8c10e92'
+            'a46df1a162c220e49767909e2864270b3ba2362d123f53650056ec056c829b85'
+            'ea6c56e7a881b61c8c6a5c8bfd2eb7d942efde249dea8038f4abaa7ccbbc43d0'
+            '83c21a3af3122d2270304ba72774698187a6d7c42ac2fd4e7586a5236d00f568'
+            'b418e0b86b35eda8aac6382daa66d452e58e65c602e2b70ff7f3a41d115225e5'
+            'fc3c0575734d163c9f8d2d9539410ec60e9c746c8cb3ff6c525624388180aae3'
+            '7cc1594ecd483030ea254861befd0811f63d117aa247fcf3ab6c78cf1ff1312e'
+            'b0264696d63dfb3b24b908ace7ccdf0bfef3d544c7fa4c6879be529aa9d64871'
+            '181707e34148f6703d4a850e72054de488f67d1e91c6f4f83b9e640d0bde19bd'
+            '0b28f24527229485c04c8fc174365c9e8c58da35bad00247c9af4e366a481c3c'
+            '0cb888af06b532a1d6d3223cc8cb9a736cd5772cae9ec19fea0e0bc5543c4b2f'
+            '9ba39383114174de09b4b402a8b821f07cee1209878c6a94c6e00e61d004577b'
+            'eba042acd14c5b5c46a6f71fa71e5e65a3d8b1c71da4e0a7e5258d636114fbed'
+            '1f84d3f34039a8112a48ccb89ee5dcfead1984075596acc2d634cf58d2795d20'
+            'c84bfda7d95437a7938ab0641fe672973458f6f050d3ea4197854f70671d09b2'
+            '23a26559cf5412bdc488c64c5edfd8e086b30f03c99988b936022ebf0d027a6f'
+            '5d7cc3e9f48015898c97fbc0ac5676bb656126c06d973c619de4daad1a733484'
+            '50817cfb44767ee3b975b979f2473e7b978155fdf7dc14db4a95195e048f0ba8'
+            '3df55e6abff58582be76f93851b1481aff6d34cb9fa144967c9ee89d316959cd'
+            '757af1ee3caf476521f86311dfea5c5b0bdd939fc2cbc9e194bbd29a774d3631'
+            '415db5eee471793deb67b3b4c9de65c2a7f7a13ccdb9c2871abb8f8a42ca7992'
+            'cfad1d1e80bb014c04c5bb4e73c9347cc57f41778fdb946d1732b6990c3aa58b'
+            'de7440c665164e54304e96c4c9aa3d7fd415a1b439d51849efbfce44651177dd')
+
+_srcdir="jdk-${_tag/+/-}"
+_jvmdir="${MINGW_PREFIX}/lib/jvm/java-${_majorver}-openjdk"
+
+prepare() {
+  cd "${srcdir}/${_srcdir}"
+
+  local _p
+  for _p in "${srcdir}"/00*.patch; do
+    patch -Np1 -i "${_p}"
+  done
+}
+
+build() {
+  # OpenJDK chooses its own flags; makepkg's would turn the stack protector
+  # back on, which the port turns off, and switch printf to mingw's.
+  unset CFLAGS CXXFLAGS CPPFLAGS LDFLAGS
+  # The build runs its own parallel make.
+  unset MAKEFLAGS
+
+  local -a _debug=(--with-native-debug-symbols=none)
+  if check_option "debug" "y"; then
+    _debug=(--with-native-debug-symbols=internal)
+  fi
+
+  local _toolchain=gcc
+  case "${MSYSTEM}" in
+    CLANG*) _toolchain=clang ;;
+  esac
+
+  mkdir -p "${srcdir}/build-${MSYSTEM}" && cd "${srcdir}/build-${MSYSTEM}"
+
+  # The compilers here are newer than anything OpenJDK 27 is tested with,
+  # and warn about code upstream compiles cleanly.
+  bash "../${_srcdir}/configure" \
+    --with-toolchain-type=${_toolchain} \
+    --with-boot-jdk="${srcdir}/jdk-${_bootjdk}" \
+    --with-gtest="${srcdir}/googletest-${_gtestver}" \
+    --with-version-pre= \
+    --with-version-opt= \
+    --with-version-build=${_updatever} \
+    --with-vendor-name=MINGW-extra \
+    --with-vendor-url=https://github.com/joankaradimov/MINGW-extra \
+    --with-vendor-bug-url=https://github.com/joankaradimov/MINGW-extra/issues \
+    --with-vendor-vm-bug-url=https://github.com/joankaradimov/MINGW-extra/issues \
+    --with-debug-level=release \
+    "${_debug[@]}" \
+    --with-stdc++lib=dynamic \
+    --with-zlib=system \
+    --with-libpng=system \
+    --with-giflib=system \
+    --with-libjpeg=system \
+    --with-lcms=system \
+    --with-harfbuzz=system \
+    --with-freetype=system \
+    --disable-warnings-as-errors
+
+  make images
+}
+
+check() {
+  cd "${srcdir}/build-${MSYSTEM}"
+  unset MAKEFLAGS
+
+  # HotSpot's unit tests; jtreg, which runs upstream's other tests, is not
+  # packaged.
+  make test-image-hotspot-gtest
+  make test-only TEST=gtest
+
+  ./images/jdk/bin/java "${srcdir}/test-openjdk.java"
+}
+
+package() {
+  mkdir -p "${pkgdir}${_jvmdir}"
+  cp -a "${srcdir}/build-${MSYSTEM}/images/jdk/." "${pkgdir}${_jvmdir}/"
+
+  # The JDK finds itself from its own executables, so they stay in its
+  # directory; MSYS2 shells get it on PATH.
+  mkdir -p "${pkgdir}${MINGW_PREFIX}/etc/profile.d"
+  sed "s|@JAVA_HOME@|${_jvmdir}|" "${srcdir}/openjdk.sh" \
+    > "${pkgdir}${MINGW_PREFIX}/etc/profile.d/openjdk.sh"
+  cp "${pkgdir}${MINGW_PREFIX}"/etc/profile.d/openjdk.{sh,zsh}
+
+  # cmd and PowerShell get launchers in bin, shaped like the ones cmd-shim
+  # writes for npm. They also put bin on PATH, where the JDK's executables
+  # find the MinGW DLLs. --binary keeps the .cmd's CRLF line ends, which
+  # cmd's GOTO and CALL rely on.
+  mkdir -p "${pkgdir}${MINGW_PREFIX}/bin"
+  local _exe _ext
+  for _exe in "${pkgdir}${_jvmdir}"/bin/*.exe; do
+    for _ext in cmd ps1; do
+      sed --binary "s|@JVMDIR@|${_jvmdir##*/}|" "${srcdir}/launcher.${_ext}" \
+        > "${pkgdir}${MINGW_PREFIX}/bin/$(basename "${_exe}" .exe).${_ext}"
+    done
+  done
+
+  local _f
+  for _f in LICENSE ASSEMBLY_EXCEPTION ADDITIONAL_LICENSE_INFO; do
+    install -Dm644 "${srcdir}/build-${MSYSTEM}/images/jdk/legal/java.base/${_f}" \
+      "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/${_f}"
+  done
+}

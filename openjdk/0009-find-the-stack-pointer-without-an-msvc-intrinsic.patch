@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sun, 4 Oct 2026 16:18:20 +0300
+Subject: [PATCH 09/18] Find the caller's stack pointer without an MSVC
+ intrinsic
+
+mingw-w64 declares _AddressOfReturnAddress() but nothing defines it.
+
+Upstream: not submitted; part of the Windows/gcc port, not upstream OpenJDK
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/hotspot/os_cpu/windows_x86/os_windows_x86.cpp | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/hotspot/os_cpu/windows_x86/os_windows_x86.cpp b/src/hotspot/os_cpu/windows_x86/os_windows_x86.cpp
+index 8e934bc48..01d8340a1 100644
+--- a/src/hotspot/os_cpu/windows_x86/os_windows_x86.cpp
++++ b/src/hotspot/os_cpu/windows_x86/os_windows_x86.cpp
+@@ -253,9 +253,15 @@ intptr_t* os::fetch_bcp_from_context(const void* ucVoid) {
+ // saved by that call instruction. Therefore, the stack pointer of the caller
+ // just before the call instruction, is acquired by skipping over the return PC
+ // slot in the stack.
+-__declspec(noinline)
++NOINLINE
+ address os::current_stack_pointer() {
++#ifdef __GNUC__
++  // gcc lacks _AddressOfReturnAddress(); with frame pointers the return PC
++  // slot sits right above the saved frame pointer.
++  return ((address)__builtin_frame_address(0)) + 2 * sizeof(void*);
++#else
+   return ((address)_AddressOfReturnAddress()) + sizeof(void*);
++#endif
+ }
+ 
+ bool os::win32::get_frame_at_stack_banging_point(JavaThread* thread,

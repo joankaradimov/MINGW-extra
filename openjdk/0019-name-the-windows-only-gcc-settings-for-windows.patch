@@ -1,0 +1,181 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sun, 4 Oct 2026 20:48:29 +0300
+Subject: [PATCH 1/5] Name the Windows-only gcc settings for Windows
+
+Inside Windows-only blocks these were LIBS_gcc and the like, which the
+toolchain-and-OS lookup never offers to clang. As LIBS_gcc_windows they
+still reach gcc, and clang on Windows can share them.
+
+Upstream: not submitted; fixes the Windows/gcc port, not upstream OpenJDK
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ make/modules/java.security.jgss/Lib.gmk     |  4 ++--
+ make/modules/jdk.accessibility/Launcher.gmk | 14 +++++++-------
+ make/modules/jdk.accessibility/Lib.gmk      |  8 ++++----
+ make/modules/jdk.jpackage/Lib.gmk           | 20 ++++++++++----------
+ 4 files changed, 23 insertions(+), 23 deletions(-)
+
+diff --git a/make/modules/java.security.jgss/Lib.gmk b/make/modules/java.security.jgss/Lib.gmk
+index fba6d0fb3..bfe20a93b 100644
+--- a/make/modules/java.security.jgss/Lib.gmk
++++ b/make/modules/java.security.jgss/Lib.gmk
+@@ -60,7 +60,7 @@ ifeq ($(call isTargetOs, windows), true)
+           format conversion-null sign-compare delete-incomplete \
+           missing-field-initializers, \
+       LIBS_microsoft := secur32.lib, \
+-      LIBS_gcc := -lsecur32, \
++      LIBS_gcc_windows := -lsecur32, \
+   ))
+ 
+   TARGETS += $(BUILD_LIBSSPI_BRIDGE)
+@@ -78,7 +78,7 @@ ifneq ($(BUILD_CRYPTO), false)
+         EXTRA_HEADER_DIRS := java.base:libjava, \
+         DISABLED_WARNINGS_gcc_NativeCreds.c := format, \
+         LIBS_microsoft := advapi32.lib kernel32.lib secur32.lib ws2_32.lib, \
+-        LIBS_gcc := -lsecur32 -lws2_32, \
++        LIBS_gcc_windows := -lsecur32 -lws2_32, \
+     ))
+ 
+     TARGETS += $(BUILD_LIBW2K_LSA_AUTH)
+diff --git a/make/modules/jdk.accessibility/Launcher.gmk b/make/modules/jdk.accessibility/Launcher.gmk
+index d4cc6dc53..d5a3516e3 100644
+--- a/make/modules/jdk.accessibility/Launcher.gmk
++++ b/make/modules/jdk.accessibility/Launcher.gmk
+@@ -40,12 +40,12 @@ ifeq ($(call isTargetOs, windows), true)
+       CXXFLAGS_FILTER_OUT_microsoft := -Zc:wchar_t-, \
+       CXXFLAGS_microsoft := -Zc:wchar_t -analyze- -Od -Gd -D_WINDOWS -D_UNICODE \
+           -DUNICODE -RTC1 -EHsc, \
+-      CXXFLAGS_gcc := -O0 -D_WINDOWS -D_UNICODE -DUNICODE, \
++      CXXFLAGS_gcc_windows := -O0 -D_WINDOWS -D_UNICODE -DUNICODE, \
+       DISABLED_WARNINGS_microsoft_jabswitch.cpp := 4267 4996, \
+       DISABLED_WARNINGS_gcc := format-security type-limits \
+           conversion-null format-nonliteral, \
+       LIBS_microsoft := advapi32.lib user32.lib version.lib, \
+-      LIBS_gcc := -lversion, \
++      LIBS_gcc_windows := -lversion, \
+       VERSIONINFO_RESOURCE := \
+           $(ACCESSIBILITY_SRCDIR)/common/AccessBridgeStatusWindow.rc, \
+       MANIFEST := $(ACCESSIBILITY_SRCDIR)/jabswitch/jabswitch.manifest, \
+@@ -71,9 +71,9 @@ ifeq ($(call isTargetOs, windows), true)
+       DISABLED_WARNINGS_CXX_gcc := conversion-null, \
+       CFLAGS := -DACCESSBRIDGE_ARCH_64, \
+       CXXFLAGS_microsoft := -DACCESSBRIDGE_ARCH_64 -EHsc, \
+-      CXXFLAGS_gcc := -DACCESSBRIDGE_ARCH_64, \
++      CXXFLAGS_gcc_windows := -DACCESSBRIDGE_ARCH_64, \
+       LDFLAGS_microsoft := -stack:655360 -subsystem:windows -entry:mainCRTStartup, \
+-      LDFLAGS_gcc := -Wl$(COMMA)--stack=655360 -Wl$(COMMA)--subsystem$(COMMA)windows, \
++      LDFLAGS_gcc_windows := -Wl$(COMMA)--stack=655360 -Wl$(COMMA)--subsystem$(COMMA)windows, \
+       LIBS_microsoft := advapi32.lib user32.lib, \
+       VERSIONINFO_RESOURCE := \
+           $(ACCESSIBILITY_SRCDIR)/jaccessinspector/jaccessinspectorWindow.rc, \
+@@ -98,11 +98,11 @@ ifeq ($(call isTargetOs, windows), true)
+       DISABLED_WARNINGS_CXX_gcc := conversion-null, \
+       CFLAGS := -DACCESSBRIDGE_ARCH_64, \
+       CXXFLAGS_microsoft := -DACCESSBRIDGE_ARCH_64 -EHsc, \
+-      CXXFLAGS_gcc := -DACCESSBRIDGE_ARCH_64, \
++      CXXFLAGS_gcc_windows := -DACCESSBRIDGE_ARCH_64, \
+       LDFLAGS_microsoft := -stack:655360 -subsystem:windows -entry:mainCRTStartup, \
+-      LDFLAGS_gcc := -Wl$(COMMA)--stack=655360 -Wl$(COMMA)--subsystem$(COMMA)windows, \
++      LDFLAGS_gcc_windows := -Wl$(COMMA)--stack=655360 -Wl$(COMMA)--subsystem$(COMMA)windows, \
+       LIBS_microsoft := advapi32.lib comctl32.lib gdi32.lib user32.lib, \
+-      LIBS_gcc := -lcomctl32 -lgdi32, \
++      LIBS_gcc_windows := -lcomctl32 -lgdi32, \
+       VERSIONINFO_RESOURCE := \
+           $(ACCESSIBILITY_SRCDIR)/jaccesswalker/jaccesswalkerWindow.rc, \
+   ))
+diff --git a/make/modules/jdk.accessibility/Lib.gmk b/make/modules/jdk.accessibility/Lib.gmk
+index 54fd98072..4f10b3a88 100644
+--- a/make/modules/jdk.accessibility/Lib.gmk
++++ b/make/modules/jdk.accessibility/Lib.gmk
+@@ -50,7 +50,7 @@ ifeq ($(call isTargetOs, windows), true)
+       DISABLED_WARNINGS_gcc_JavaAccessBridge.cpp := int-to-pointer-cast ignored-qualifiers, \
+       CXXFLAGS_FILTER_OUT := -MD, \
+       CXXFLAGS_microsoft := -MT -DACCESSBRIDGE_ARCH_64, \
+-      CXXFLAGS_gcc := -DACCESSBRIDGE_ARCH_64, \
++      CXXFLAGS_gcc_windows := -DACCESSBRIDGE_ARCH_64, \
+       EXTRA_HEADER_DIRS := \
+           include/bridge \
+           java.desktop:include, \
+@@ -58,7 +58,7 @@ ifeq ($(call isTargetOs, windows), true)
+       LIBS_microsoft := advapi32.lib comdlg32.lib gdi32.lib kernel32.lib \
+           odbc32.lib odbccp32.lib ole32.lib oleaut32.lib shell32.lib \
+           user32.lib uuid.lib winspool.lib, \
+-      LIBS_gcc := -lcomdlg32 -lgdi32 -lodbc32 -lodbccp32 -lole32 -loleaut32 -luuid -lwinspool, \
++      LIBS_gcc_windows := -lcomdlg32 -lgdi32 -lodbc32 -lodbccp32 -lole32 -loleaut32 -luuid -lwinspool, \
+       VERSIONINFO_RESOURCE := \
+           $(ACCESSIBILITY_SRCDIR)/common/AccessBridgeStatusWindow.rc, \
+   ))
+@@ -84,11 +84,11 @@ ifeq ($(call isTargetOs, windows), true)
+       ONLY_EXPORTED := true, \
+       LDFLAGS_microsoft := \
+           -def:$(ACCESSIBILITY_SRCDIR)/libwindowsaccessbridge/WinAccessBridge.DEF, \
+-      LDFLAGS_gcc := $(ACCESSIBILITY_SRCDIR)/libwindowsaccessbridge/WinAccessBridge.DEF, \
++      LDFLAGS_gcc_windows := $(ACCESSIBILITY_SRCDIR)/libwindowsaccessbridge/WinAccessBridge.DEF, \
+       LIBS_microsoft := advapi32.lib comdlg32.lib gdi32.lib kernel32.lib \
+           odbc32.lib odbccp32.lib ole32.lib oleaut32.lib shell32.lib \
+           user32.lib uuid.lib winspool.lib, \
+-      LIBS_gcc := -lcomdlg32 -lgdi32 -lodbc32 -lodbccp32 -lole32 -loleaut32 -luuid -lwinspool, \
++      LIBS_gcc_windows := -lcomdlg32 -lgdi32 -lodbc32 -lodbccp32 -lole32 -loleaut32 -luuid -lwinspool, \
+       VERSIONINFO_RESOURCE := \
+           $(ACCESSIBILITY_SRCDIR)/common/AccessBridgeStatusWindow.rc, \
+   ))
+diff --git a/make/modules/jdk.jpackage/Lib.gmk b/make/modules/jdk.jpackage/Lib.gmk
+index dfb72da97..7d61a07bd 100644
+--- a/make/modules/jdk.jpackage/Lib.gmk
++++ b/make/modules/jdk.jpackage/Lib.gmk
+@@ -127,7 +127,7 @@ ifeq ($(call isTargetOs, windows), true)
+       LDFLAGS := $(LDFLAGS_CXX_JDK), \
+       LIBS_microsoft := advapi32.lib msi.lib ole32.lib shell32.lib shlwapi.lib \
+           user32.lib, \
+-      LIBS_gcc := -lmsi -lole32 -lshlwapi, \
++      LIBS_gcc_windows := -lmsi -lole32 -lshlwapi, \
+   ))
+ 
+   TARGETS += $(BUILD_LIBJPACKAGE)
+@@ -150,10 +150,10 @@ ifeq ($(call isTargetOs, windows), true)
+       DISABLED_WARNINGS_gcc_windows_Guid.cpp := missing-field-initializers, \
+       CXXFLAGS_FILTER_OUT := -MD, \
+       CXXFLAGS_microsoft := -MT $(JPACKAGE_CXXFLAGS_windows), \
+-      CXXFLAGS_gcc := $(JPACKAGE_CXXFLAGS_windows), \
++      CXXFLAGS_gcc_windows := $(JPACKAGE_CXXFLAGS_windows), \
+       LDFLAGS := $(LDFLAGS_CXX_JDK), \
+       LIBS_microsoft := msi.lib ole32.lib shell32.lib shlwapi.lib user32.lib, \
+-      LIBS_gcc := -lmsi -lole32 -lshlwapi, \
++      LIBS_gcc_windows := -lmsi -lole32 -lshlwapi, \
+   ))
+ 
+   TARGETS += $(BUILD_LIBMSICA)
+@@ -174,11 +174,11 @@ ifeq ($(call isTargetOs, windows), true)
+       DISABLED_WARNINGS_gcc_windows_Guid.cpp := missing-field-initializers, \
+       CXXFLAGS_FILTER_OUT := -MD, \
+       CXXFLAGS_microsoft := -MT $(JPACKAGE_CXXFLAGS_windows), \
+-      CXXFLAGS_gcc := $(JPACKAGE_CXXFLAGS_windows), \
++      CXXFLAGS_gcc_windows := $(JPACKAGE_CXXFLAGS_windows), \
+       LDFLAGS_microsoft := -subsystem:windows -entry:mainCRTStartup, \
+-      LDFLAGS_gcc := -Wl$(COMMA)--subsystem$(COMMA)windows, \
++      LDFLAGS_gcc_windows := -Wl$(COMMA)--subsystem$(COMMA)windows, \
+       LIBS_microsoft := msi.lib ole32.lib shell32.lib shlwapi.lib user32.lib, \
+-      LIBS_gcc := -lmsi -lole32 -lshlwapi, \
++      LIBS_gcc_windows := -lmsi -lole32 -lshlwapi, \
+   ))
+ 
+   TARGETS += $(BUILD_MSIWRAPPER)
+@@ -206,13 +206,13 @@ ifeq ($(call isTargetOs, windows), true)
+       CXXFLAGS := -DJP_LAUNCHERW, \
+       CFLAGS_microsoft := -MT $(JPACKAGE_CFLAGS_windows), \
+       CXXFLAGS_microsoft := -MT $(JPACKAGE_CXXFLAGS_windows), \
+-      CFLAGS_gcc := $(JPACKAGE_CFLAGS_windows), \
+-      CXXFLAGS_gcc := $(JPACKAGE_CXXFLAGS_windows), \
++      CFLAGS_gcc_windows := $(JPACKAGE_CFLAGS_windows), \
++      CXXFLAGS_gcc_windows := $(JPACKAGE_CXXFLAGS_windows), \
+       LD_SET_ORIGIN := false, \
+       LDFLAGS_microsoft := -subsystem:windows -entry:mainCRTStartup, \
+-      LDFLAGS_gcc := -Wl$(COMMA)--subsystem$(COMMA)windows, \
++      LDFLAGS_gcc_windows := -Wl$(COMMA)--subsystem$(COMMA)windows, \
+       LIBS_microsoft := msi.lib ole32.lib shell32.lib shlwapi.lib user32.lib, \
+-      LIBS_gcc := -lmsi -lole32 -lshlwapi, \
++      LIBS_gcc_windows := -lmsi -lole32 -lshlwapi, \
+       MANIFEST := $(JAVA_MANIFEST), \
+       MANIFEST_VERSION := $(VERSION_NUMBER_FOUR_POSITIONS) \
+   ))

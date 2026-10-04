@@ -1,0 +1,112 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: TheShermanTanker <tanksherman27@gmail.com>
+Date: Thu, 17 Apr 2025 21:06:00 +0800
+Subject: [PATCH 05/18] Use lowercase Windows header names
+
+From the Windows/gcc port in https://github.com/TheShermanTanker/jdk,
+branch experimental, commit 9abbd169, rebased onto jdk-27+35. Only the
+lowercase Windows header names are kept; the rest reverted upstream
+code that the port does not need.
+
+Upstream: JEP draft 8288293 (https://openjdk.org/jeps/8288293), not merged
+---
+ src/hotspot/os/windows/gc/z/zMapper_windows.cpp                | 2 +-
+ src/hotspot/os/windows/gc/z/zMapper_windows.hpp                | 2 +-
+ src/hotspot/os/windows/gc/z/zPhysicalMemoryBacking_windows.hpp | 2 +-
+ src/hotspot/os/windows/gc/z/zSyscall_windows.hpp               | 2 +-
+ src/hotspot/os/windows/iphlp_interface.hpp                     | 2 +-
+ src/hotspot/os/windows/osThread_windows.cpp                    | 2 +-
+ src/hotspot/os/windows/os_perf_windows.cpp                     | 2 +-
+ 7 files changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/src/hotspot/os/windows/gc/z/zMapper_windows.cpp b/src/hotspot/os/windows/gc/z/zMapper_windows.cpp
+index d3d0a9766..f98df063d 100644
+--- a/src/hotspot/os/windows/gc/z/zMapper_windows.cpp
++++ b/src/hotspot/os/windows/gc/z/zMapper_windows.cpp
+@@ -27,7 +27,7 @@
+ #include "logging/log.hpp"
+ #include "utilities/debug.hpp"
+ 
+-#include <Windows.h>
++#include <windows.h>
+ 
+ // Memory reservation, commit, views, and placeholders.
+ //
+diff --git a/src/hotspot/os/windows/gc/z/zMapper_windows.hpp b/src/hotspot/os/windows/gc/z/zMapper_windows.hpp
+index e6efd6b9e..38efff1b2 100644
+--- a/src/hotspot/os/windows/gc/z/zMapper_windows.hpp
++++ b/src/hotspot/os/windows/gc/z/zMapper_windows.hpp
+@@ -28,7 +28,7 @@
+ #include "memory/allStatic.hpp"
+ #include "utilities/globalDefinitions.hpp"
+ 
+-#include <Windows.h>
++#include <windows.h>
+ 
+ class ZMapper : public AllStatic {
+ private:
+diff --git a/src/hotspot/os/windows/gc/z/zPhysicalMemoryBacking_windows.hpp b/src/hotspot/os/windows/gc/z/zPhysicalMemoryBacking_windows.hpp
+index 91d59f496..8c33b9b73 100644
+--- a/src/hotspot/os/windows/gc/z/zPhysicalMemoryBacking_windows.hpp
++++ b/src/hotspot/os/windows/gc/z/zPhysicalMemoryBacking_windows.hpp
+@@ -27,7 +27,7 @@
+ #include "gc/z/zAddress.hpp"
+ #include "utilities/globalDefinitions.hpp"
+ 
+-#include <Windows.h>
++#include <windows.h>
+ 
+ class ZPhysicalMemoryBackingImpl;
+ 
+diff --git a/src/hotspot/os/windows/gc/z/zSyscall_windows.hpp b/src/hotspot/os/windows/gc/z/zSyscall_windows.hpp
+index ef093e1c3..52868ed95 100644
+--- a/src/hotspot/os/windows/gc/z/zSyscall_windows.hpp
++++ b/src/hotspot/os/windows/gc/z/zSyscall_windows.hpp
+@@ -26,7 +26,7 @@
+ 
+ #include "utilities/globalDefinitions.hpp"
+ 
+-#include <Windows.h>
++#include <windows.h>
+ 
+ class ZSyscall {
+ private:
+diff --git a/src/hotspot/os/windows/iphlp_interface.hpp b/src/hotspot/os/windows/iphlp_interface.hpp
+index 3e7e0adef..cfdb96a40 100644
+--- a/src/hotspot/os/windows/iphlp_interface.hpp
++++ b/src/hotspot/os/windows/iphlp_interface.hpp
+@@ -27,7 +27,7 @@
+ 
+ #include "memory/allStatic.hpp"
+ #include "utilities/macros.hpp"
+-#include <WinSock2.h>
++#include <winsock2.h>
+ #include <ws2ipdef.h>
+ #include <iphlpapi.h>
+ 
+diff --git a/src/hotspot/os/windows/osThread_windows.cpp b/src/hotspot/os/windows/osThread_windows.cpp
+index f36e95c51..0e277a59d 100644
+--- a/src/hotspot/os/windows/osThread_windows.cpp
++++ b/src/hotspot/os/windows/osThread_windows.cpp
+@@ -24,7 +24,7 @@
+ 
+ #include "runtime/osThread.hpp"
+ 
+-#include <Windows.h>
++#include <windows.h>
+ 
+ OSThread::OSThread()
+   : _thread_id(0),
+diff --git a/src/hotspot/os/windows/os_perf_windows.cpp b/src/hotspot/os/windows/os_perf_windows.cpp
+index 1a9659b96..f4ec893f3 100644
+--- a/src/hotspot/os/windows/os_perf_windows.cpp
++++ b/src/hotspot/os/windows/os_perf_windows.cpp
+@@ -37,7 +37,7 @@
+ 
+ #include <math.h>
+ #include <psapi.h>
+-#include <TlHelp32.h>
++#include <tlhelp32.h>
+ 
+ /*
+  * Windows provides a vast plethora of performance objects and counters,

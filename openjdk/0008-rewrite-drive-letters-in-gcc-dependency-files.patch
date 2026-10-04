@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sun, 4 Oct 2026 16:18:19 +0300
+Subject: [PATCH 08/18] Rewrite drive letters in gcc dependency files at run
+ time
+
+The $(shell ...) rewrite ran when make expanded the recipe, before the
+compiler had written the file, so clean builds kept F:/ paths that make
+cannot parse.
+
+Upstream: not submitted; fixes the Windows/gcc port, not upstream OpenJDK
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ make/common/native/CompileFile.gmk | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/make/common/native/CompileFile.gmk b/make/common/native/CompileFile.gmk
+index 04e4ec891..e6d04ce06 100644
+--- a/make/common/native/CompileFile.gmk
++++ b/make/common/native/CompileFile.gmk
+@@ -216,7 +216,7 @@ define CreateCompiledNativeFileBody
+ 	      $$($1_COMPILE_OPTIONS)))
+           ifneq ($$($1_DEPS_FILE), )
+             ifeq ($(call isTargetOs, windows), true)
+-	    $$(foreach path, $$(filter-out \, $$(call ReadFile, $$(addsuffix .tmp, $$($1_DEPS_FILE)))), $$(shell $(SED) --in-place= -e 's/$$(subst /,\/,$(path))/$$(subst /,\/,$$(shell $(PATHTOOL) $(path)))/g' $$(addsuffix .tmp, $$($1_DEPS_FILE))))  # FixPathFile can only convert Unix to Windows, so we can't use fixpath
++	$(SED) --in-place= -e 's/\(^\|[[:space:]]\)\([[:alpha:]]\):\//\1\/\L\2\//g' $$(addsuffix .tmp, $$($1_DEPS_FILE))
+             endif
+ 	    $$(call fix-deps-file, $$($1_DEPS_FILE))
+             # Create a dependency target file from the dependency file.
+@@ -310,7 +310,7 @@ define CreatePrecompiledHeader
+ 		$$(call ExecuteWithLog, $$@, $$(call MakeCommandRelative, \
+ 		    $$($1_PCH_COMMAND) $$< -o $$@))
+           ifeq ($(call isTargetOs, windows), true)
+-		$$(foreach path, $$(filter-out \, $$(call ReadFile, $$(addsuffix .tmp, $$($1_PCH_DEPS_FILE)))), $$(shell $(SED) --in-place= -e 's/$$(subst /,\/,$(path))/$$(subst /,\/,$$(shell $(PATHTOOL) $(path)))/g' $$(addsuffix .tmp, $$($1_PCH_DEPS_FILE)))) # FixPathFile can only convert Unix to Windows, so we can't use fixpath
++		$(SED) --in-place= -e 's/\(^\|[[:space:]]\)\([[:alpha:]]\):\//\1\/\L\2\//g' $$(addsuffix .tmp, $$($1_PCH_DEPS_FILE))
+           endif
+ 		$$(call fix-deps-file, $$($1_PCH_DEPS_FILE))
+ 		$(SED) $(DEPENDENCY_TARGET_SED_PATTERN) $$($1_PCH_DEPS_FILE) \

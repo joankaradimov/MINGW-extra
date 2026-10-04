@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sun, 4 Oct 2026 16:18:24 +0300
+Subject: [PATCH 12/18] Give jpackage's launcher MSVC libraries only under MSVC
+
+gcc was handed shell32.lib and friends besides its own -l flags.
+
+Upstream: not submitted; fixes the Windows/gcc port, not upstream OpenJDK
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ make/modules/jdk.jpackage/Lib.gmk | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/make/modules/jdk.jpackage/Lib.gmk b/make/modules/jdk.jpackage/Lib.gmk
+index ab22b636f..dfb72da97 100644
+--- a/make/modules/jdk.jpackage/Lib.gmk
++++ b/make/modules/jdk.jpackage/Lib.gmk
+@@ -74,7 +74,7 @@ $(eval $(call SetupJdkExecutable, BUILD_JPACKAGEAPPLAUNCHER, \
+     LDFLAGS_macosx := -rpath @executable_path/../Frameworks/ \
+         -rpath @executable_path/../PlugIns/, \
+     LIBS_macosx := -framework Cocoa, \
+-    LIBS_windows := msi.lib ole32.lib shell32.lib shlwapi.lib user32.lib, \
++    LIBS_microsoft_windows := msi.lib ole32.lib shell32.lib shlwapi.lib user32.lib, \
+     LIBS_gcc_windows := -lmsi -lole32 -lshlwapi, \
+     LIBS_linux := $(LIBDL) $(LIBPTHREAD), \
+     MANIFEST := $(JAVA_MANIFEST), \

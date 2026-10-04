@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sun, 4 Oct 2026 16:49:16 +0300
+Subject: [PATCH 17/18] Decode only addresses that lie in a module
+
+RtlPcToFileHeader leaves no image base for an address outside every
+module, and GetModuleFileNameExA then names the executable, so the gcc
+decoder found a symbol for (address)-1.
+
+Upstream: not submitted; fixes the Windows/gcc port, not upstream OpenJDK
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/hotspot/os/windows/decoder_windows.cpp | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/src/hotspot/os/windows/decoder_windows.cpp b/src/hotspot/os/windows/decoder_windows.cpp
+index 92e1f39e3..f3964f401 100644
+--- a/src/hotspot/os/windows/decoder_windows.cpp
++++ b/src/hotspot/os/windows/decoder_windows.cpp
+@@ -100,7 +100,10 @@ bool WindowsDecoder::decode(address pc, char *buf, int buflen, int *offset,
+ 
+   ::memcpy(&address, &pc, sizeof (pc));
+ 
+-  RtlPcToFileHeader(address, &imageBase);
++  // A null module handle would name the executable itself.
++  if (RtlPcToFileHeader(address, &imageBase) == nullptr) {
++    return false;
++  }
+ 
+   if (!GetModuleFileNameExA(GetCurrentProcess(), reinterpret_cast<HMODULE>(imageBase), filename, sizeof(filename))) {
+     return false;
+@@ -234,7 +237,10 @@ bool WindowsDecoder::decode(address pc, char *buf, int buflen, int *offset, cons
+ 
+   ::memcpy(&address, &pc, sizeof (pc));
+ 
+-  RtlPcToFileHeader(address, &imageBase);
++  // A null module handle would name the executable itself.
++  if (RtlPcToFileHeader(address, &imageBase) == nullptr) {
++    return false;
++  }
+ 
+   if (!GetModuleFileNameExA(GetCurrentProcess(), reinterpret_cast<HMODULE>(imageBase), filename, sizeof(filename))) {
+     return false;

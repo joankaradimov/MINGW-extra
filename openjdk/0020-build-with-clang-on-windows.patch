@@ -1,0 +1,339 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sun, 4 Oct 2026 20:48:30 +0300
+Subject: [PATCH 2/5] Build with clang on Windows
+
+clang on MinGW takes the same flags, libraries and tools as gcc there:
+MSYS2 path handling, windres resources and manifests, no stack
+protector, no rpath or soname. lld lacks --exclude-libs, and the
+toolchain-and-OS settings given to gcc on Windows apply to clang as well.
+
+Upstream: not submitted; part of the Windows/gcc port, not upstream OpenJDK
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ make/ZipSecurity.gmk                      |  2 +-
+ make/autoconf/flags-cflags.m4             | 19 ++++++++++++++-----
+ make/autoconf/flags-ldflags.m4            | 16 ++++++++++++++--
+ make/autoconf/lib-freetype.m4             |  2 +-
+ make/autoconf/libraries.m4                |  2 +-
+ make/autoconf/toolchain.m4                | 21 +++++++++++++--------
+ make/common/JdkNativeCompilation.gmk      |  3 +++
+ make/common/native/CompileFile.gmk        |  2 +-
+ make/common/native/Flags.gmk              | 16 +++++++++++++---
+ make/common/native/Link.gmk               |  5 ++++-
+ make/modules/jdk.incubator.vector/Lib.gmk |  4 ++--
+ make/modules/jdk.jpackage/Lib.gmk         |  2 +-
+ 12 files changed, 68 insertions(+), 26 deletions(-)
+
+diff --git a/make/ZipSecurity.gmk b/make/ZipSecurity.gmk
+index 181bbddf1..4d4aed959 100644
+--- a/make/ZipSecurity.gmk
++++ b/make/ZipSecurity.gmk
+@@ -86,7 +86,7 @@ ifeq ($(call isTargetOs, windows), true)
+     JGSS_ZIP_NAME = jgss-windows-i586-bin.zip
+   endif
+ 
+-  ifeq ($(TOOLCHAIN_TYPE), gcc)
++  ifneq ($(filter $(TOOLCHAIN_TYPE), gcc clang), )
+     $(eval $(call SetupZipArchive, BUILD_JGSS_BIN_ZIP, \
+         SRC := $(SUPPORT_OUTPUTDIR), \
+         INCLUDE_FILES := modules_libs/java.security.jgss/w2k_lsa_auth.dll \
+diff --git a/make/autoconf/flags-cflags.m4 b/make/autoconf/flags-cflags.m4
+index 6a4a5830f..b8ffb403d 100644
+--- a/make/autoconf/flags-cflags.m4
++++ b/make/autoconf/flags-cflags.m4
+@@ -85,7 +85,7 @@ AC_DEFUN([FLAGS_SETUP_DEBUG_SYMBOLS],
+   UTIL_ARG_WITH(NAME: native-debug-symbols-format, TYPE: literal, VALID_VALUES: [codeview dwarf-4],
+       DEFAULT: codeview, CHECK_AVAILABLE: [
+         AC_MSG_CHECKING([if alternate debugging information formats are supported])
+-        if test x$OPENJDK_TARGET_OS = xwindows && test x$TOOLCHAIN_TYPE = xgcc; then
++        if test x$OPENJDK_TARGET_OS = xwindows && test x$TOOLCHAIN_TYPE != xmicrosoft; then
+           AC_MSG_RESULT([yes])
+         else
+           AC_MSG_RESULT([no])
+@@ -567,7 +567,12 @@ AC_DEFUN([FLAGS_SETUP_CFLAGS_HELPER],
+     # Restrict the debug information created by Clang to avoid
+     # too big object files and speed the build up a little bit
+     # (see http://llvm.org/bugs/show_bug.cgi?id=7554)
+-    TOOLCHAIN_CFLAGS_JVM="$TOOLCHAIN_CFLAGS_JVM -flimit-debug-info -fstack-protector"
++    TOOLCHAIN_CFLAGS_JVM="$TOOLCHAIN_CFLAGS_JVM -flimit-debug-info"
++    if test "x$OPENJDK_TARGET_OS" = xwindows; then
++      TOOLCHAIN_CFLAGS_JVM="$TOOLCHAIN_CFLAGS_JVM -fno-stack-protector"
++    else
++      TOOLCHAIN_CFLAGS_JVM="$TOOLCHAIN_CFLAGS_JVM -fstack-protector"
++    fi
+ 
+     # In principle the stack alignment below is cpu- and ABI-dependent and
+     # should agree with values of StackAlignmentInBytes in various
+@@ -575,7 +580,7 @@ AC_DEFUN([FLAGS_SETUP_CFLAGS_HELPER],
+     # works for all platforms.
+     TOOLCHAIN_CFLAGS_JVM="$TOOLCHAIN_CFLAGS_JVM -mno-omit-leaf-frame-pointer -mstack-alignment=16"
+ 
+-    if test "x$OPENJDK_TARGET_OS" = xlinux; then
++    if test "x$OPENJDK_TARGET_OS" = xlinux || test "x$OPENJDK_TARGET_OS" = xwindows; then
+       if test "x$DEBUG_LEVEL" = xrelease; then
+         # Clang does not inline as much as GCC does for functions with "inline" keyword by default.
+         # This causes noticeable slowdown in pause time for G1, and possibly in other areas.
+@@ -596,7 +601,11 @@ AC_DEFUN([FLAGS_SETUP_CFLAGS_HELPER],
+       TOOLCHAIN_CFLAGS_JDK="-ffunction-sections -fsigned-char"
+     fi
+ 
+-    TOOLCHAIN_CFLAGS_JDK="$TOOLCHAIN_CFLAGS_JDK -fvisibility=hidden -fstack-protector"
++    if test "x$OPENJDK_TARGET_OS" = xwindows; then
++      TOOLCHAIN_CFLAGS_JDK="$TOOLCHAIN_CFLAGS_JDK -fno-stack-protector"
++    else
++      TOOLCHAIN_CFLAGS_JDK="$TOOLCHAIN_CFLAGS_JDK -fvisibility=hidden -fstack-protector"
++    fi
+ 
+   elif test "x$TOOLCHAIN_TYPE" = xmicrosoft; then
+     TOOLCHAIN_CFLAGS_JVM="-nologo -MD -Zc:preprocessor -Zc:inline -Zc:throwingNew -permissive- -volatile:iso -MP"
+@@ -778,7 +787,7 @@ AC_DEFUN([FLAGS_SETUP_CFLAGS_CPU_DEP],
+     fi
+ 
+   elif test "x$TOOLCHAIN_TYPE" = xclang; then
+-    if test "x$FLAGS_OS" = xlinux; then
++    if test "x$FLAGS_OS" = xlinux || test "x$FLAGS_OS" = xwindows; then
+       # ppc test not really needed for clang
+       if test "x$FLAGS_CPU_ARCH" != xarm &&  test "x$FLAGS_CPU_ARCH" != xppc; then
+         # for all archs except arm and ppc, prevent gcc to omit frame pointer
+diff --git a/make/autoconf/flags-ldflags.m4 b/make/autoconf/flags-ldflags.m4
+index 78cb5c9a0..0d5c21644 100644
+--- a/make/autoconf/flags-ldflags.m4
++++ b/make/autoconf/flags-ldflags.m4
+@@ -73,8 +73,15 @@ AC_DEFUN([FLAGS_SETUP_LDFLAGS_HELPER],
+     LDFLAGS_CXX_PARTIAL_LINKING="$MACHINE_FLAG -r"
+ 
+   elif test "x$TOOLCHAIN_TYPE" = xclang; then
+-    BASIC_LDFLAGS_JVM_ONLY="-mno-omit-leaf-frame-pointer -mstack-alignment=16 \
+-        -fPIC"
++    if test "x$OPENJDK_TARGET_OS" = xwindows; then
++      # lld has no --exclude-libs
++      BASIC_LDFLAGS="-Wl,--no-undefined -fno-stack-protector"
++      BASIC_LDFLAGS_JVM_ONLY="-mno-omit-leaf-frame-pointer -mstack-alignment=16 \
++          -Wl,--exclude-all-symbols -Wl,--subsystem,windows"
++    else
++      BASIC_LDFLAGS_JVM_ONLY="-mno-omit-leaf-frame-pointer -mstack-alignment=16 \
++          -fPIC"
++    fi
+ 
+     LDFLAGS_CXX_PARTIAL_LINKING="$MACHINE_FLAG -r"
+ 
+@@ -205,6 +212,11 @@ AC_DEFUN([FLAGS_SETUP_LDFLAGS_CPU_DEP],
+       fi
+     fi
+ 
++  elif test "x$TOOLCHAIN_TYPE" = xclang && test "x${OPENJDK_$1_OS}" = xwindows; then
++    if test "x${OPENJDK_$1_CPU_BITS}" = "x64"; then
++      $1_CPU_EXECUTABLE_LDFLAGS="-Wl,--stack=1048576"
++    fi
++
+   elif test "x$TOOLCHAIN_TYPE" = xmicrosoft; then
+     if test "x${OPENJDK_$1_CPU_BITS}" = "x32"; then
+       $1_CPU_EXECUTABLE_LDFLAGS="-stack:327680"
+diff --git a/make/autoconf/lib-freetype.m4 b/make/autoconf/lib-freetype.m4
+index 49296d539..a21398779 100644
+--- a/make/autoconf/lib-freetype.m4
++++ b/make/autoconf/lib-freetype.m4
+@@ -129,7 +129,7 @@ AC_DEFUN_ONCE([LIB_SETUP_FREETYPE],
+ 
+   if test "x$FREETYPE_TO_USE" = "xsystem" && \
+       ((test "x$OPENJDK_TARGET_OS" = "xwindows" && \
+-      test "x$TOOLCHAIN_TYPE" != "xgcc") || \
++      test "x$TOOLCHAIN_TYPE" = "xmicrosoft") || \
+       test "x$OPENJDK_TARGET_OS" = "xmacosx"); then
+     AC_MSG_ERROR([Only bundled freetype can be specified on Mac, and on Windows with Visual Studio])
+   fi
+diff --git a/make/autoconf/libraries.m4 b/make/autoconf/libraries.m4
+index f5bf15be3..14ec818c8 100644
+--- a/make/autoconf/libraries.m4
++++ b/make/autoconf/libraries.m4
+@@ -152,7 +152,7 @@ AC_DEFUN_ONCE([LIB_SETUP_LIBRARIES],
+       BASIC_JVM_LIBS="$BASIC_JVM_LIBS kernel32.lib user32.lib gdi32.lib winspool.lib \
+           comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib powrprof.lib uuid.lib \
+           ws2_32.lib winmm.lib version.lib psapi.lib"
+-    elif test "x$TOOLCHAIN_TYPE" = xgcc; then
++    else
+       BASIC_JVM_LIBS="$BASIC_JVM_LIBS -lpowrprof -lws2_32 -lwinmm -lversion -lpsapi"
+     fi
+   fi
+diff --git a/make/autoconf/toolchain.m4 b/make/autoconf/toolchain.m4
+index 9ac2bc049..8ab1d5353 100644
+--- a/make/autoconf/toolchain.m4
++++ b/make/autoconf/toolchain.m4
+@@ -41,7 +41,7 @@ VALID_TOOLCHAINS_all="gcc clang microsoft"
+ VALID_TOOLCHAINS_linux="gcc clang"
+ VALID_TOOLCHAINS_macosx="clang"
+ VALID_TOOLCHAINS_aix="clang"
+-VALID_TOOLCHAINS_windows="microsoft gcc"
++VALID_TOOLCHAINS_windows="microsoft gcc clang"
+ 
+ # Toolchain descriptions
+ TOOLCHAIN_DESCRIPTION_clang="clang/LLVM"
+@@ -627,13 +627,12 @@ AC_DEFUN_ONCE([TOOLCHAIN_DETECT_TOOLCHAIN_CORE],
+     LD="$CC"
+     LDCXX="$CXX"
+     # Force use of lld, since that is what we expect when setting flags later on
+-    if test "x$TOOLCHAIN_TYPE" = xclang; then
+-      if test "x$OPENJDK_TARGET_OS" = xlinux; then
+-        LD="$LD -fuse-ld=lld"
+-        LDCXX="$LDCXX -fuse-ld=lld"
+-      fi
+-    elif test "x$OPENJDK_TARGET_OS" = xwindows && test "x$TOOLCHAIN_TYPE" = xgcc; then
+-      # Special case needed here if we're on Windows as the gcc linker needs mixed paths
++    if test "x$TOOLCHAIN_TYPE" = xclang && test "x$OPENJDK_TARGET_OS" = xlinux; then
++      LD="$LD -fuse-ld=lld"
++      LDCXX="$LDCXX -fuse-ld=lld"
++    elif test "x$OPENJDK_TARGET_OS" = xwindows; then
++      # Special case needed here if we're on Windows as the gcc and clang
++      # linkers need mixed paths
+       LD="$FIXPATH_BASE -m exec $LD"
+       LDCXX="$FIXPATH_BASE -m exec $LDCXX"
+     fi
+@@ -680,6 +679,8 @@ AC_DEFUN_ONCE([TOOLCHAIN_DETECT_TOOLCHAIN_CORE],
+     UTIL_LOOKUP_TOOLCHAIN_PROGS(LIB, lib)
+   elif test "x$TOOLCHAIN_TYPE" = xgcc; then
+     UTIL_LOOKUP_TOOLCHAIN_PROGS(AR, ar gcc-ar, NOFIXPATH)
++  elif test "x$OPENJDK_TARGET_OS" = xwindows; then
++    UTIL_LOOKUP_TOOLCHAIN_PROGS(AR, ar, NOFIXPATH)
+   else
+     UTIL_LOOKUP_TOOLCHAIN_PROGS(AR, ar)
+   fi
+@@ -742,6 +743,10 @@ AC_DEFUN_ONCE([TOOLCHAIN_DETECT_TOOLCHAIN_EXTRA],
+         UTIL_LOOKUP_TOOLCHAIN_PROGS(RC, windres, NOFIXPATH)
+         UTIL_LOOKUP_TOOLCHAIN_PROGS(OBJCOPY, gobjcopy objcopy, NOFIXPATH)
+       fi
++    elif test "x$OPENJDK_TARGET_OS" = xwindows; then
++      UTIL_LOOKUP_TOOLCHAIN_PROGS(NM, nm, NOFIXPATH)
++      UTIL_LOOKUP_TOOLCHAIN_PROGS(RC, windres, NOFIXPATH)
++      UTIL_LOOKUP_TOOLCHAIN_PROGS(OBJCOPY, objcopy, NOFIXPATH)
+     else
+       UTIL_LOOKUP_TOOLCHAIN_PROGS(NM, nm)
+     fi
+diff --git a/make/common/JdkNativeCompilation.gmk b/make/common/JdkNativeCompilation.gmk
+index aba9f5b30..634f534a2 100644
+--- a/make/common/JdkNativeCompilation.gmk
++++ b/make/common/JdkNativeCompilation.gmk
+@@ -52,6 +52,9 @@ else ifeq ($(TOOLCHAIN_TYPE), clang)
+   else ifeq ($(call isTargetOs, aix), true)
+     SetExecutableOrigin =
+     SetSharedLibraryOrigin =
++  else ifeq ($(call isTargetOs, windows), true)
++    SetExecutableOrigin =
++    SetSharedLibraryOrigin =
+   else
+     ifeq ($(call isTargetOs, linux), true)
+       SetExecutableOrigin = \
+diff --git a/make/common/native/CompileFile.gmk b/make/common/native/CompileFile.gmk
+index e6d04ce06..6feeae4fa 100644
+--- a/make/common/native/CompileFile.gmk
++++ b/make/common/native/CompileFile.gmk
+@@ -344,7 +344,7 @@ define CreateWindowsResourceFile
+     $1_RES_VARDEPS_FILE := $$(call DependOnVariable, $1_RES_VARDEPS, \
+         $$($1_RES).vardeps)
+ 
+-    ifeq ($(TOOLCHAIN_TYPE), gcc)
++    ifneq ($(filter $(TOOLCHAIN_TYPE), gcc clang), )
+       $$($1_RES): $$($1_VERSIONINFO_RESOURCE) $$($1_RES_VARDEPS_FILE)
+ 		  $$(call LogInfo, Compiling resource $$(notdir $$($1_VERSIONINFO_RESOURCE)) (for $$($1_BASENAME)))
+ 		  $$(call MakeDir, $$(@D) $$($1_OBJECT_DIR))
+diff --git a/make/common/native/Flags.gmk b/make/common/native/Flags.gmk
+index b54da4fcf..7d2d6fda9 100644
+--- a/make/common/native/Flags.gmk
++++ b/make/common/native/Flags.gmk
+@@ -32,6 +32,12 @@ ifeq ($(INCLUDE), true)
+ # like optimization level.
+ ################################################################################
+ 
++# clang on Windows compiles and links like gcc there, so it also takes the
++# flags and libraries given to gcc on Windows.
++ifeq ($(TOOLCHAIN_TYPE)+$(call isTargetOs, windows), clang+true)
++  ALSO_WINDOWS_GCC := gcc_windows
++endif
++
+ ################################################################################
+ # $1 is the prefix of the file to be compiled
+ # $2 is the prefix of the library, i.e. $$($1_BASE)
+@@ -88,6 +94,7 @@ define SetupCompilerFlags
+   # OPENJDK_TARGET_OS plus OPENJDK_TARGET_CPU pair dependent variables for CFLAGS.
+   $1_EXTRA_CFLAGS := $$($1_CFLAGS_$(OPENJDK_TARGET_OS_TYPE)) $$($1_CFLAGS_$(OPENJDK_TARGET_OS)) \
+       $$($1_CFLAGS_$(TOOLCHAIN_TYPE)) $$($1_CFLAGS_$(TOOLCHAIN_TYPE)_$(OPENJDK_TARGET_OS)) \
++      $$(if $(ALSO_WINDOWS_GCC), $$($1_CFLAGS_$(ALSO_WINDOWS_GCC))) \
+       $$($1_CFLAGS_$(OPENJDK_TARGET_OS)_$(OPENJDK_TARGET_CPU))
+ 
+   ifneq ($(DEBUG_LEVEL), release)
+@@ -110,7 +117,8 @@ define SetupCompilerFlags
+   # variables for CXXFLAGS, and additionally the pair dependent TOOLCHAIN_TYPE plus
+   # OPENJDK_TARGET_OS.
+   $1_EXTRA_CXXFLAGS := $$($1_CXXFLAGS_$(OPENJDK_TARGET_OS_TYPE)) $$($1_CXXFLAGS_$(OPENJDK_TARGET_OS)) \
+-      $$($1_CXXFLAGS_$(TOOLCHAIN_TYPE)) $$($1_CXXFLAGS_$(TOOLCHAIN_TYPE)_$(OPENJDK_TARGET_OS))
++      $$($1_CXXFLAGS_$(TOOLCHAIN_TYPE)) $$($1_CXXFLAGS_$(TOOLCHAIN_TYPE)_$(OPENJDK_TARGET_OS)) \
++      $$(if $(ALSO_WINDOWS_GCC), $$($1_CXXFLAGS_$(ALSO_WINDOWS_GCC)))
+ 
+   ifneq ($(DEBUG_LEVEL), release)
+     # Pickup extra debug dependent variables for CXXFLAGS
+@@ -224,9 +232,11 @@ define SetupLinkerFlags
+   # dependent variables for LDFLAGS and LIBS, and additionally the pair dependent
+   # TOOLCHAIN_TYPE plus OPENJDK_TARGET_OS
+   $1_EXTRA_LDFLAGS += $$($1_LDFLAGS_$(OPENJDK_TARGET_OS_TYPE)) $$($1_LDFLAGS_$(OPENJDK_TARGET_OS)) \
+-      $$($1_LDFLAGS_$(TOOLCHAIN_TYPE)) $$($1_LDFLAGS_$(TOOLCHAIN_TYPE)_$(OPENJDK_TARGET_OS))
++      $$($1_LDFLAGS_$(TOOLCHAIN_TYPE)) $$($1_LDFLAGS_$(TOOLCHAIN_TYPE)_$(OPENJDK_TARGET_OS)) \
++      $$(if $(ALSO_WINDOWS_GCC), $$($1_LDFLAGS_$(ALSO_WINDOWS_GCC)))
+   $1_EXTRA_LIBS += $$($1_LIBS_$(OPENJDK_TARGET_OS_TYPE)) $$($1_LIBS_$(OPENJDK_TARGET_OS)) \
+-      $$($1_LIBS_$(TOOLCHAIN_TYPE)) $$($1_LIBS_$(TOOLCHAIN_TYPE)_$(OPENJDK_TARGET_OS))
++      $$($1_LIBS_$(TOOLCHAIN_TYPE)) $$($1_LIBS_$(TOOLCHAIN_TYPE)_$(OPENJDK_TARGET_OS)) \
++      $$(if $(ALSO_WINDOWS_GCC), $$($1_LIBS_$(ALSO_WINDOWS_GCC)))
+ endef
+ 
+ ################################################################################
+diff --git a/make/common/native/Link.gmk b/make/common/native/Link.gmk
+index f5df90e31..d354de99e 100644
+--- a/make/common/native/Link.gmk
++++ b/make/common/native/Link.gmk
+@@ -59,6 +59,9 @@ else ifeq ($(TOOLCHAIN_TYPE), clang)
+         -Wl,-install_name,@rpath/$1
+   else ifeq ($(call isTargetOs, aix), true)
+     SetSharedLibraryName =
++  else ifeq ($(call isTargetOs, windows), true)
++    # lld rejects -soname for PE images, which have none
++    SetSharedLibraryName =
+   else
+     # Default works for linux, might work on other platforms as well.
+     SetSharedLibraryName = \
+@@ -177,7 +180,7 @@ define CreateDynamicLibraryOrExecutable
+ 	    $$(eval $$(call ListPathsSafely, $1_ALL_OBJS, $$($1_OBJ_FILE_LIST)))
+           endif
+         endif
+-        ifeq ($(TOOLCHAIN_TYPE)+$(call isTargetOs, windows), gcc+true)
++        ifneq ($(filter gcc+true clang+true, $(TOOLCHAIN_TYPE)+$(call isTargetOs, windows)), )
+           # windres embeds the manifest as it is, so fill in the identity
+           # that mt -identity sets under Visual Studio; Windows refuses to
+           # start an executable whose manifest names nothing. 24 is
+diff --git a/make/modules/jdk.incubator.vector/Lib.gmk b/make/modules/jdk.incubator.vector/Lib.gmk
+index cf15ab045..539720841 100644
+--- a/make/modules/jdk.incubator.vector/Lib.gmk
++++ b/make/modules/jdk.incubator.vector/Lib.gmk
+@@ -33,9 +33,9 @@ ifeq ($(INCLUDE_COMPILER2), true)
+   ## Build libjsvml
+   ##############################################################################
+ 
+-  # The Windows sources are MASM, which gcc cannot assemble. Without the
++  # The Windows sources are MASM, which gcc and clang cannot assemble. Without the
+   # library the Vector API computes these functions in Java instead.
+-  ifeq ($(call isTargetOs, linux windows)+$(call isTargetCpu, x86_64)+$(filter windows-gcc, \
++  ifeq ($(call isTargetOs, linux windows)+$(call isTargetCpu, x86_64)+$(filter windows-gcc windows-clang, \
+       $(OPENJDK_TARGET_OS)-$(TOOLCHAIN_TYPE)), true+true+)
+     $(eval $(call SetupJdkLibrary, BUILD_LIBJSVML, \
+         NAME := jsvml, \
+diff --git a/make/modules/jdk.jpackage/Lib.gmk b/make/modules/jdk.jpackage/Lib.gmk
+index 7d61a07bd..f8aeda736 100644
+--- a/make/modules/jdk.jpackage/Lib.gmk
++++ b/make/modules/jdk.jpackage/Lib.gmk
+@@ -33,7 +33,7 @@ JPACKAGE_OUTPUT_DIR := \
+ JPACKAGE_CFLAGS_windows := -DUNICODE -D_UNICODE
+ ifeq ($(TOOLCHAIN_TYPE), microsoft)
+   JPACKAGE_CXXFLAGS_windows := -EHsc $(JPACKAGE_CFLAGS_windows)
+-else ifeq ($(TOOLCHAIN_TYPE), gcc)
++else
+   JPACKAGE_CXXFLAGS_windows := $(JPACKAGE_CFLAGS_windows)
+ endif
+ 

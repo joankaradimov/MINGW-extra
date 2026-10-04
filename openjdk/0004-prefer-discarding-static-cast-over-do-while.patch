@@ -1,0 +1,250 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: TheShermanTanker <tanksherman27@gmail.com>
+Date: Wed, 30 Aug 2023 15:11:26 +0800
+Subject: [PATCH 04/18] Prefer discarding static_cast over do while (false)
+
+From the Windows/gcc port in https://github.com/TheShermanTanker/jdk,
+branch experimental, commit 21d5e23c, rebased onto jdk-27+35.
+
+Upstream: JEP draft 8288293 (https://openjdk.org/jeps/8288293), not merged
+---
+ src/hotspot/os/windows/os_perf_windows.cpp    |  3 ++
+ .../heuristics/shenandoahHeuristics.hpp       | 15 +++---
+ src/hotspot/share/runtime/frame.cpp           |  3 ++
+ src/hotspot/share/sanitizers/address.hpp      | 10 ++--
+ src/hotspot/share/utilities/debug.hpp         | 54 +++++++++++--------
+ 5 files changed, 53 insertions(+), 32 deletions(-)
+
+diff --git a/src/hotspot/os/windows/os_perf_windows.cpp b/src/hotspot/os/windows/os_perf_windows.cpp
+index d083c72c2..1a9659b96 100644
+--- a/src/hotspot/os/windows/os_perf_windows.cpp
++++ b/src/hotspot/os/windows/os_perf_windows.cpp
+@@ -361,7 +361,10 @@ static int number_of_live_process_instances() {
+   int instances = 0;
+   const char* const end = buffer + size;
+   for (char* next = buffer; next != end && (*next != '\0'); next = &next[strlen(next) + 1], ++instances);
++PRAGMA_DIAG_PUSH
++PRAGMA_DISABLE_GCC_WARNING("-Wmisleading-indentation")
+   assert(instances > 0, "invariant");
++PRAGMA_DIAG_POP
+   return instances;
+ }
+ 
+diff --git a/src/hotspot/share/gc/shenandoah/heuristics/shenandoahHeuristics.hpp b/src/hotspot/share/gc/shenandoah/heuristics/shenandoahHeuristics.hpp
+index f0d8d8b1b..10d8d63e5 100644
+--- a/src/hotspot/share/gc/shenandoah/heuristics/shenandoahHeuristics.hpp
++++ b/src/hotspot/share/gc/shenandoah/heuristics/shenandoahHeuristics.hpp
+@@ -33,28 +33,31 @@
+ #include "utilities/numberSeq.hpp"
+ 
+ #define SHENANDOAH_ERGO_DISABLE_FLAG(name)                                  \
+-  do {                                                                      \
++  {                                                                         \
+     if (FLAG_IS_DEFAULT(name) && (name)) {                                  \
+       log_info(gc)("Heuristics ergonomically sets -XX:-" #name);            \
+       FLAG_SET_ERGO(name, false);                                           \
+     }                                                                       \
+-  } while (0)
++  }                                                                         \
++  static_cast<void>(0)
+ 
+ #define SHENANDOAH_ERGO_ENABLE_FLAG(name)                                   \
+-  do {                                                                      \
++  {                                                                         \
+     if (FLAG_IS_DEFAULT(name) && !(name)) {                                 \
+       log_info(gc)("Heuristics ergonomically sets -XX:+" #name);            \
+       FLAG_SET_ERGO(name, true);                                            \
+     }                                                                       \
+-  } while (0)
++  }                                                                         \
++  static_cast<void>(0)
+ 
+ #define SHENANDOAH_ERGO_OVERRIDE_DEFAULT(name, value)                       \
+-  do {                                                                      \
++  {                                                                         \
+     if (FLAG_IS_DEFAULT(name)) {                                            \
+       log_info(gc)("Heuristics ergonomically sets -XX:" #name "=" #value);  \
+       FLAG_SET_ERGO(name, value);                                           \
+     }                                                                       \
+-  } while (0)
++  }                                                                         \
++  static_cast<void>(0)
+ 
+ class ShenandoahCollectionSet;
+ class ShenandoahHeapRegion;
+diff --git a/src/hotspot/share/runtime/frame.cpp b/src/hotspot/share/runtime/frame.cpp
+index d99d36571..de5b4a300 100644
+--- a/src/hotspot/share/runtime/frame.cpp
++++ b/src/hotspot/share/runtime/frame.cpp
+@@ -410,7 +410,10 @@ frame frame::java_sender() const {
+                   RegisterMap::WalkContinuation::skip);
+   frame s;
+   for (s = sender(&map); !(s.is_java_frame() || s.is_first_frame()); s = s.sender(&map)) ;
++PRAGMA_DIAG_PUSH
++PRAGMA_DISABLE_GCC_WARNING("-Wmisleading-indentation")
+   guarantee(s.is_java_frame(), "tried to get caller of first java frame");
++PRAGMA_DIAG_POP
+   return s;
+ }
+ 
+diff --git a/src/hotspot/share/sanitizers/address.hpp b/src/hotspot/share/sanitizers/address.hpp
+index 83cd61cd8..5bfe0b228 100644
+--- a/src/hotspot/share/sanitizers/address.hpp
++++ b/src/hotspot/share/sanitizers/address.hpp
+@@ -61,19 +61,21 @@
+ // ASAN_UNPOISON_MEMORY_REGION is defined in <sanitizer/asan_interface.h>
+ #else
+ #define ASAN_POISON_MEMORY_REGION(addr, size) \
+-  do {                                        \
++  {                                           \
+     if (false) {                              \
+       ((void) (addr));                        \
+       ((void) (size));                        \
+     }                                         \
+-  } while (false)
++  }                                           \
++  static_cast<void>(0)
+ #define ASAN_UNPOISON_MEMORY_REGION(addr, size) \
+-  do {                                          \
++  {                                             \
+     if (false) {                                \
+       ((void) (addr));                          \
+       ((void) (size));                          \
+     }                                           \
+-  } while (false)
++  }                                             \
++  static_cast<void>(0)
+ #endif
+ 
+ class outputStream;
+diff --git a/src/hotspot/share/utilities/debug.hpp b/src/hotspot/share/utilities/debug.hpp
+index 127241536..03691dad2 100644
+--- a/src/hotspot/share/utilities/debug.hpp
++++ b/src/hotspot/share/utilities/debug.hpp
+@@ -29,8 +29,8 @@
+ #include "utilities/compilerWarnings.hpp"
+ #include "utilities/macros.hpp"
+ 
+-#include <stddef.h>
+-#include <stdint.h>
++#include <cstddef>
++#include <cstdint>
+ 
+ class oopDesc;
+ 
+@@ -148,12 +148,13 @@ class DebuggingContext {
+ // Note: The signature is vmassert(p, format, ...), but the solaris
+ // compiler can't handle an empty ellipsis in a macro without a warning.
+ #define vmassert_with_file_and_line(p, file, line, ...)                \
+-do {                                                                   \
++{                                                                      \
+   if (! VMASSERT_CHECK_PASSED(p)) {                                    \
+     TOUCH_ASSERT_POISON;                                               \
+     report_vm_error(file, line, "assert(" #p ") failed", __VA_ARGS__); \
+   }                                                                    \
+-} while (0)
++}                                                                      \
++static_cast<void>(0)
+ #define vmassert(p, ...) vmassert_with_file_and_line(p, __FILE__, __LINE__, __VA_ARGS__)
+ #endif
+ 
+@@ -175,13 +176,14 @@ do {                                                                   \
+ // an extra arg and use strerror to convert it to a meaningful string
+ // like "Invalid argument", "out of memory" etc
+ #define vmassert_status(p, status, msg) \
+-do {                                                                           \
++{                                                                              \
+   if (! VMASSERT_CHECK_PASSED(p)) {                                            \
+     TOUCH_ASSERT_POISON;                                                       \
+     report_vm_status_error(__FILE__, __LINE__, "assert(" #p ") failed",        \
+                            status, msg);                                       \
+   }                                                                            \
+-} while (0)
++}                                                                              \
++static_cast<void>(0)
+ #endif // ASSERT
+ 
+ // For backward compatibility.
+@@ -192,58 +194,66 @@ do {                                                                           \
+ // guarantee is also used for Verify options.
+ // guarantee is not subject to DebuggingContext bypass.
+ #define guarantee(p, ...)                                                         \
+-do {                                                                              \
++{                                                                                 \
+   if (!(p)) {                                                                     \
+     TOUCH_ASSERT_POISON;                                                          \
+     report_vm_error(__FILE__, __LINE__, "guarantee(" #p ") failed", __VA_ARGS__); \
+   }                                                                               \
+-} while (0)
++}                                                                                 \
++static_cast<void>(0)
+ 
+ #define fatal(...)                                                                \
+-do {                                                                              \
++{                                                                                 \
+   TOUCH_ASSERT_POISON;                                                            \
+   report_fatal(INTERNAL_ERROR, __FILE__, __LINE__, __VA_ARGS__);                  \
+-} while (0)
++}                                                                                 \
++static_cast<void>(0)
+ 
+ // out of memory
+ #define vm_exit_out_of_memory(size, vm_err_type, ...)                             \
+-do {                                                                              \
++{                                                                                 \
+   report_vm_out_of_memory(__FILE__, __LINE__, size, vm_err_type, __VA_ARGS__);    \
+-} while (0)
++}                                                                                 \
++static_cast<void>(0)
+ 
+ #define check_with_errno(check_type, cond, msg)                                   \
+-  do {                                                                            \
++  {                                                                               \
+     int err = errno;                                                              \
+     check_type(cond, "%s; error='%s' (errno=%s)", msg, os::strerror(err),         \
+                os::errno_name(err));                                              \
+-} while (false)
++}                                                                                 \
++static_cast<void>(0)
+ 
+ #define assert_with_errno(cond, msg)    check_with_errno(assert, cond, msg)
+ #define guarantee_with_errno(cond, msg) check_with_errno(guarantee, cond, msg)
+ 
+ #define ShouldNotCallThis()                                                       \
+-do {                                                                              \
++{                                                                                 \
+   TOUCH_ASSERT_POISON;                                                            \
+   report_should_not_call(__FILE__, __LINE__);                                     \
+-} while (0)
++}                                                                                 \
++static_cast<void>(0)
+ 
+ #define ShouldNotReachHere()                                                      \
+-do {                                                                              \
++{                                                                                 \
+   TOUCH_ASSERT_POISON;                                                            \
+   report_should_not_reach_here(__FILE__, __LINE__);                               \
+-} while (0)
++}                                                                                 \
++static_cast<void>(0)
+ 
+ #define Unimplemented()                                                           \
+-do {                                                                              \
++{                                                                                 \
+   TOUCH_ASSERT_POISON;                                                            \
+   report_unimplemented(__FILE__, __LINE__);                                       \
+-} while (0)
++}                                                                                 \
++static_cast<void>(0)
+ 
+ #define Untested(msg)                                                             \
+-do {                                                                              \
++{                                                                                 \
+   report_untested(__FILE__, __LINE__, msg);                                       \
+   BREAKPOINT;                                                                     \
+-} while (0);
++}                                                                                 \
++static_cast<void>(0)
+ 
+ 
+ // types of VM error - originally in vmError.hpp

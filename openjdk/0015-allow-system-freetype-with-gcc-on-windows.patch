@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sun, 4 Oct 2026 16:18:38 +0300
+Subject: [PATCH 15/18] Allow system freetype with gcc on Windows
+
+pkg-config finds it, as on Linux.
+
+Upstream: not submitted; part of the Windows/gcc port, not upstream OpenJDK
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ make/autoconf/lib-freetype.m4 | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/make/autoconf/lib-freetype.m4 b/make/autoconf/lib-freetype.m4
+index 8d524c8c8..49296d539 100644
+--- a/make/autoconf/lib-freetype.m4
++++ b/make/autoconf/lib-freetype.m4
+@@ -128,9 +128,10 @@ AC_DEFUN_ONCE([LIB_SETUP_FREETYPE],
+   fi
+ 
+   if test "x$FREETYPE_TO_USE" = "xsystem" && \
+-      (test "x$OPENJDK_TARGET_OS" = "xwindows" || \
++      ((test "x$OPENJDK_TARGET_OS" = "xwindows" && \
++      test "x$TOOLCHAIN_TYPE" != "xgcc") || \
+       test "x$OPENJDK_TARGET_OS" = "xmacosx"); then
+-    AC_MSG_ERROR([Only bundled freetype can be specified on Mac and Windows])
++    AC_MSG_ERROR([Only bundled freetype can be specified on Mac, and on Windows with Visual Studio])
+   fi
+ 
+   if test "x$with_freetype_include" != "x" ; then

@@ -1,0 +1,240 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: TheShermanTanker <tanksherman27@gmail.com>
+Date: Wed, 9 Mar 2022 20:36:48 +0800
+Subject: [PATCH 03/18] Refactor
+
+From the Windows/gcc port in https://github.com/TheShermanTanker/jdk,
+branch experimental, commit dc01c7cb, rebased onto jdk-27+35. The rebranding
+to Java and Java HotSpot, and its replacement icons, are left out.
+
+Upstream: JEP draft 8288293 (https://openjdk.org/jeps/8288293), not merged
+---
+ make/StaticLibsImage.gmk                           |  4 ++--
+ make/UpdateX11Wrappers.gmk                         |  2 +-
+ make/common/JdkNativeCompilation.gmk               | 12 ++++++------
+ make/hotspot/gensrc/GensrcAdlc.gmk                 |  2 +-
+ make/hotspot/lib/CompileGtest.gmk                  |  6 +++---
+ make/hotspot/lib/CompileJvm.gmk                    |  4 ++--
+ make/ide/vscode/hotspot/indexers/ccls-settings.txt |  8 ++++----
+ make/ide/vscode/hotspot/template-workspace.jsonc   |  4 ++--
+ src/hotspot/share/runtime/abstract_vm_version.cpp  |  2 +-
+ test/jdk/java/awt/JAWT/Makefile.win                |  8 ++++----
+ 10 files changed, 26 insertions(+), 26 deletions(-)
+
+diff --git a/make/StaticLibsImage.gmk b/make/StaticLibsImage.gmk
+index 6e00a3997..c442a8be7 100644
+--- a/make/StaticLibsImage.gmk
++++ b/make/StaticLibsImage.gmk
+@@ -58,9 +58,9 @@ ifneq ($(filter static-libs-image, $(MAKECMDGOALS)), )
+   # Copy libjvm static library to the image.
+   $(foreach v, $(JVM_VARIANTS), \
+     $(eval $(call SetupCopyFiles, COPY_STATIC_LIBS_$v, \
+-        SRC := $(HOTSPOT_OUTPUTDIR)/variant-$v/libjvm/objs/static, \
++        SRC := $(HOTSPOT_OUTPUTDIR)/variant-$v/libjvm/objects/static, \
+         DEST := $(IMAGE_DEST_DIR)/$v, \
+-        FILES := $(wildcard $(HOTSPOT_OUTPUTDIR)/variant-$v/libjvm/objs/static/*$(STATIC_LIBRARY_SUFFIX)), \
++        FILES := $(wildcard $(HOTSPOT_OUTPUTDIR)/variant-$v/libjvm/objects/static/*$(STATIC_LIBRARY_SUFFIX)), \
+     )) \
+     $(eval TARGETS += $$(COPY_STATIC_LIBS_$v)) \
+     $(eval HOTSPOT_VARIANT_STATIC_LIBS_TARGETS += $$(COPY_STATIC_LIBS_$v)) \
+diff --git a/make/UpdateX11Wrappers.gmk b/make/UpdateX11Wrappers.gmk
+index 3ff2fc148..c07f94a3f 100644
+--- a/make/UpdateX11Wrappers.gmk
++++ b/make/UpdateX11Wrappers.gmk
+@@ -83,7 +83,7 @@ $(eval $(call SetupJdkExecutable, BUILD_DATA_GENERATOR, \
+     CFLAGS := $(X_CFLAGS) $(DATA_GENERATOR_INCLUDES), \
+     LIBS := $(X_LIBS), \
+     OUTPUT_DIR := $(X11WRAPPERS_OUTPUT)/bin, \
+-    OBJECT_DIR := $(X11WRAPPERS_OUTPUT)/objs, \
++    OBJECT_DIR := $(X11WRAPPERS_OUTPUT)/objects, \
+ ))
+ 
+ # Run the executable to create the data file.
+diff --git a/make/common/JdkNativeCompilation.gmk b/make/common/JdkNativeCompilation.gmk
+index 321c2ac8a..aba9f5b30 100644
+--- a/make/common/JdkNativeCompilation.gmk
++++ b/make/common/JdkNativeCompilation.gmk
+@@ -175,13 +175,13 @@ define ResolveLibPath
+       endif
+       ifeq ($(TOOLCHAIN_TYPE), microsoft)
+         ifeq ($(STATIC_LIBS), true)
+-          $1_$2_LIBPATH := $$(HOTSPOT_OUTPUTDIR)/variant-$$($1_$2_JVM_VARIANT_PATH)/libjvm/objs/static
++          $1_$2_LIBPATH := $$(HOTSPOT_OUTPUTDIR)/variant-$$($1_$2_JVM_VARIANT_PATH)/libjvm/objects/static
+         else
+           $1_$2_LIBPATH := $$(SUPPORT_OUTPUTDIR)/modules_libs/$$($1_$2_MODULE)
+         endif
+       else
+         ifeq ($(STATIC_LIBS), true)
+-          $1_$2_LIBPATH := $$(HOTSPOT_OUTPUTDIR)/variant-$$($1_$2_JVM_VARIANT_PATH)/libjvm/objs/static
++          $1_$2_LIBPATH := $$(HOTSPOT_OUTPUTDIR)/variant-$$($1_$2_JVM_VARIANT_PATH)/libjvm/objects/static
+         else
+           $1_$2_LIBPATH := $$(SUPPORT_OUTPUTDIR)/modules_libs/$$($1_$2_MODULE)/$$($1_$2_JVM_VARIANT_PATH)
+         endif
+@@ -192,13 +192,13 @@ define ResolveLibPath
+     ifeq ($$($1_$2_NAME), jvm)
+       ifeq ($(TOOLCHAIN_TYPE), microsoft)
+         ifeq ($(STATIC_LIBS), true)
+-          $1_$2_LIBPATH := $$(JVM_OUTPUTDIR)/gtest/objs/static
++          $1_$2_LIBPATH := $$(JVM_OUTPUTDIR)/gtest/objects/static
+         else
+-          $1_$2_LIBPATH := $$(JVM_OUTPUTDIR)/gtest/objs
++          $1_$2_LIBPATH := $$(JVM_OUTPUTDIR)/gtest/objects
+         endif
+       else
+         ifeq ($(STATIC_LIBS), true)
+-          $1_$2_LIBPATH := $$(JVM_OUTPUTDIR)/gtest/objs/static
++          $1_$2_LIBPATH := $$(JVM_OUTPUTDIR)/gtest/objects/static
+         else
+           $1_$2_LIBPATH := $$(JVM_OUTPUTDIR)/gtest
+         endif
+@@ -206,7 +206,7 @@ define ResolveLibPath
+     else ifeq ($$($1_$2_NAME), gtest)
+       $1_$2_LIBPATH := $$(JVM_OUTPUTDIR)/libgtest
+       ifeq ($(STATIC_LIBS), true)
+-        $1_$2_LIBPATH := $$(JVM_OUTPUTDIR)/libgtest/objs/static
++        $1_$2_LIBPATH := $$(JVM_OUTPUTDIR)/libgtest/objects/static
+       else
+         $1_$2_LIBPATH := $$(JVM_OUTPUTDIR)/libgtest
+       endif
+diff --git a/make/hotspot/gensrc/GensrcAdlc.gmk b/make/hotspot/gensrc/GensrcAdlc.gmk
+index 8cf914f01..496791cb1 100644
+--- a/make/hotspot/gensrc/GensrcAdlc.gmk
++++ b/make/hotspot/gensrc/GensrcAdlc.gmk
+@@ -84,7 +84,7 @@ ifeq ($(call check-jvm-feature, compiler2), true)
+       LDFLAGS := $(ADLC_LDFLAGS), \
+       LIBS := $(ADLC_LIBS), \
+       DEFAULT_VERSIONINFO_RESOURCE := false, \
+-      OBJECT_DIR := $(JVM_VARIANT_OUTPUTDIR)/tools/adlc/objs, \
++      OBJECT_DIR := $(JVM_VARIANT_OUTPUTDIR)/tools/adlc/objects, \
+       OUTPUT_DIR := $(JVM_VARIANT_OUTPUTDIR)/tools/adlc, \
+       DEBUG_SYMBOLS := false, \
+       DISABLED_WARNINGS_clang := tautological-compare, \
+diff --git a/make/hotspot/lib/CompileGtest.gmk b/make/hotspot/lib/CompileGtest.gmk
+index 4e70297c5..ee40583bc 100644
+--- a/make/hotspot/lib/CompileGtest.gmk
++++ b/make/hotspot/lib/CompileGtest.gmk
+@@ -63,7 +63,7 @@ $(eval $(call SetupJdkLibrary, BUILD_GTEST_LIBGTEST, \
+     TYPE := STATIC_LIBRARY, \
+     LANG := C++, \
+     OUTPUT_DIR := $(JVM_OUTPUTDIR)/libgtest, \
+-    OBJECT_DIR := $(JVM_OUTPUTDIR)/libgtest/objs, \
++    OBJECT_DIR := $(JVM_OUTPUTDIR)/libgtest/objects, \
+     SRC := \
+         $(GTEST_FRAMEWORK_SRC)/googletest/src \
+         $(GTEST_FRAMEWORK_SRC)/googlemock/src, \
+@@ -101,7 +101,7 @@ $(eval $(call SetupJdkLibrary, BUILD_GTEST_LIBJVM, \
+     NAME := jvm, \
+     LANG := C++, \
+     OUTPUT_DIR := $(JVM_OUTPUTDIR)/gtest, \
+-    OBJECT_DIR := $(JVM_OUTPUTDIR)/gtest/objs, \
++    OBJECT_DIR := $(JVM_OUTPUTDIR)/gtest/objects, \
+     SRC := $(GTEST_TEST_SRC), \
+     EXCLUDES := $(JVM_EXCLUDES), \
+     EXCLUDE_FILES := gtestLauncher.cpp, \
+@@ -161,7 +161,7 @@ $(eval $(call SetupJdkExecutable, BUILD_GTEST_LAUNCHER, \
+     SRC := $(TOPDIR)/test/hotspot/gtest, \
+     INCLUDE_FILES := gtestLauncher.cpp, \
+     EXTRA_FILES := $(GTEST_LAUNCHER_EXTRA_FILES), \
+-    OBJECT_DIR := $(JVM_OUTPUTDIR)/gtest/launcher-objs, \
++    OBJECT_DIR := $(JVM_OUTPUTDIR)/gtest/launcher-objects, \
+     DEFAULT_CFLAGS := false, \
+     CFLAGS := $(JVM_CFLAGS) \
+         -I$(GTEST_FRAMEWORK_SRC)/googletest \
+diff --git a/make/hotspot/lib/CompileJvm.gmk b/make/hotspot/lib/CompileJvm.gmk
+index 48bade608..6dd0c5bdc 100644
+--- a/make/hotspot/lib/CompileJvm.gmk
++++ b/make/hotspot/lib/CompileJvm.gmk
+@@ -243,7 +243,7 @@ $(eval $(call SetupJdkLibrary, BUILD_LIBJVM, \
+     LDFLAGS := $(JVM_LDFLAGS), \
+     LIBS := $(JVM_LIBS), \
+     OPTIMIZATION := $(JVM_OPTIMIZATION), \
+-    OBJECT_DIR := $(JVM_OUTPUTDIR)/objs, \
++    OBJECT_DIR := $(JVM_OUTPUTDIR)/objects, \
+     STRIPFLAGS := $(JVM_STRIPFLAGS), \
+     EMBED_MANIFEST := true, \
+     RC_FILEDESC := $(HOTSPOT_VM_DISTRO) $(OPENJDK_TARGET_CPU_BITS)-Bit $(JVM_VARIANT) VM, \
+@@ -320,7 +320,7 @@ endif
+ # Always recompile abstract_vm_version.cpp if libjvm needs to be relinked. This ensures
+ # that the internal vm version is updated as it relies on __DATE__ and __TIME__
+ # macros.
+-ABSTRACT_VM_VERSION_OBJ := $(JVM_OUTPUTDIR)/objs/abstract_vm_version$(OBJ_SUFFIX)
++ABSTRACT_VM_VERSION_OBJ := $(JVM_OUTPUTDIR)/objects/abstract_vm_version$(OBJ_SUFFIX)
+ $(ABSTRACT_VM_VERSION_OBJ): $(filter-out $(ABSTRACT_VM_VERSION_OBJ), \
+     $(BUILD_LIBJVM_TARGET_DEPS))
+ 
+diff --git a/make/ide/vscode/hotspot/indexers/ccls-settings.txt b/make/ide/vscode/hotspot/indexers/ccls-settings.txt
+index fed586e54..a3d4e390e 100644
+--- a/make/ide/vscode/hotspot/indexers/ccls-settings.txt
++++ b/make/ide/vscode/hotspot/indexers/ccls-settings.txt
+@@ -12,12 +12,12 @@
+ 		// Avoid issues with precompiled headers
+ 		"ccls.clang.excludeArgs": [
+ 			// Windows / MSVC
+-			"-Fp{{OUTPUTDIR}}/hotspot/variant-server/libjvm/objs/BUILD_LIBJVM.pch",
+-			"-Fp{{OUTPUTDIR}}/hotspot/variant-server/libjvm/gtest/objs/BUILD_GTEST_LIBJVM.pch",
++			"-Fp{{OUTPUTDIR}}/hotspot/variant-server/libjvm/objects/BUILD_LIBJVM.pch",
++			"-Fp{{OUTPUTDIR}}/hotspot/variant-server/libjvm/gtest/objects/BUILD_GTEST_LIBJVM.pch",
+ 			"-Yuprecompiled.hpp",
+ 			// MacOS / clang
+-			"{{OUTPUTDIR}}/hotspot/variant-server/libjvm/objs/precompiled/precompiled.hpp.pch",
+-			"{{OUTPUTDIR}}/hotspot/variant-server/libjvm/gtest/objs/precompiled/precompiled.hpp.pch",
++			"{{OUTPUTDIR}}/hotspot/variant-server/libjvm/objects/precompiled/precompiled.hpp.pch",
++			"{{OUTPUTDIR}}/hotspot/variant-server/libjvm/gtest/objects/precompiled/precompiled.hpp.pch",
+ 			"-include-pch"
+ 		],
+ 
+diff --git a/make/ide/vscode/hotspot/template-workspace.jsonc b/make/ide/vscode/hotspot/template-workspace.jsonc
+index 271b079f5..1aa7cf984 100644
+--- a/make/ide/vscode/hotspot/template-workspace.jsonc
++++ b/make/ide/vscode/hotspot/template-workspace.jsonc
+@@ -55,8 +55,8 @@
+ 			"**/*_batch*": true,
+ 			"**/*.marker": true,
+ 			"**/compile-commands/": true,
+-			"**/objs": true,
+-			"**/launcher-objs": true,
++			"**/objects": true,
++			"**/launcher-objects": true,
+ 			"**/*.cmdline": true,
+ 			"**/*.log": true,
+ 			".vscode": true,
+diff --git a/src/hotspot/share/runtime/abstract_vm_version.cpp b/src/hotspot/share/runtime/abstract_vm_version.cpp
+index 37c5815f6..2c3fdc421 100644
+--- a/src/hotspot/share/runtime/abstract_vm_version.cpp
++++ b/src/hotspot/share/runtime/abstract_vm_version.cpp
+@@ -129,7 +129,7 @@ const char* Abstract_VM_Version::vm_name() {
+ # define VENDOR_PADDING 64
+ #endif
+ #ifndef VENDOR
+-# define VENDOR  "Oracle Corporation"
++# define VENDOR  "Sun Microsystems"
+ #endif
+ 
+ static const char vm_vendor_string[sizeof(VENDOR) < VENDOR_PADDING ? VENDOR_PADDING : sizeof(VENDOR)] = VENDOR;
+diff --git a/test/jdk/java/awt/JAWT/Makefile.win b/test/jdk/java/awt/JAWT/Makefile.win
+index 2c627d961..eca553e89 100644
+--- a/test/jdk/java/awt/JAWT/Makefile.win
++++ b/test/jdk/java/awt/JAWT/Makefile.win
+@@ -20,7 +20,7 @@
+ # questions.
+ 
+ CFLAGS =	-nologo
+-OBJS =		myfile.obj
++OBJS =		myfile.o
+ HEADERS =	MyCanvas.h
+ CLASSES =	MyCanvas.class
+ 
+@@ -36,10 +36,10 @@ all:		$(CLASSES) mylib.dll
+ mylib.dll: $(HEADERS) $(OBJS) 
+ 	$(LINK) -nologo -dll -out:mylib.dll $(OBJS) $(LIBS)
+ 
+-myfile.obj: $(TESTSRC)\myfile.cpp
+-	$(CC) $(CFLAGS) $(INCLUDES) -c $(TESTSRC)\myfile.cpp
++myfile.o: $(TESTSRC)\myfile.cpp
++	$(CC) $(CFLAGS) $(INCLUDES) -Fo"myfile.o" -c $(TESTSRC)\myfile.cpp
+ 
+ clean:
+ 	$(DEL) mylib.* 
+ 	$(DEL) $(HEADERS) $(CLASSES)
+-	$(DEL) *.obj
++	$(DEL) *.o

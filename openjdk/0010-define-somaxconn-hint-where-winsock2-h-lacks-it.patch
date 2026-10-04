@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sun, 4 Oct 2026 16:18:21 +0300
+Subject: [PATCH 10/18] Define SOMAXCONN_HINT where winsock2.h lacks it
+
+mingw-w64 does not have the Windows SDK's macro.
+
+Upstream: not submitted; mingw-w64 could add the macro
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/java.base/windows/native/libnio/ch/Net.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/java.base/windows/native/libnio/ch/Net.c b/src/java.base/windows/native/libnio/ch/Net.c
+index 6c07ca8fc..04a26d6fd 100644
+--- a/src/java.base/windows/native/libnio/ch/Net.c
++++ b/src/java.base/windows/native/libnio/ch/Net.c
+@@ -41,6 +41,10 @@
+  * Definitions to allow for building with older SDK include files.
+  */
+ 
++#ifndef SOMAXCONN_HINT
++#define SOMAXCONN_HINT(b) (-(b))
++#endif
++
+ #ifndef MCAST_BLOCK_SOURCE
+ 
+ #define MCAST_BLOCK_SOURCE          43

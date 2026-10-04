@@ -1,0 +1,72 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sun, 4 Oct 2026 20:22:52 +0300
+Subject: [PATCH 18/18] Mark the gcc decoder's raw allocations as deliberate
+
+It allocates with malloc, which HotSpot forbids in favour of
+os::malloc; it can run while the VM reports a crash, so keep the raw
+allocator and say so.
+
+Upstream: not submitted; fixes the Windows/gcc port, not upstream OpenJDK
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/hotspot/os/windows/decoder_windows.cpp | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/src/hotspot/os/windows/decoder_windows.cpp b/src/hotspot/os/windows/decoder_windows.cpp
+index f3964f401..4edb62dc5 100644
+--- a/src/hotspot/os/windows/decoder_windows.cpp
++++ b/src/hotspot/os/windows/decoder_windows.cpp
+@@ -23,6 +23,7 @@
+  */
+ 
+ #include "utilities/decoder.hpp"
++#include "utilities/permitForbiddenFunctions.hpp"
+ #include "utilities/vmError.hpp"
+ #include "symbolengine.hpp"
+ #include "windbghelp.hpp"
+@@ -135,7 +136,7 @@ bool WindowsDecoder::decode(address pc, char *buf, int buflen, int *offset,
+             uintptr_t symbolTable = file + coffHeader->FileHeader.PointerToSymbolTable;
+             uintptr_t stringTable = symbolTable + coffHeader->FileHeader.NumberOfSymbols * 18;
+ 
+-            COFFSymbol *const list = static_cast<COFFSymbol *>(::malloc(coffHeader->FileHeader.NumberOfSymbols * sizeof (COFFSymbol)));
++            COFFSymbol *const list = static_cast<COFFSymbol *>(permit_forbidden_function::malloc(coffHeader->FileHeader.NumberOfSymbols * sizeof (COFFSymbol)));
+             if (list != nullptr) {
+               COFFSymbol *ptr = list;
+ 
+@@ -216,7 +217,7 @@ bool WindowsDecoder::decode(address pc, char *buf, int buflen, int *offset,
+               }
+             }
+ 
+-            ::free(list);
++            permit_forbidden_function::free(list);
+           }
+         }
+       }
+@@ -272,7 +273,7 @@ bool WindowsDecoder::decode(address pc, char *buf, int buflen, int *offset, cons
+             uintptr_t symbolTable = file + coffHeader->FileHeader.PointerToSymbolTable;
+             uintptr_t stringTable = symbolTable + coffHeader->FileHeader.NumberOfSymbols * 18;
+ 
+-            COFFSymbol *const list = static_cast<COFFSymbol *>(::malloc(coffHeader->FileHeader.NumberOfSymbols * sizeof (COFFSymbol)));
++            COFFSymbol *const list = static_cast<COFFSymbol *>(permit_forbidden_function::malloc(coffHeader->FileHeader.NumberOfSymbols * sizeof (COFFSymbol)));
+             if (list != nullptr) {
+               COFFSymbol *ptr = list;
+ 
+@@ -353,7 +354,7 @@ bool WindowsDecoder::decode(address pc, char *buf, int buflen, int *offset, cons
+               }
+             }
+ 
+-            ::free(list);
++            permit_forbidden_function::free(list);
+           }
+         }
+       }
+@@ -378,7 +379,7 @@ bool WindowsDecoder::demangle(const char *symbol, char *buf, int buflen) {
+   if ((result = abi::__cxa_demangle(symbol, nullptr, nullptr, &status)) != nullptr) {
+     jio_snprintf(buf, buflen, "%s", result);
+     // call C library's free
+-    ::free(result);
++    permit_forbidden_function::free(result);
+     return true;
+   }
+   return false;
