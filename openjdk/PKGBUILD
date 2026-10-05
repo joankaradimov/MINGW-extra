@@ -6,7 +6,7 @@ pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
 _majorver=27
 _updatever=35
 pkgver=${_majorver}.u${_updatever}
-pkgrel=1
+pkgrel=2
 # OpenJDK builds with a JDK of its own or the previous major version. MSYS2
 # has none, so the build runs on Adoptium's Temurin binaries; nothing of
 # them is installed.
