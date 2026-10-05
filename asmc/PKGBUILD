@@ -5,7 +5,7 @@ pkgbase=mingw-w64-${_realname}
 pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
 _commit=111696c2285ffee0a359d04f2d1283c3e50b42fe
 pkgver=2.39.17
-pkgrel=1
+pkgrel=2
 pkgdesc="Asmc Macro Assembler, compatible with MASM (mingw-w64)"
 arch=('any')
 mingw_arch=('ucrt64' 'clang64')
@@ -15,7 +15,11 @@ msys2_references=(
   'aur: asmc'
 )
 license=('spdx:GPL-2.0-or-later')
-makedepends=("${MINGW_PACKAGE_PREFIX}-cc")
+# asmc is written in its own dialect, so it builds with the packaged asmc.
+# Without one, the bin/asmc64.exe in the tarball can start the chain over,
+# as it did for 2.39.17-1.
+makedepends=("${MINGW_PACKAGE_PREFIX}-asmc"
+             "${MINGW_PACKAGE_PREFIX}-cc")
 source=("${_realname}-${_commit}.tar.gz::https://github.com/nidud/asmc/archive/${_commit}.tar.gz"
         '0001-scale-evex-displacements-only-with-a-base-register.patch'
         '0002-keep-rex-r-in-the-two-byte-vex-prefix.patch'
@@ -35,35 +39,55 @@ prepare() {
   for _p in "${srcdir}"/00*.patch; do
     patch -Np1 -i "${_p}"
   done
+  rm -r bin
+}
+
+# Assembles asmc and asmc64 with the asmc64 in $1, into build-${MSYSTEM}/$2.
+# -D_UCRT selects 0004's code for MinGW's C runtime; -nolib keeps asmc's own
+# runtime libraries out of the objects.
+_assemble() {
+  local _variant
+  for _variant in asmc asmc64; do
+    mkdir -p "build-${MSYSTEM}/$2/${_variant}"
+    (
+      cd "build-${MSYSTEM}/$2/${_variant}"
+      "$1" -q -nologo -nolib -c -D_UCRT -Cs -Zp8 -frame \
+        $([[ ${_variant} == asmc64 ]] && echo -DASMC64) \
+        -I../../../inc -I../../../../../include ../../../src/*.asm
+    )
+  done
 }
 
 build() {
   cd "${srcdir}/${_realname}-${_commit}/source/asmc"
 
-  # asmc is written in its own dialect: the prebuilt asmc64.exe from the
-  # same commit assembles a first stage, which assembles the shipped one.
-  # -D_UCRT selects 0004's code for MinGW's C runtime; -nolib keeps asmc's
-  # own runtime libraries out of the objects.
-  local _asmc="${srcdir}/${_realname}-${_commit}/bin/asmc64.exe"
-  local _stage _variant _out
+  # The packaged asmc assembles a first stage, which assembles the shipped one.
+  local _asmc="${MINGW_PREFIX}/bin/asmc64.exe" _stage _variant
   for _stage in stage1 stage2; do
+    _assemble "${_asmc}" ${_stage}
     for _variant in asmc asmc64; do
-      _out="build-${MSYSTEM}/${_stage}/${_variant}"
-      mkdir -p "${_out}"
-      (
-        cd "${_out}"
-        "${_asmc}" -q -nologo -nolib -c -D_UCRT -Cs -Zp8 -frame \
-          $([[ ${_variant} == asmc64 ]] && echo -DASMC64) \
-          -I../../../inc -I../../../../../include ../../../src/*.asm
-        cc ${LDFLAGS} -o "../${_variant}.exe" *.obj -lbcrypt -Wl,--stack,0x300000
-      )
+      cc ${LDFLAGS} -o "build-${MSYSTEM}/${_stage}/${_variant}.exe" \
+        "build-${MSYSTEM}/${_stage}/${_variant}"/*.obj -lbcrypt -Wl,--stack,0x300000
     done
     _asmc="${PWD}/build-${MSYSTEM}/${_stage}/asmc64.exe"
   done
 }
 
 check() {
-  cd "${srcdir}/${_realname}-${_commit}/source/asmc/test"
+  cd "${srcdir}/${_realname}-${_commit}/source/asmc"
+
+  # The bootstrap reached a fixed point: stage 2 assembles itself into the
+  # objects stage 1 made of it, but for the COFF TimeDateStamp in bytes 4-7.
+  _assemble "${PWD}/build-${MSYSTEM}/stage2/asmc64.exe" stage3
+  local _o _differ=0
+  for _o in build-${MSYSTEM}/stage2/*/*.obj; do
+    if ! cmp -s -i 8 "${_o}" "${_o/stage2/stage3}"; then
+      echo "stage 3 differs: ${_o#*/stage2/}"
+      _differ=1
+    fi
+  done
+
+  cd test
   local _bin="../build-${MSYSTEM}/stage2"
   local _out="../build-${MSYSTEM}/test"
   mkdir -p "${_out}"
@@ -86,7 +110,7 @@ check() {
     fi
   done
   echo "${_passed} passed, ${_failed} failed"
-  [[ ${_failed} == 0 ]]
+  [[ ${_failed} == 0 && ${_differ} == 0 ]]
 }
 
 package() {
