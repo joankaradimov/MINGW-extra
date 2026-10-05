@@ -12,11 +12,13 @@ The databases reach this module as files, never over HTTP.  The host's bot
 protection answers requests from cloud addresses -- which is where CI runners
 are -- with a CAPTCHA page instead of the file.  So a job holding the deploy
 key copies them over SSH (``ci/fetch-published.sh``) and hands the copy to the
-jobs that plan and build, which run PKGBUILDs and never see the key.
+jobs that plan and build, which run PKGBUILDs and never see the key.  Pull
+requests get theirs from the mirror on ghcr.io instead (``registry``).
 
 A ``.db`` is a gzipped tar of ``<pkgname>-<version>/desc`` files, each a
 sequence of ``%KEY%`` headers followed by their values.  Nothing else is
-needed to answer "is this exact version published" and "in which file".
+needed to answer "is this exact version published", "in which file", and what
+that file's checksum and size are.
 """
 
 from __future__ import annotations
@@ -24,17 +26,32 @@ from __future__ import annotations
 import io
 import os
 import tarfile
+from dataclasses import dataclass
 
 from .config import PUBLISHED_MARKER, db_path
+
+
+@dataclass(frozen=True)
+class PackageFile:
+    """A package file a database references, as repo-add described it."""
+
+    filename: str
+    sha256: str | None
+    """%SHA256SUM%, hex; repo-add always writes it."""
+
+    size: int | None
+    """%CSIZE%: the file's size in bytes."""
 
 
 class Database:
     """Package name -> version and file, as currently published for one environment."""
 
     def __init__(self, versions: dict[str, str] | None = None,
-                 filenames: dict[str, str] | None = None) -> None:
+                 filenames: dict[str, str] | None = None,
+                 package_files: dict[str, PackageFile] | None = None) -> None:
         self._versions = versions or {}
         self._filenames = filenames or {}
+        self._package_files = package_files or {}
 
     def __len__(self) -> int:
         return len(self._versions)
@@ -52,6 +69,11 @@ class Database:
     def files(self) -> list[str]:
         """Every package file the database references, sorted."""
         return sorted(self._filenames.values())
+
+    def package_files(self) -> list[PackageFile]:
+        """Every package file the database references, with checksum and size,
+        sorted by filename."""
+        return sorted(self._package_files.values(), key=lambda entry: entry.filename)
 
     def names(self) -> list[str]:
         """Every package name the database holds, sorted."""
@@ -77,6 +99,7 @@ def parse(data: bytes) -> Database:
     """Parse the bytes of a ``.db`` (or ``.files``) archive."""
     versions: dict[str, str] = {}
     filenames: dict[str, str] = {}
+    package_files: dict[str, PackageFile] = {}
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as archive:
         for member in archive:
             if not member.isfile() or not member.name.endswith("/desc"):
@@ -90,7 +113,11 @@ def parse(data: bytes) -> Database:
                 versions[name] = version
                 if entry.get("FILENAME"):
                     filenames[name] = entry["FILENAME"]
-    return Database(versions, filenames)
+                    size = entry.get("CSIZE")
+                    package_files[name] = PackageFile(
+                        entry["FILENAME"], entry.get("SHA256SUM"),
+                        int(size) if size and size.isdigit() else None)
+    return Database(versions, filenames, package_files)
 
 
 def _parse_desc(text: str) -> dict[str, str]:

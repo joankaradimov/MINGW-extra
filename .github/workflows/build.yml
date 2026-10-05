@@ -10,9 +10,12 @@
 # Nothing in this workflow reads the repository over HTTP. The host's bot
 # protection answers requests from cloud addresses, which is where GitHub's
 # runners are, with a CAPTCHA page instead of the file. So the jobs that hold
-# the deploy key -- site, databases, mirror and publish -- copy what is needed
-# over SSH, and they are exactly the jobs that run no PKGBUILDs. plan and the
-# builds run PKGBUILDs and never see the key.
+# the deploy key -- site, databases, mirror, publish and ghcr -- copy what is
+# needed over SSH, and they are exactly the jobs that run no PKGBUILDs. plan
+# and the builds run PKGBUILDs and never see the key.
+#
+# Pull requests cannot have the key at all, so ghcr mirrors the published
+# repository to ghcr.io, from where pr.yml reads it anonymously.
 #
 # MSYS packages are built by a job of their own, before the MinGW matrix: a
 # MinGW package may depend on one (alpmrpc needs alpmrpcd), and the matrix
@@ -358,3 +361,49 @@ jobs:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           REMOVE: ${{ needs.plan.outputs.remove }}
         run: ci/publish.sh artifacts $REMOVE
+
+  # The published repository, mirrored to ghcr.io for pull requests: each
+  # environment an OCI artifact tagged with its name (ci/autobuild/registry.py
+  # has the layout). It mirrors the host as it is after publish, on every run,
+  # so an upload that failed is repaired by the next one, and only the package
+  # files the registry lacks are copied off the host and uploaded.
+  ghcr:
+    name: ghcr.io
+    needs: [databases, publish]
+    if: ${{ !cancelled() && needs.databases.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: publish
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/deploy-ssh
+        with:
+          key: ${{ secrets.DEPLOY_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          port: ${{ secrets.DEPLOY_PORT }}
+
+      - name: Mirror the published repository
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ghcr.io/${{ github.repository }}
+          SOURCE: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          # The databases as publish left them, not as this run found them.
+          bash ci/fetch-published.sh databases published
+          shopt -s nullglob
+          for directory in published/*/; do
+            environment=$(basename "$directory")
+            PYTHONPATH=ci python3 -m autobuild registry-missing --image "$IMAGE" \
+              --published published --environment "$environment" > missing.txt
+            bash ci/fetch-published.sh packages "$environment" published missing.txt
+            PYTHONPATH=ci python3 -m autobuild registry-push --image "$IMAGE" \
+              --published published --environment "$environment" --source "$SOURCE"
+          done

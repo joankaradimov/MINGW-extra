@@ -11,10 +11,11 @@
 #   ci/fetch-published.sh databases <dest>
 #       <dest>/<environment>/mingw-extra-<environment>.db for every environment
 #       published so far, then <dest>/COMPLETE once all of it has arrived.
-#   ci/fetch-published.sh packages <environment> <dest>
+#   ci/fetch-published.sh packages <environment> <dest> [<list>]
 #       Every package file <dest>/<environment>/mingw-extra-<environment>.db
 #       references, copied next to it: a local repository pacman can install
-#       from. <dest> is what the databases step produced.
+#       from. <dest> is what the databases step produced. With <list>, a file
+#       of package filenames, only those: what the ghcr.io mirror lacks.
 #
 # Environment:
 #   DEPLOY_HOST  ssh destination, e.g. deploy@packages.example.com
@@ -58,12 +59,16 @@ case "${1:-}" in
         ;;
 
     packages)
-        environment=${2:?usage: ci/fetch-published.sh packages <environment> <dest>}
-        dest=${3:?usage: ci/fetch-published.sh packages <environment> <dest>}
+        environment=${2:?usage: ci/fetch-published.sh packages <environment> <dest> [<list>]}
+        dest=${3:?usage: ci/fetch-published.sh packages <environment> <dest> [<list>]}
         list=$(mktemp)
         trap 'rm -f "$list"' EXIT
-        PYTHONPATH="$here" python3 -m autobuild files \
-            --published "$dest" --environment "$environment" > "$list"
+        if [[ -n "${4:-}" ]]; then
+            cp "$4" "$list"
+        else
+            PYTHONPATH="$here" python3 -m autobuild files \
+                --published "$dest" --environment "$environment" > "$list"
+        fi
         count=$(wc -l < "$list")
         echo "==> $environment: $count published package file(s)"
         if [[ $count -gt 0 ]]; then
@@ -77,7 +82,7 @@ case "${1:-}" in
 
     *)
         echo "usage: ci/fetch-published.sh databases <dest>" >&2
-        echo "       ci/fetch-published.sh packages <environment> <dest>" >&2
+        echo "       ci/fetch-published.sh packages <environment> <dest> [<list>]" >&2
         exit 2
         ;;
 esac

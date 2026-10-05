@@ -74,28 +74,43 @@ leaves that to a person.
 of `DEPLOY_PATH`. It runs on every run, alongside the rest; the page is small,
 and this way the one on the server never drifts from the one in the repository.
 
-Only databases, mirror, publish and site hold the deploy key, and none of them
-runs a PKGBUILD. plan and build run PKGBUILDs — `build()` is arbitrary upstream code —
-and **hold no secrets**, deliberately.
+**ghcr** (Linux) mirrors the published repository to GitHub's container
+registry, as `ghcr.io/<owner>/<repository>`, for pull requests. Each
+environment is an OCI artifact tagged with its name, whose blobs are the
+database and every package file it references. It runs after publish on every
+run, copies the databases again, and copies off the host only the package files
+the registry lacks; an environment that did not change is not tagged again, and
+one an earlier run failed to mirror is repaired by the next.
+`ci/autobuild/registry.py` has the details.
+
+Only databases, mirror, publish, site and ghcr hold the deploy key, and none of
+them runs a PKGBUILD. plan and build run PKGBUILDs — `build()` is arbitrary
+upstream code — and **hold no secrets**, deliberately.
 
 Nothing in CI reads the repository over HTTP. The host's bot protection answers
 requests from cloud addresses, which is where GitHub's runners are, with a
 CAPTCHA page, and pacman would store that page as a database without complaint.
-SSH is not challenged.
+SSH is not challenged, and neither is ghcr.io.
 
 Ordering inside a job rather than one job per package is not a compromise: a
 matrix cannot express dependencies between its own entries, and packages here
-do depend on each other.
+do depend on each other. A package that needs itself (`asmc` assembles `asmc`)
+installs the published one. So does a cycle among queued packages, when one of
+them needs only published versions of the rest: that one builds first, against
+them, and the others against it.
 
-**Pull requests** build what they change, but cannot have the key and so cannot
-see the published repository. Their planner queues every package from this
-repository that a changed one depends on, and the build compiles those from
-source first.
+**Pull requests** build what they change, but cannot have the key. They read
+the published repository from the ghcr.io mirror instead, anonymously, and
+install from it any dependency that is published at its PKGBUILD's version;
+whatever else a changed package needs from this repository is compiled from
+source first. Without the mirror -- before its package is public, say --
+everything it needs from here is compiled from source, and a package that needs
+itself cannot build.
 
 ## One-time setup
 
 Four **secrets**, and an optional fifth, used only by the databases, mirror,
-publish and site jobs:
+publish, site and ghcr jobs:
 
 | name | what it is |
 | --- | --- |
@@ -110,10 +125,17 @@ jobs connect to. For any port but 22 ssh looks the key up as `[host]:port`, so
 an entry scanned without `-p` never matches and every SSH job fails with "Host
 key verification failed".
 
-All four jobs target a GitHub Actions **environment** named `publish`, so the
+All five jobs target a GitHub Actions **environment** named `publish`, so the
 secrets can live on that environment or on the repository. Leave the
-environment without required reviewers: they would ask for approval four times
+environment without required reviewers: they would ask for approval five times
 per run, and hold every scheduled run at its very first jobs.
+
+The ghcr.io mirror needs no secret: the ghcr job pushes with the workflow's own
+`GITHUB_TOKEN`. It does need one step by hand, once its first run has created
+the package: make the package public, under its settings on GitHub (*Change
+visibility*), or pull requests cannot read it anonymously. GitHub cannot make
+a public package private again; it holds nothing the host does not already
+serve to anyone. Until then pull requests build as if there were no mirror.
 
 On the server, `DEPLOY_PATH` needs to be writable by the deploy user and served
 to users over HTTPS. The layout builds itself:
@@ -238,6 +260,14 @@ $ ci/fetch-published.sh databases published
 $ PYTHONPATH=ci python -m autobuild plan --published published
 $ ci/fetch-published.sh packages ucrt64 published
 $ PYTHONPATH=ci python -m autobuild build --published published --environment ucrt64 mpqcli
+```
+
+Without SSH access, the ghcr.io mirror gives the same copy, as pull requests
+get it:
+
+```console
+$ PYTHONPATH=ci python -m autobuild registry-pull \
+    --image ghcr.io/joankaradimov/mingw-extra --dest published --environment ucrt64
 ```
 
 `--prebuilt DIR` makes packages another job built, laid out as

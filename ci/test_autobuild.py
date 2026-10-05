@@ -21,7 +21,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from autobuild import build, plan, repodb, srcinfo
+from autobuild import build, plan, registry, repodb, srcinfo
 from autobuild.config import ENVIRONMENTS, MSYS, PUBLISHED_MARKER, db_name, db_path
 from autobuild.srcinfo import SrcInfo
 
@@ -82,13 +82,19 @@ class SrcInfoParsing(unittest.TestCase):
             srcinfo.parse("pkgbase = a\n\tpkgver = 1.0\n", "a", "ucrt64")
 
 
-def make_db(entries: list[tuple[str, str]]) -> bytes:
-    """Build a pacman database the way repo-add would."""
+def make_db(entries: list[tuple]) -> bytes:
+    """Build a pacman database the way repo-add would.
+
+    An entry is (name, version), or (name, version, sha256, size) to describe
+    the package file too."""
     raw = io.BytesIO()
     with tarfile.open(fileobj=raw, mode="w") as archive:
-        for name, version in entries:
+        for name, version, *described in entries:
             desc = f"%FILENAME%\n{name}-{version}-any.pkg.tar.zst\n\n" \
                    f"%NAME%\n{name}\n\n%VERSION%\n{version}\n\n"
+            if described:
+                sha256, size = described
+                desc += f"%CSIZE%\n{size}\n\n%SHA256SUM%\n{sha256}\n\n"
             payload = desc.encode()
             member = tarfile.TarInfo(f"{name}-{version}/desc")
             member.size = len(payload)
@@ -125,6 +131,11 @@ class DatabaseParsing(unittest.TestCase):
     def test_package_names_are_listed_for_removals(self):
         database = repodb.parse(make_db([("sord", "0.16.6-1"), ("serd", "0.30.10-1")]))
         self.assertEqual(database.names(), ["serd", "sord"])
+
+    def test_package_files_carry_checksum_and_size_for_the_registry(self):
+        database = repodb.parse(make_db([("sord", "0.16.6-1", "ab" * 32, 1234)]))
+        self.assertEqual(database.package_files(), [
+            repodb.PackageFile("sord-0.16.6-1-any.pkg.tar.zst", "ab" * 32, 1234)])
 
 
 class VersionNormalisation(unittest.TestCase):
@@ -316,14 +327,51 @@ class BuildOrder(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cycle"):
             plan.order(queue)
 
+    def test_a_cycle_breaks_where_the_rest_is_published(self):
+        # a builds against the published p-b, then b against the new a.
+        queue = [
+            fake("a", ["p-a"], ["p-b"]),
+            fake("b", ["p-b"], ["p-a"]),
+        ]
+        self.assertEqual([i.directory for i in plan.order(queue, {"p-b"})], ["a", "b"])
+
+    def test_a_longer_cycle_breaks_at_its_one_way_in(self):
+        # a -> b -> c -> a, with only p-c published: b goes first, then a, then c.
+        queue = [
+            fake("a", ["p-a"], ["p-b"]),
+            fake("b", ["p-b"], ["p-c"]),
+            fake("c", ["p-c"], ["p-a"]),
+        ]
+        self.assertEqual([i.directory for i in plan.order(queue, {"p-c"})], ["b", "a", "c"])
+
+    def test_a_package_waiting_behind_a_cycle_waits_for_it(self):
+        # aaa only needs x; it must get the x this run builds, not the published
+        # one, although it sorts first and p-x is published.
+        queue = [
+            fake("aaa", ["p-aaa"], ["p-x"]),
+            fake("x", ["p-x"], ["p-y"]),
+            fake("y", ["p-y"], ["p-x"]),
+        ]
+        order = [i.directory for i in plan.order(queue, {"p-x", "p-y"})]
+        self.assertEqual(order[0], "x")
+        self.assertLess(order.index("x"), order.index("aaa"))
+
+    def test_a_cycle_published_names_do_not_reach_is_still_an_error(self):
+        queue = [
+            fake("a", ["p-a"], ["p-b"]),
+            fake("b", ["p-b"], ["p-a"]),
+        ]
+        with self.assertRaisesRegex(ValueError, "cycle"):
+            plan.order(queue, {"p-unrelated"})
+
     def test_order_is_deterministic(self):
         queue = [fake(name, [f"p-{name}"], []) for name in ("c", "a", "b")]
         self.assertEqual([i.directory for i in plan.order(queue)], ["a", "b", "c"])
 
 
 class PullRequestDependencies(unittest.TestCase):
-    """A pull request cannot install from the published repository, so it builds
-    what a changed package needs from this repository too."""
+    """Without a copy of the published repository, a pull request builds what a
+    changed package needs from this repository too."""
 
     def test_dependencies_from_this_repository_are_added_transitively(self):
         everything = [
@@ -364,6 +412,189 @@ class PullRequestDependencies(unittest.TestCase):
         lib = fake("lib", ["p-lib"], [])
         chosen = plan.with_dependencies([tool], [tool, lib])
         self.assertEqual([i.directory for i in chosen], ["tool"])
+
+
+class PublishedDependencies(TemporaryTree):
+    """With a copy -- from the ghcr.io mirror -- a pull request installs what is
+    published at its PKGBUILD's version instead of building it."""
+
+    def copy(self, entries: list[tuple]) -> str:
+        self.write(os.path.join("copy", PUBLISHED_MARKER))
+        copy = os.path.join(self.directory, "copy")
+        self.write(os.path.relpath(db_path(copy, "ucrt64"), self.directory), make_db(entries))
+        return copy
+
+    def test_a_published_dependency_is_installed_not_built(self):
+        consumer = fake("openjdk", ["p-openjdk"], ["p-asmc"])
+        asmc = fake("asmc", ["p-asmc"], ["p-asmc"])
+        chosen = plan.with_dependencies([consumer], [consumer, asmc],
+                                        self.copy([("p-asmc", "1-1")]))
+        self.assertEqual([i.directory for i in chosen], ["openjdk"])
+
+    def test_a_dependency_published_at_another_version_is_built(self):
+        consumer = fake("openjdk", ["p-openjdk"], ["p-asmc"])
+        asmc = fake("asmc", ["p-asmc"], [])
+        chosen = plan.with_dependencies([consumer], [consumer, asmc],
+                                        self.copy([("p-asmc", "0-1")]))
+        self.assertEqual(sorted(i.directory for i in chosen), ["asmc", "openjdk"])
+
+    def test_what_a_published_dependency_needs_is_not_built_either(self):
+        # pacman installs serd's own dependencies along with it.
+        sord = fake("sord", ["p-sord"], ["p-serd"])
+        serd = fake("serd", ["p-serd"], ["p-zix"])
+        zix = fake("zix", ["p-zix"], [])
+        chosen = plan.with_dependencies([sord], [sord, serd, zix],
+                                        self.copy([("p-serd", "1-1")]))
+        self.assertEqual([i.directory for i in chosen], ["sord"])
+
+    def test_a_changed_package_is_built_even_when_published(self):
+        asmc = fake("asmc", ["p-asmc"], ["p-asmc"])
+        chosen = plan.with_dependencies([asmc], [asmc], self.copy([("p-asmc", "1-1")]))
+        self.assertEqual([i.directory for i in chosen], ["asmc"])
+
+
+class FakeRegistry:
+    """The registry calls registry.push and registry.pull make, in memory."""
+
+    def __init__(self) -> None:
+        self.blobs: dict[str, bytes] = {}
+        self.manifests: dict[str, bytes] = {}
+        self.uploads: list[str] = []
+
+    def has_blob(self, digest: str) -> bool:
+        return digest in self.blobs
+
+    def put_blob(self, digest: str, size: int, data) -> None:
+        content = data if isinstance(data, bytes) else data.read()
+        assert registry.sha256_digest(content) == digest and len(content) == size
+        self.blobs[digest] = content
+        self.uploads.append(digest)
+
+    def manifest_digest(self, tag: str):
+        document = self.manifests.get(tag)
+        return None if document is None else registry.sha256_digest(document)
+
+    def put_manifest(self, tag: str, data: bytes) -> None:
+        self.manifests[tag] = data
+
+    def get_manifest(self, tag: str):
+        document = self.manifests.get(tag)
+        return None if document is None else json.loads(document)
+
+    def get_blob(self, digest: str, path: str) -> None:
+        with open(path, "wb") as handle:
+            handle.write(self.blobs[digest])
+
+
+class RegistryMirror(TemporaryTree):
+    """The ghcr.io mirror: what build.yml's ghcr job pushes and pr.yml pulls."""
+
+    SOURCE = "https://github.com/o/r"
+    PACKAGES = {"p-asmc": b"asmc package", "p-openjdk": b"openjdk package"}
+
+    def published(self, name: str = "copy", packages: dict[str, bytes] | None = None,
+                  files: bool = True) -> str:
+        """A copy of the published repository for ucrt64, as SSH would make it."""
+        packages = self.PACKAGES if packages is None else packages
+        copy = os.path.join(self.directory, name)
+        self.write(os.path.join(name, PUBLISHED_MARKER))
+        entries = [(package, "1-1", registry.sha256_digest(data)[len("sha256:"):], len(data))
+                   for package, data in packages.items()]
+        self.write(os.path.relpath(db_path(copy, "ucrt64"), self.directory), make_db(entries))
+        if files:
+            for package, data in packages.items():
+                self.write(os.path.join(name, "ucrt64", f"{package}-1-1-any.pkg.tar.zst"), data)
+        return copy
+
+    def test_push_uploads_the_database_and_the_packages_then_tags(self):
+        fake_registry = FakeRegistry()
+        self.assertTrue(registry.push(fake_registry, self.published(), "ucrt64", self.SOURCE))
+        document = fake_registry.get_manifest("ucrt64")
+        titles = [layer["annotations"][registry.TITLE] for layer in document["layers"]]
+        self.assertEqual(titles, ["mingw-extra-ucrt64.db",
+                                  "p-asmc-1-1-any.pkg.tar.zst", "p-openjdk-1-1-any.pkg.tar.zst"])
+        self.assertEqual(document["annotations"][registry.SOURCE], self.SOURCE)
+        self.assertEqual(document["config"]["mediaType"], registry.CONFIG_TYPE)
+        for layer in document["layers"] + [document["config"]]:
+            self.assertTrue(fake_registry.has_blob(layer["digest"]))
+
+    def test_an_unchanged_environment_is_not_tagged_again(self):
+        fake_registry = FakeRegistry()
+        copy = self.published()
+        registry.push(fake_registry, copy, "ucrt64", self.SOURCE)
+        uploads = list(fake_registry.uploads)
+        self.assertFalse(registry.push(fake_registry, copy, "ucrt64", self.SOURCE))
+        self.assertEqual(fake_registry.uploads, uploads)
+
+    def test_only_what_the_registry_lacks_is_fetched_and_uploaded(self):
+        fake_registry = FakeRegistry()
+        fake_registry.blobs[registry.sha256_digest(b"asmc package")] = b"asmc package"
+        copy = self.published(files=False)
+        self.assertEqual(registry.missing(fake_registry, copy, "ucrt64"),
+                         ["p-openjdk-1-1-any.pkg.tar.zst"])
+        # Only what missing() listed has to be in the copy.
+        self.write("copy/ucrt64/p-openjdk-1-1-any.pkg.tar.zst", b"openjdk package")
+        registry.push(fake_registry, copy, "ucrt64", self.SOURCE)
+        self.assertNotIn(registry.sha256_digest(b"asmc package"), fake_registry.uploads)
+
+    def test_pull_reproduces_the_copy(self):
+        fake_registry = FakeRegistry()
+        copy = self.published()
+        registry.push(fake_registry, copy, "ucrt64", self.SOURCE)
+        dest = os.path.join(self.directory, "pulled")
+        self.assertEqual(registry.pull(fake_registry, ["ucrt64"], dest), ["ucrt64"])
+        for name in ("mingw-extra-ucrt64.db", "p-asmc-1-1-any.pkg.tar.zst",
+                     "p-openjdk-1-1-any.pkg.tar.zst"):
+            with open(os.path.join(copy, "ucrt64", name), "rb") as a, \
+                    open(os.path.join(dest, "ucrt64", name), "rb") as b:
+                self.assertEqual(a.read(), b.read())
+        self.assertTrue(repodb.published(dest, "ucrt64").has("p-asmc", "1-1"))
+
+    def test_a_databases_only_pull_is_enough_to_plan(self):
+        fake_registry = FakeRegistry()
+        registry.push(fake_registry, self.published(), "ucrt64", self.SOURCE)
+        dest = os.path.join(self.directory, "pulled")
+        registry.pull(fake_registry, ["ucrt64"], dest, packages=False)
+        self.assertEqual(os.listdir(os.path.join(dest, "ucrt64")), ["mingw-extra-ucrt64.db"])
+        self.assertEqual(len(repodb.published(dest, "ucrt64")), 2)
+
+    def test_an_environment_never_pushed_is_left_out(self):
+        fake_registry = FakeRegistry()
+        registry.push(fake_registry, self.published(), "ucrt64", self.SOURCE)
+        dest = os.path.join(self.directory, "pulled")
+        self.assertEqual(registry.pull(fake_registry, ["clang64", "ucrt64"], dest), ["ucrt64"])
+        self.assertEqual(len(repodb.published(dest, "clang64")), 0)
+
+    def test_an_interrupted_pull_leaves_no_marker(self):
+        fake_registry = FakeRegistry()
+        registry.push(fake_registry, self.published(), "ucrt64", self.SOURCE)
+        dest = os.path.join(self.directory, "pulled")
+        registry.pull(fake_registry, ["ucrt64"], dest)
+
+        def refuse(tag):
+            raise registry.Unavailable("403")
+        fake_registry.get_manifest = refuse
+        with self.assertRaises(registry.Unavailable):
+            registry.pull(fake_registry, ["ucrt64"], dest)
+        self.assertFalse(os.path.exists(os.path.join(dest, PUBLISHED_MARKER)))
+
+    def test_a_layer_cannot_name_a_path(self):
+        fake_registry = FakeRegistry()
+        fake_registry.manifests["ucrt64"] = json.dumps({"layers": [{
+            "mediaType": registry.DATABASE_TYPE, "digest": "sha256:00", "size": 0,
+            "annotations": {registry.TITLE: "../mingw-extra-ucrt64.db"}}]}).encode()
+        with self.assertRaisesRegex(RuntimeError, "refusing"):
+            registry.pull(fake_registry, ["ucrt64"], os.path.join(self.directory, "pulled"))
+
+    def test_the_manifest_does_not_change_unless_the_repository_does(self):
+        contents = registry.blobs(self.published(), "ucrt64")
+        self.assertEqual(registry.manifest("ucrt64", contents, self.SOURCE),
+                         registry.manifest("ucrt64", contents, self.SOURCE))
+
+    def test_the_image_name_is_lowercased(self):
+        # ghcr.io wants lowercase; github.repository here is MINGW-extra.
+        self.assertEqual(registry.Registry("ghcr.io/joankaradimov/MINGW-extra").name,
+                         "joankaradimov/mingw-extra")
 
 
 class PlanOutputs(unittest.TestCase):

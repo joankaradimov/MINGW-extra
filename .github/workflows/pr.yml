@@ -5,11 +5,15 @@
 # compiling before it is merged, even though the planner on master would
 # correctly consider that version already published.
 #
-# Nothing here reads the published repository either. That takes the deploy
-# key, and no job a pull request can change may hold it. So the planner also
-# queues every package from this repository that a changed one depends on, and
-# those are compiled from source first -- MSYS ones in a job of their own,
-# ahead of the MinGW matrix, which installs what that job built.
+# Nothing here holds the deploy key: no job a pull request can change may have
+# it. The published repository comes from its mirror on ghcr.io instead, read
+# anonymously (build.yml's ghcr job keeps it current). A dependency published
+# at its PKGBUILD's version is installed from it -- the only way a package that
+# needs itself, as asmc does, can build at all. Any other package from this
+# repository that a changed one depends on is compiled from source first --
+# MSYS ones in a job of their own, ahead of the MinGW matrix, which installs
+# what that job built. Without the mirror (before the package is public, say)
+# every such dependency is compiled from source.
 name: pr
 
 on:
@@ -47,11 +51,22 @@ jobs:
           install: base-devel git python
           cache: true
 
+      - name: Copy the published databases from ghcr.io
+        shell: msys2 {0}
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+        run: |
+          PYTHONPATH=ci python -m autobuild registry-pull --image "$IMAGE" \
+            --dest published --databases-only
+
       - id: plan
         shell: msys2 {0}
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: PYTHONPATH=ci python -m autobuild plan --changed-since "$BASE_SHA"
+        run: |
+          args=()
+          if [[ -f published/COMPLETE ]]; then args+=(--published published); fi
+          PYTHONPATH=ci python -m autobuild plan --changed-since "$BASE_SHA" "${args[@]}"
 
   build-msys:
     name: msys
@@ -73,15 +88,26 @@ jobs:
           install: base-devel git python
           cache: true
 
+      - name: Copy the published packages from ghcr.io
+        shell: msys2 {0}
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+        run: |
+          PYTHONPATH=ci python -m autobuild registry-pull --image "$IMAGE" \
+            --dest published --environment msys
+
       - name: Build
         shell: msys2 {0}
         env:
           PACKAGES: ${{ needs.plan.outputs.msys }}
         run: |
+          args=()
+          if [[ -f published/COMPLETE ]]; then args+=(--published published); fi
           PYTHONPATH=ci python -m autobuild build \
             --environment msys \
             --build-root /c/_b \
             --output artifacts \
+            "${args[@]}" \
             $PACKAGES
 
       - name: Upload packages
@@ -134,17 +160,29 @@ jobs:
           install: base-devel git python
           cache: true
 
+      - name: Copy the published packages from ghcr.io
+        shell: msys2 {0}
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+          ENVIRONMENT: ${{ matrix.environment }}
+        run: |
+          PYTHONPATH=ci python -m autobuild registry-pull --image "$IMAGE" \
+            --dest published --environment "$ENVIRONMENT" --environment msys
+
       - name: Build
         shell: msys2 {0}
         env:
           ENVIRONMENT: ${{ matrix.environment }}
           PACKAGES: ${{ matrix.packages }}
         run: |
+          args=()
+          if [[ -f published/COMPLETE ]]; then args+=(--published published); fi
           PYTHONPATH=ci python -m autobuild build \
             --environment "$ENVIRONMENT" \
             --build-root /c/_b \
             --output artifacts \
             --prebuilt prebuilt \
+            "${args[@]}" \
             $PACKAGES
 
       - name: Upload packages

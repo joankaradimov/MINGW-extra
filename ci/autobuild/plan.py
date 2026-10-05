@@ -87,21 +87,31 @@ def removals(infos: list[SrcInfo], published: str | None) -> dict[str, list[str]
     return stale
 
 
-def with_dependencies(selected: list[SrcInfo], candidates: list[SrcInfo]) -> list[SrcInfo]:
+def with_dependencies(selected: list[SrcInfo], candidates: list[SrcInfo],
+                      published: str | None = None) -> list[SrcInfo]:
     """`selected`, plus every package in `candidates` they need, transitively.
 
-    Pull requests use this.  Their builds cannot install from the published
-    repository -- only a job holding the deploy key can read it, and nothing a
-    pull request can change may hold that key -- so whatever a changed package
-    needs from this repository is built from source in the same run, ahead of
-    it.  A dependency resolves in the package's own environment first, then in
-    msys, whose packages any environment may depend on; anything no candidate
+    Pull requests use this.  Their builds install from a copy of the published
+    repository when they have one -- the mirror on ghcr.io, see ``registry`` --
+    and a dependency published at its PKGBUILD's version is installed from it.
+    Anything else a changed package needs from this repository is built from
+    source in the same run, ahead of it, as all of it is when there is no copy.
+    A dependency resolves in the package's own environment first, then in msys,
+    whose packages any environment may depend on; anything no candidate
     provides is left to MSYS2's own repositories.
     """
     providers: dict[tuple[str, str], SrcInfo] = {}
     for info in candidates:
         for name in info.pkgnames + info.provides:
             providers.setdefault((info.environment, name), info)
+
+    databases: dict[str, repodb.Database] = {}
+
+    def is_published(info: SrcInfo) -> bool:
+        if info.environment not in databases:
+            databases[info.environment] = repodb.published(published, info.environment)
+        database = databases[info.environment]
+        return all(database.has(name, info.version) for name in info.pkgnames)
 
     chosen = {(info.directory, info.environment): info for info in selected}
     pending = list(selected)
@@ -110,7 +120,7 @@ def with_dependencies(selected: list[SrcInfo], candidates: list[SrcInfo]) -> lis
         for dependency in info.depends:
             provider = (providers.get((info.environment, dependency))
                         or providers.get((MSYS, dependency)))
-            if provider is None:
+            if provider is None or is_published(provider):
                 continue
             key = (provider.directory, provider.environment)
             if key not in chosen:
@@ -119,14 +129,21 @@ def with_dependencies(selected: list[SrcInfo], candidates: list[SrcInfo]) -> lis
     return list(chosen.values())
 
 
-def order(infos: list[SrcInfo]) -> list[SrcInfo]:
+def order(infos: list[SrcInfo], published: frozenset[str] | set[str] = frozenset()
+          ) -> list[SrcInfo]:
     """Topologically sort one environment's queue, dependencies first.
 
     Only edges *within the queue* matter.  A dependency that is already
     published is not a build-order constraint, because the build job adds its
     copy of the published repository to pacman.conf and simply installs it.
     Neither is one on an msys package: that job has finished before this queue
-    starts.
+    starts.  A package that needs itself (asmc assembles asmc) installs the
+    published one.
+
+    A cycle among queued packages can still be built when one of them needs
+    only `published` names from the rest: that one goes first, against the
+    published packages, and the others then build against it.  A cycle with no
+    such way in is an error.
     """
     provider: dict[str, str] = {}
     for info in infos:
@@ -134,22 +151,46 @@ def order(infos: list[SrcInfo]) -> list[SrcInfo]:
             provider[name] = info.directory
 
     by_directory = {info.directory: info for info in infos}
-    edges = {
-        info.directory: {
-            provider[dep]
-            for dep in info.depends
-            if dep in provider and provider[dep] != info.directory
-        }
-        for info in infos
-    }
+    # directory -> the queued directories it needs -> through which names
+    needs: dict[str, dict[str, set[str]]] = {}
+    for info in infos:
+        edges: dict[str, set[str]] = {}
+        for dep in info.depends:
+            if dep in provider and provider[dep] != info.directory:
+                edges.setdefault(provider[dep], set()).add(dep)
+        needs[info.directory] = edges
 
     ordered: list[SrcInfo] = []
     done: set[str] = set()
-    while len(done) < len(edges):
-        ready = sorted(d for d in edges if d not in done and edges[d] <= done)
+
+    def on_cycle(directory: str) -> bool:
+        """Whether `directory` can reach itself through what is not built yet.
+        A package merely waiting behind a cycle is not on it, and must not be
+        built against published packages the run is about to replace."""
+        seen: set[str] = set()
+        pending = [d for d in needs[directory] if d not in done]
+        while pending:
+            current = pending.pop()
+            if current == directory:
+                return True
+            if current not in seen:
+                seen.add(current)
+                pending.extend(d for d in needs[current] if d not in done)
+        return False
+
+    while len(done) < len(needs):
+        ready = sorted(d for d in needs if d not in done and set(needs[d]) <= done)
         if not ready:
-            stuck = sorted(d for d in edges if d not in done)
-            raise ValueError(f"dependency cycle among {stuck}")
+            stuck = sorted(d for d in needs if d not in done)
+            ready = [d for d in stuck
+                     if on_cycle(d)
+                     and all(names <= published
+                             for queued, names in needs[d].items() if queued not in done)][:1]
+            if not ready:
+                raise ValueError(f"dependency cycle among {stuck}, and none of them "
+                                 f"can build against published packages")
+            print(f"breaking a dependency cycle among {', '.join(stuck)}: "
+                  f"{ready[0]} builds first, against the published packages")
         for directory in ready:
             ordered.append(by_directory[directory])
             done.add(directory)
@@ -182,7 +223,7 @@ def plan(root: str, changed_since: str | None = None,
         # A pull request builds what it touched whether or not that version is
         # already published -- the point is to see the PKGBUILD compile, and a
         # fix that does not bump pkgrel would otherwise be silently skipped.
-        queue = with_dependencies(changed, everything)
+        queue = with_dependencies(changed, everything, published)
         added = sorted({info.directory for info in queue} - set(directories))
         if added:
             print(f"and what they need from this repository: {', '.join(added)}")
@@ -198,7 +239,7 @@ def plan(root: str, changed_since: str | None = None,
         for_environment = [info for info in queue if info.environment == name]
         if not for_environment:
             continue
-        ordered = order(for_environment)
+        ordered = order(for_environment, set(repodb.published(published, name).names()))
         matrix.append({
             "environment": name,
             "msystem": ENVIRONMENTS[name].msystem,
