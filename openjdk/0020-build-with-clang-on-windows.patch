@@ -11,19 +11,18 @@ toolchain-and-OS settings given to gcc on Windows apply to clang as well.
 Upstream: not submitted; part of the Windows/gcc port, not upstream OpenJDK
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- make/ZipSecurity.gmk                      |  2 +-
- make/autoconf/flags-cflags.m4             | 19 ++++++++++++++-----
- make/autoconf/flags-ldflags.m4            | 16 ++++++++++++++--
- make/autoconf/lib-freetype.m4             |  2 +-
- make/autoconf/libraries.m4                |  2 +-
- make/autoconf/toolchain.m4                | 21 +++++++++++++--------
- make/common/JdkNativeCompilation.gmk      |  3 +++
- make/common/native/CompileFile.gmk        |  2 +-
- make/common/native/Flags.gmk              | 16 +++++++++++++---
- make/common/native/Link.gmk               |  5 ++++-
- make/modules/jdk.incubator.vector/Lib.gmk |  4 ++--
- make/modules/jdk.jpackage/Lib.gmk         |  2 +-
- 12 files changed, 68 insertions(+), 26 deletions(-)
+ make/ZipSecurity.gmk                 |  2 +-
+ make/autoconf/flags-cflags.m4        | 19 ++++++++++++++-----
+ make/autoconf/flags-ldflags.m4       | 16 ++++++++++++++--
+ make/autoconf/lib-freetype.m4        |  2 +-
+ make/autoconf/libraries.m4           |  2 +-
+ make/autoconf/toolchain.m4           | 21 +++++++++++++--------
+ make/common/JdkNativeCompilation.gmk |  3 +++
+ make/common/native/CompileFile.gmk   |  2 +-
+ make/common/native/Flags.gmk         | 16 +++++++++++++---
+ make/common/native/Link.gmk          |  5 ++++-
+ make/modules/jdk.jpackage/Lib.gmk    |  2 +-
+ 11 files changed, 66 insertions(+), 24 deletions(-)
 
 diff --git a/make/ZipSecurity.gmk b/make/ZipSecurity.gmk
 index 181bbddf1..4d4aed959 100644
@@ -157,7 +156,7 @@ index f5bf15be3..14ec818c8 100644
      fi
    fi
 diff --git a/make/autoconf/toolchain.m4 b/make/autoconf/toolchain.m4
-index 9ac2bc049..8ab1d5353 100644
+index f90ac566a..c1214a5e9 100644
 --- a/make/autoconf/toolchain.m4
 +++ b/make/autoconf/toolchain.m4
 @@ -41,7 +41,7 @@ VALID_TOOLCHAINS_all="gcc clang microsoft"
@@ -189,7 +188,7 @@ index 9ac2bc049..8ab1d5353 100644
        LD="$FIXPATH_BASE -m exec $LD"
        LDCXX="$FIXPATH_BASE -m exec $LDCXX"
      fi
-@@ -680,6 +679,8 @@ AC_DEFUN_ONCE([TOOLCHAIN_DETECT_TOOLCHAIN_CORE],
+@@ -697,6 +696,8 @@ AC_DEFUN_ONCE([TOOLCHAIN_DETECT_TOOLCHAIN_CORE],
      UTIL_LOOKUP_TOOLCHAIN_PROGS(LIB, lib)
    elif test "x$TOOLCHAIN_TYPE" = xgcc; then
      UTIL_LOOKUP_TOOLCHAIN_PROGS(AR, ar gcc-ar, NOFIXPATH)
@@ -198,7 +197,7 @@ index 9ac2bc049..8ab1d5353 100644
    else
      UTIL_LOOKUP_TOOLCHAIN_PROGS(AR, ar)
    fi
-@@ -742,6 +743,10 @@ AC_DEFUN_ONCE([TOOLCHAIN_DETECT_TOOLCHAIN_EXTRA],
+@@ -759,6 +760,10 @@ AC_DEFUN_ONCE([TOOLCHAIN_DETECT_TOOLCHAIN_EXTRA],
          UTIL_LOOKUP_TOOLCHAIN_PROGS(RC, windres, NOFIXPATH)
          UTIL_LOOKUP_TOOLCHAIN_PROGS(OBJCOPY, gobjcopy objcopy, NOFIXPATH)
        fi
@@ -224,10 +223,10 @@ index aba9f5b30..634f534a2 100644
      ifeq ($(call isTargetOs, linux), true)
        SetExecutableOrigin = \
 diff --git a/make/common/native/CompileFile.gmk b/make/common/native/CompileFile.gmk
-index e6d04ce06..6feeae4fa 100644
+index 8a55de73c..aec307b1d 100644
 --- a/make/common/native/CompileFile.gmk
 +++ b/make/common/native/CompileFile.gmk
-@@ -344,7 +344,7 @@ define CreateWindowsResourceFile
+@@ -360,7 +360,7 @@ define CreateWindowsResourceFile
      $1_RES_VARDEPS_FILE := $$(call DependOnVariable, $1_RES_VARDEPS, \
          $$($1_RES).vardeps)
  
@@ -308,22 +307,6 @@ index f5df90e31..d354de99e 100644
            # windres embeds the manifest as it is, so fill in the identity
            # that mt -identity sets under Visual Studio; Windows refuses to
            # start an executable whose manifest names nothing. 24 is
-diff --git a/make/modules/jdk.incubator.vector/Lib.gmk b/make/modules/jdk.incubator.vector/Lib.gmk
-index cf15ab045..539720841 100644
---- a/make/modules/jdk.incubator.vector/Lib.gmk
-+++ b/make/modules/jdk.incubator.vector/Lib.gmk
-@@ -33,9 +33,9 @@ ifeq ($(INCLUDE_COMPILER2), true)
-   ## Build libjsvml
-   ##############################################################################
- 
--  # The Windows sources are MASM, which gcc cannot assemble. Without the
-+  # The Windows sources are MASM, which gcc and clang cannot assemble. Without the
-   # library the Vector API computes these functions in Java instead.
--  ifeq ($(call isTargetOs, linux windows)+$(call isTargetCpu, x86_64)+$(filter windows-gcc, \
-+  ifeq ($(call isTargetOs, linux windows)+$(call isTargetCpu, x86_64)+$(filter windows-gcc windows-clang, \
-       $(OPENJDK_TARGET_OS)-$(TOOLCHAIN_TYPE)), true+true+)
-     $(eval $(call SetupJdkLibrary, BUILD_LIBJSVML, \
-         NAME := jsvml, \
 diff --git a/make/modules/jdk.jpackage/Lib.gmk b/make/modules/jdk.jpackage/Lib.gmk
 index 7d61a07bd..f8aeda736 100644
 --- a/make/modules/jdk.jpackage/Lib.gmk

@@ -1,0 +1,199 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Mon, 5 Oct 2026 04:14:25 +0300
+Subject: [PATCH] Assemble libjsvml with asmc under gcc and clang
+
+libjsvml's Windows sources are MASM, which only the Microsoft toolchain
+could assemble, with ml64. Configure now looks for asmc64, a
+MASM-compatible assembler, when gcc or clang targets Windows x64, and
+SetupNativeCompilation takes a MASM assembler for a library's .S files.
+libjsvml uses it, and is left out when there is none.
+
+-defaultlib:msvcrt is a link.exe option, so it now goes to MSVC only,
+and a definition of _fltused stands in for the MSVC runtime's.
+
+Upstream: not submitted; part of the Windows/gcc port, not upstream OpenJDK
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ make/autoconf/spec.gmk.template               |  2 ++
+ make/autoconf/toolchain.m4                    | 17 ++++++++++
+ make/common/NativeCompilation.gmk             |  2 ++
+ make/common/native/CompileFile.gmk            | 28 ++++++++++++----
+ make/modules/jdk.incubator.vector/Lib.gmk     | 15 ++++++---
+ .../windows/native/libjsvml/fltused.c         | 33 +++++++++++++++++++
+ 6 files changed, 86 insertions(+), 11 deletions(-)
+ create mode 100644 src/jdk.incubator.vector/windows/native/libjsvml/fltused.c
+
+diff --git a/make/autoconf/spec.gmk.template b/make/autoconf/spec.gmk.template
+index 0bf91740b..22d7d2887 100644
+--- a/make/autoconf/spec.gmk.template
++++ b/make/autoconf/spec.gmk.template
+@@ -612,6 +612,8 @@ BUILD_SYSROOT_CFLAGS := @BUILD_SYSROOT_CFLAGS@
+ BUILD_SYSROOT_LDFLAGS := @BUILD_SYSROOT_LDFLAGS@
+ 
+ AS := @AS@
++# A MASM-compatible assembler, for MASM sources outside the Microsoft toolchain
++ML := @ML@
+ 
+ AR := @AR@
+ ARFLAGS := @ARFLAGS@
+diff --git a/make/autoconf/toolchain.m4 b/make/autoconf/toolchain.m4
+index 9ac2bc049..f90ac566a 100644
+--- a/make/autoconf/toolchain.m4
++++ b/make/autoconf/toolchain.m4
+@@ -673,6 +673,23 @@ AC_DEFUN_ONCE([TOOLCHAIN_DETECT_TOOLCHAIN_CORE],
+   fi
+   AC_SUBST(AS)
+ 
++  #
++  # Setup a MASM-compatible assembler (ML) for MASM sources, which outside
++  # the Microsoft toolchain only libjsvml has. Without one it is left out.
++  #
++  if test "x$TOOLCHAIN_TYPE" != xmicrosoft && test "x$OPENJDK_TARGET_OS" = xwindows &&
++      test "x$OPENJDK_TARGET_CPU" = xx86_64; then
++    UTIL_LOOKUP_PROGS(ML, asmc64)
++    if test "x$ML" != x; then
++      # asmc64 calls itself MASM 10.0, but assembles the AVX-512 code that
++      # libjsvml requires MASM 14.10 for.
++      ML="$ML -D@Version=1410"
++    else
++      AC_MSG_NOTICE([No asmc64 found, libjsvml will not be built])
++    fi
++  fi
++  AC_SUBST(ML)
++
+   #
+   # Setup tools for creating static libraries (AR/LIB)
+   #
+diff --git a/make/common/NativeCompilation.gmk b/make/common/NativeCompilation.gmk
+index 1b40411bb..f47674abd 100644
+--- a/make/common/NativeCompilation.gmk
++++ b/make/common/NativeCompilation.gmk
+@@ -91,6 +91,8 @@ include native/Paths.gmk
+ #   AR the static linker to use
+ #   LIB the Windows lib tool to use for creating static libraries
+ #   AS the assembler to use
++#   MASM a MASM-compatible assembler for the .S and .asm files, if they are
++#       MASM sources and the toolchain's assembler isn't one
+ #   MT the Windows MT tool to use
+ #   RC the Windows RC tool to use
+ #   OBJCOPY the objcopy tool for debug symbol handling
+diff --git a/make/common/native/CompileFile.gmk b/make/common/native/CompileFile.gmk
+index e6d04ce06..8a55de73c 100644
+--- a/make/common/native/CompileFile.gmk
++++ b/make/common/native/CompileFile.gmk
+@@ -146,6 +146,11 @@ define CreateCompiledNativeFileBody
+       $1_FLAGS := -x objective-c $(CFLAGS_CCACHE) $$($1_USE_PCH_FLAGS) \
+           $$($1_BASE_CFLAGS) $$($1_OPT_CFLAGS) $$($1_CFLAGS) -c
+       $1_COMPILER := $$($$($1_BASE)_CC)
++    else ifneq ($$(and $$(filter %.S %.asm, $$($1_FILENAME)), $$($$($1_BASE)_MASM)), )
++      # Assemble a MASM source with the binary's MASM-compatible assembler
++      $1_MASM := true
++      $1_FLAGS := -nologo -c
++      $1_COMPILER := $$($$($1_BASE)_MASM)
+     else ifneq ($$(filter %.S %.asm, $$($1_FILENAME)), )
+       # Compile as preprocessed assembler file
+       $1_FLAGS := $(BASIC_ASFLAGS) $$($1_BASE_ASFLAGS)
+@@ -195,11 +200,16 @@ define CreateCompiledNativeFileBody
+ 
+     $1_OBJ_DEPS := $$($1_SRC_FILE) $$($$($1_BASE)_COMPILE_VARDEPS_FILE) \
+         $$($$($1_BASE)_EXTRA_DEPS) $$($1_VARDEPS_FILE)
+-    $1_COMPILE_OPTIONS := $$($1_FLAGS) $(CC_OUT_OPTION)$$($1_OBJ) $$($1_SRC_FILE)
+-    # For reproducible builds with gcc and clang ensure random symbol generation is
+-    # seeded deterministically
+-    ifneq ($(findstring $(TOOLCHAIN_TYPE), gcc clang), )
+-      $1_COMPILE_OPTIONS += -frandom-seed="$$($1_FILENAME)"
++    ifeq ($$($1_MASM), true)
++      # The object as a word of its own, so that MakeCommandRelative sees it
++      $1_COMPILE_OPTIONS := $$($1_FLAGS) -Fo $$($1_OBJ) $$($1_SRC_FILE)
++    else
++      $1_COMPILE_OPTIONS := $$($1_FLAGS) $(CC_OUT_OPTION)$$($1_OBJ) $$($1_SRC_FILE)
++      # For reproducible builds with gcc and clang ensure random symbol generation is
++      # seeded deterministically
++      ifneq ($(findstring $(TOOLCHAIN_TYPE), gcc clang), )
++        $1_COMPILE_OPTIONS += -frandom-seed="$$($1_FILENAME)"
++      endif
+     endif
+ 
+     $$($1_OBJ_JSON): $$($1_OBJ_DEPS)
+@@ -209,7 +219,13 @@ define CreateCompiledNativeFileBody
+     $$($1_OBJ): $$($1_OBJ_DEPS) | $$($$($1_BASE)_BUILD_INFO)
+ 	$$(call LogInfo, Compiling $$($1_FILENAME) (for $$($$($1_BASE)_BASENAME)))
+ 	$$(call MakeDir, $$(@D))
+-        ifneq ($(TOOLCHAIN_TYPE), microsoft)
++        ifeq ($$($1_MASM), true)
++          # Like ml64 below: no dependency lists for assembler calls
++	  $$(call ExecuteWithLog, $$@, $$(call MakeCommandRelative, \
++	      $$($1_COMPILER) $$($1_COMPILE_OPTIONS)))
++	  $(ECHO) > $$($1_DEPS_FILE)
++	  $(ECHO) > $$($1_DEPS_TARGETS_FILE)
++        else ifneq ($(TOOLCHAIN_TYPE), microsoft)
+ 	  $$(call ExecuteWithLog, $$@, $$(call MakeCommandRelative, \
+ 	      $$($1_COMPILER) $$(GENDEPS_FLAGS) \
+ 	      $$(addsuffix .tmp, $$($1_DEPS_FILE)) \
+diff --git a/make/modules/jdk.incubator.vector/Lib.gmk b/make/modules/jdk.incubator.vector/Lib.gmk
+index e6a05019f..ea6ca22e2 100644
+--- a/make/modules/jdk.incubator.vector/Lib.gmk
++++ b/make/modules/jdk.incubator.vector/Lib.gmk
+@@ -34,12 +34,17 @@ ifeq ($(INCLUDE_COMPILER2), true)
+   ##############################################################################
+ 
+   ifeq ($(call isTargetOs, linux windows)+$(call isTargetCpu, x86_64), true+true)
+-    $(eval $(call SetupJdkLibrary, BUILD_LIBJSVML, \
+-        NAME := jsvml, \
+-        LDFLAGS_windows := -defaultlib:msvcrt, \
+-    ))
++    # The Windows sources are MASM: outside the Microsoft toolchain they need
++    # ML, and the library is left out without it
++    ifneq ($(call isTargetOs, windows)+$(filter microsoft, $(TOOLCHAIN_TYPE))$(ML), true+)
++      $(eval $(call SetupJdkLibrary, BUILD_LIBJSVML, \
++          NAME := jsvml, \
++          MASM := $(ML), \
++          LDFLAGS_microsoft_windows := -defaultlib:msvcrt, \
++      ))
+ 
+-    TARGETS += $(BUILD_LIBJSVML)
++      TARGETS += $(BUILD_LIBJSVML)
++    endif
+   endif
+ 
+   ##############################################################################
+diff --git a/src/jdk.incubator.vector/windows/native/libjsvml/fltused.c b/src/jdk.incubator.vector/windows/native/libjsvml/fltused.c
+new file mode 100644
+index 000000000..1c32816ba
+--- /dev/null
++++ b/src/jdk.incubator.vector/windows/native/libjsvml/fltused.c
+@@ -0,0 +1,33 @@
++/*
++ * Copyright (c) 2026, Joan Karadimov. All rights reserved.
++ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
++ *
++ * This code is free software; you can redistribute it and/or modify it
++ * under the terms of the GNU General Public License version 2 only, as
++ * published by the Free Software Foundation.  Oracle designates this
++ * particular file as subject to the "Classpath" exception as provided
++ * by Oracle in the LICENSE file that accompanied this code.
++ *
++ * This code is distributed in the hope that it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
++ * version 2 for more details (a copy is included in the LICENSE file that
++ * accompanied this code).
++ *
++ * You should have received a copy of the GNU General Public License version
++ * 2 along with this work; if not, write to the Free Software Foundation,
++ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
++ *
++ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
++ * or visit www.oracle.com if you need additional information or have any
++ * questions.
++ */
++
++/*
++ * The MASM sources declare _fltused, which the Microsoft toolchain resolves
++ * from its C runtime. Other Windows toolchains have no definition, and lld
++ * fails the link on the undefined symbol although nothing refers to it.
++ */
++#ifndef _MSC_VER
++int _fltused;
++#endif

@@ -29,7 +29,9 @@ depends=("${MINGW_PACKAGE_PREFIX}-cc-libs"
          "${MINGW_PACKAGE_PREFIX}-libjpeg-turbo"
          "${MINGW_PACKAGE_PREFIX}-libpng"
          "${MINGW_PACKAGE_PREFIX}-zlib")
-makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+# asmc assembles libjsvml, whose Windows sources are MASM.
+makedepends=("${MINGW_PACKAGE_PREFIX}-asmc"
+             "${MINGW_PACKAGE_PREFIX}-cc"
              "${MINGW_PACKAGE_PREFIX}-pkgconf"
              'autoconf'
              'make'
@@ -58,7 +60,7 @@ source=("${_realname}-${pkgver}.tar.gz::https://github.com/openjdk/jdk/archive/r
         '0011-embed-gcc-launcher-manifests-that-windows-accepts.patch'
         '0012-give-jpackage-msvc-libraries-only-under-msvc.patch'
         '0013-catch-windows-exceptions-with-a-vectored-handler.patch'
-        '0014-leave-out-libjsvml-when-building-with-gcc.patch'
+        '0014-assemble-libjsvml-with-asmc-under-gcc-and-clang.patch'
         '0015-allow-system-freetype-with-gcc-on-windows.patch'
         '0016-load-the-bundled-freetype-only-when-there-is-one.patch'
         '0017-decode-only-addresses-that-lie-in-a-module.patch'
@@ -71,7 +73,8 @@ source=("${_realname}-${pkgver}.tar.gz::https://github.com/openjdk/jdk/archive/r
         'launcher.cmd'
         'launcher.ps1'
         'openjdk.sh'
-        'test-openjdk.java')
+        'test-openjdk.java'
+        'test-jsvml.java')
 sha256sums=('73e6536bbcc31a5397bdb91ef976109bb648d794c3628e43908463647c54bd76'
             '2031c9c5c624737ed29a0624caaf5bcc25e74235834c28b4bfa88f7ba7a40e4a'
             '8ad598c73ad796e0d8280b082cebd82a630d73e73cd3c70057938a6501bba5d7'
@@ -88,20 +91,21 @@ sha256sums=('73e6536bbcc31a5397bdb91ef976109bb648d794c3628e43908463647c54bd76'
             'a8a0ca036bc88ec4db57a58066d4acc32a98a444d1fc2029069d691b660853c0'
             'b7a332dd7dde4a76f6597d8c46414344f16f513769bf0b4d1e5624e6008baf0f'
             '08150c70fb9b4d3a63ab0c670471485c4d905f0bfebdf97f68730b59956bca91'
-            '19482bbaa9d870193bd0c3f278d5a8ad11ab98016d832f522a8304b3b2e1c19e'
+            '10f9d8f4efd17e2b97a4893d652e2b32302c08732c7fc2a452c5565ea6cadd29'
             'c17372180832f6345177399c704abd59bfae31de9207117e5c4e8dd7b77b2f20'
             '222cfb02ce232306eae2cbe6b608f7ac384f992329d0792727e37c74e09c9fb1'
             'cfeac13706318e48ae7f8cb99d4ee29d57faa37907aa9523ddf2b9fc8bc3f86d'
             '1efe0cf8fd4031c5166d570385f4bfc79aa41a802feeead31abbc5292a9ac400'
             '2baf4219411a5964a00bf617091cc7de656626cdffd953dd089997da7f0415b1'
-            '5ba60d3efb5f8344c023de9b450fbb1e26eea968a1b2133b0b4d498532dec7f1'
+            '2d98c9637b024ed6fad464e4dddc0ed0d5c559ec4c5ee2f33fdf89b564cfcf75'
             'c5ad2024a9cee23720d18acef4e02d7ea15810748d43aae17e83897fd9d8c775'
             '61bd080eac3e0f6c8b98e1220992a73ee2ce7a7b1fe96520b2273f2262616aaa'
             '6ace9e51993abaebcd8c16ac6fd7d145c8bfb724ac9b33a8f8f6820010931e6c'
             '757af1ee3caf476521f86311dfea5c5b0bdd939fc2cbc9e194bbd29a774d3631'
             '415db5eee471793deb67b3b4c9de65c2a7f7a13ccdb9c2871abb8f8a42ca7992'
             'cfad1d1e80bb014c04c5bb4e73c9347cc57f41778fdb946d1732b6990c3aa58b'
-            'de7440c665164e54304e96c4c9aa3d7fd415a1b439d51849efbfce44651177dd')
+            'de7440c665164e54304e96c4c9aa3d7fd415a1b439d51849efbfce44651177dd'
+            'c9f0e5959ecb923ac713fc8d735cd8faebbcb4763560b509050ece7ce7a753eb')
 
 _srcdir="jdk-${_tag/+/-}"
 _jvmdir="${MINGW_PREFIX}/lib/jvm/java-${_majorver}-openjdk"
@@ -172,6 +176,14 @@ check() {
   make test-only TEST=gtest
 
   ./images/jdk/bin/java "${srcdir}/test-openjdk.java"
+
+  # libjsvml has a variant per instruction set; the VM caps UseAVX at what
+  # the CPU supports.
+  local _avx
+  for _avx in 0 1 2 3; do
+    ./images/jdk/bin/java --add-modules jdk.incubator.vector -XX:UseAVX=${_avx} \
+      -Djdk.incubator.vector.DEBUG=true "${srcdir}/test-jsvml.java"
+  done
 }
 
 package() {
