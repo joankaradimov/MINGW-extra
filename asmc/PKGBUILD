@@ -1,0 +1,99 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=asmc
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+_commit=111696c2285ffee0a359d04f2d1283c3e50b42fe
+pkgver=2.39.17
+pkgrel=1
+pkgdesc="Asmc Macro Assembler, compatible with MASM (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://github.com/nidud/asmc'
+msys2_repository_url='https://github.com/nidud/asmc'
+msys2_references=(
+  'aur: asmc'
+)
+license=('spdx:GPL-2.0-or-later')
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc")
+source=("${_realname}-${_commit}.tar.gz::https://github.com/nidud/asmc/archive/${_commit}.tar.gz"
+        '0001-scale-evex-displacements-only-with-a-base-register.patch'
+        '0002-keep-rex-r-in-the-two-byte-vex-prefix.patch'
+        '0003-swap-to-the-store-form-only-when-just-rex-b-is-set.patch'
+        '0004-build-against-ucrt.patch'
+        'test-asmc.asm')
+sha256sums=('fdbbe650d02a9114b75f66caced5154f7747816646c8ec9733e6699346e7b995'
+            'e2879dddc53bcfbdc1707d5d07bf76c56809d39904277d453a1ebd9d57a51cce'
+            '0186afabcda65fdc7db9f4c134409c8c454ccbc62644d3a612f99ab7ff064244'
+            '6dd46f24e712085e1ebbf2eff009ae3d71857faa8daa66b150e62506a025539f'
+            'a3e32641b7ffad7257527b93633f6bb3e83c3433a4223778efc2c562f276fd8b'
+            'fcca50c6f2f74da5adeb2d845fbbca0c1f4aa94b01c0b2ab5ff8b3e2ad91652f')
+
+prepare() {
+  cd "${srcdir}/${_realname}-${_commit}"
+  local _p
+  for _p in "${srcdir}"/00*.patch; do
+    patch -Np1 -i "${_p}"
+  done
+}
+
+build() {
+  cd "${srcdir}/${_realname}-${_commit}/source/asmc"
+
+  # asmc is written in its own dialect: the prebuilt asmc64.exe from the
+  # same commit assembles a first stage, which assembles the shipped one.
+  # -D_UCRT selects 0004's code for MinGW's C runtime; -nolib keeps asmc's
+  # own runtime libraries out of the objects.
+  local _asmc="${srcdir}/${_realname}-${_commit}/bin/asmc64.exe"
+  local _stage _variant _out
+  for _stage in stage1 stage2; do
+    for _variant in asmc asmc64; do
+      _out="build-${MSYSTEM}/${_stage}/${_variant}"
+      mkdir -p "${_out}"
+      (
+        cd "${_out}"
+        "${_asmc}" -q -nologo -nolib -c -D_UCRT -Cs -Zp8 -frame \
+          $([[ ${_variant} == asmc64 ]] && echo -DASMC64) \
+          -I../../../inc -I../../../../../include ../../../src/*.asm
+        cc ${LDFLAGS} -o "../${_variant}.exe" *.obj -lbcrypt -Wl,--stack,0x300000
+      )
+    done
+    _asmc="${PWD}/build-${MSYSTEM}/${_stage}/asmc64.exe"
+  done
+}
+
+check() {
+  cd "${srcdir}/${_realname}-${_commit}/source/asmc/test"
+  local _bin="../build-${MSYSTEM}/stage2"
+  local _out="../build-${MSYSTEM}/test"
+  mkdir -p "${_out}"
+
+  # Upstream's encoding tests: the ones whose source carries the expected
+  # bytes under "ifdef BIN"; the rest only compare against their own output.
+  local _f _n _flags _passed=0 _failed=0
+  for _f in $(grep -l -i '^ *ifdef *BIN' src/x86-bin-*.asm src/x64-bin-*.asm) "${srcdir}/test-asmc.asm"; do
+    _n=$(basename "${_f%.*}")
+    # -win64 before -bin: whichever comes last picks the output format
+    _flags=(-q -bin)
+    [[ ${_n} == x86-* ]] || _flags=(-win64 "${_flags[@]}")
+    "${_bin}/asmc.exe" "${_flags[@]}" -Fo"${_out}/${_n}.bin" "${_f}" > /dev/null
+    "${_bin}/asmc.exe" "${_flags[@]}" -DBIN -Fo"${_out}/${_n}.exp" "${_f}" > /dev/null
+    if cmp -s "${_out}/${_n}.bin" "${_out}/${_n}.exp"; then
+      _passed=$((_passed + 1))
+    else
+      echo "FAIL ${_n}"
+      _failed=$((_failed + 1))
+    fi
+  done
+  echo "${_passed} passed, ${_failed} failed"
+  [[ ${_failed} == 0 ]]
+}
+
+package() {
+  cd "${srcdir}/${_realname}-${_commit}"
+  install -Dm755 "source/asmc/build-${MSYSTEM}/stage2/asmc.exe" \
+    "${pkgdir}${MINGW_PREFIX}/bin/asmc.exe"
+  install -Dm755 "source/asmc/build-${MSYSTEM}/stage2/asmc64.exe" \
+    "${pkgdir}${MINGW_PREFIX}/bin/asmc64.exe"
+  install -Dm644 license.txt "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/LICENSE"
+}

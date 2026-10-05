@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Mon, 5 Oct 2026 04:02:26 +0300
+Subject: [PATCH] Keep REX.R in the two-byte VEX prefix
+
+VX_RW1 marks instructions whose EVEX form needs W1, such as VADDPD, and
+output_opc() seeds it into bit 7 of the second VEX byte. That bit is W in
+the three-byte prefix but the inverted R in the two-byte one, which can only
+be set there, never cleared. Every high register in ModRM.reg lost its top
+bit: vaddpd xmm8,xmm3,xmm5 came out as vaddpd xmm0,xmm3,xmm5. Clear the bit
+before setting R; the two-byte form has no W.
+
+Upstream: not submitted yet
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ source/asmc/src/codegen.asm | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/source/asmc/src/codegen.asm b/source/asmc/src/codegen.asm
+index ce8a133..a014410 100644
+--- a/source/asmc/src/codegen.asm
++++ b/source/asmc/src/codegen.asm
+@@ -524,6 +524,11 @@ output_opc proc __ccall uses rdi rbx
+             and al,7
+             shl al,5
+             or  bl,al   ; P0.RXB
++            ;
++            ; bit 7 is R in the 2-byte form, not W: drop the VX_RW1 seed,
++            ; which is meant for EVEX.W, or every REX.R would be lost
++            ;
++            and bh,0x7F
+             .if ( ![rsi].Rex.R )
+                 or bh,0x80
+             .endif

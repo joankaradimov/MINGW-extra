@@ -1,0 +1,65 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Mon, 5 Oct 2026 04:02:26 +0300
+Subject: [PATCH] Build against UCRT
+
+asmc normally links against its own C library. Built with MinGW-w64 against
+UCRT instead, two things break: input.asm reads MSVCRT's FILE fields
+directly, but UCRT's FILE is opaque and laid out differently, and omf.asm
+calls _loctotime_t, which UCRT doesn't export. With _UCRT defined, read
+with fgetc() and convert the file time directly.
+
+Upstream: not submitted; only needed when building with MinGW-w64
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ source/asmc/src/input.asm |  3 +++
+ source/asmc/src/omf.asm   | 21 +++++++++++++++++++++
+ 2 files changed, 24 insertions(+)
+
+diff --git a/source/asmc/src/input.asm b/source/asmc/src/input.asm
+index 3df9473..9bada4b 100644
+--- a/source/asmc/src/input.asm
++++ b/source/asmc/src/input.asm
+@@ -296,6 +296,9 @@ ifdef _WIN64
+         mov rsi,_rsi
+         mov rdi,_rdi
+ endif
++elseifdef _UCRT
++        ; UCRT's FILE is opaque and laid out unlike MSVCRT's
++        fgetc(rbx)
+ else
+         .if ( [rbx].FILE._cnt > 0 )
+             dec [rbx].FILE._cnt
+diff --git a/source/asmc/src/omf.asm b/source/asmc/src/omf.asm
+index 2856669..d1443a7 100644
+--- a/source/asmc/src/omf.asm
++++ b/source/asmc/src/omf.asm
+@@ -1325,6 +1325,27 @@ GetFileTimeStamp proc __ccall private uses rsi rdi filename:string_t
+     .return( statbuf.st_mtime )
+     endp
+ 
++elseifdef _UCRT
++
++; UCRT doesn't export _loctotime_t: convert the UTC file time directly
++
++GetFileTimeStamp proc __ccall private filename:string_t
++
++    .new ff:WIN32_FIND_DATA
++
++    .ifd ( FindFirstFile( ldr(filename), &ff ) == -1 )
++        .return( 0 )
++    .endif
++    FindClose( rax )
++    mov rax,qword ptr ff.ftLastWriteTime
++    mov rcx,116444736000000000 ; 1601-01-01 to 1970-01-01 in 100 ns
++    sub rax,rcx
++    xor edx,edx
++    mov ecx,10000000
++    div rcx
++    ret
++    endp
++
+ else
+ 
+ GetFileTimeStamp proc __ccall private filename:string_t

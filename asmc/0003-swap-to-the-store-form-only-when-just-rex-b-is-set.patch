@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Mon, 5 Oct 2026 04:02:26 +0300
+Subject: [PATCH] Swap to the store form only when just REX.B is set
+
+A register move whose source needs REX.B is switched to its store form, so
+that it fits the two-byte VEX prefix. The test masked REX with 0x0B, which
+leaves out R, so a move that needs both was swapped too and lost B:
+vmovdqa xmm8,xmm10 came out as vmovdqa xmm0,xmm10.
+
+Upstream: not submitted yet
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ source/asmc/src/codegen.asm | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/source/asmc/src/codegen.asm b/source/asmc/src/codegen.asm
+index a014410..deb65fe 100644
+--- a/source/asmc/src/codegen.asm
++++ b/source/asmc/src/codegen.asm
+@@ -345,7 +345,7 @@ output_opc proc __ccall uses rdi rbx
+         .elseif ( [rsi].ResW.SWAP && !do_swap )
+             mov al,[rsi].Rex
+             mov ah,[rsi].rm_byte
+-            and eax,0xC00B
++            and eax,0xC00F  ; only REX.B: with REX.R too, the swap can't drop it
+             .if ( eax == 0xC001 )
+                 add rdi,instr_item
+                 mov [rsi].pinstr,rdi

@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Mon, 5 Oct 2026 04:02:25 +0300
+Subject: [PATCH] Scale EVEX displacements only with a base register
+
+The EVEX disp8*N compression forced MOD_10 on every memory operand with a
+nonzero displacement and then tried to rescale it. A RIP-relative operand
+such as [table+256] has no base register, so it became [rbp+disp8], and its
+fixup was written over the next instruction. A displacement that carries a
+fixup must keep all 32 bits anyway. Rescale only [reg+disp] without one.
+
+Found assembling OpenJDK's SVML sources (libjsvml), which address their
+constant tables this way throughout.
+
+Upstream: not submitted yet
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ source/asmc/src/codegen.asm | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/source/asmc/src/codegen.asm b/source/asmc/src/codegen.asm
+index 37cd9e1..ce8a133 100644
+--- a/source/asmc/src/codegen.asm
++++ b/source/asmc/src/codegen.asm
+@@ -803,8 +803,12 @@ output_opc proc __ccall uses rdi rbx
+                 mov edx,m_opid
+ 
+                 ; the displacement in disp8 will be scaled in MOD_01
++                ;
++                ; Only a [reg+disp] operand without a fixup can be rescaled:
++                ; with no base register (MOD_00: RIP-relative or [index*n+disp32])
++                ; MOD_10 would make it rbp-based, and a fixup needs all 32 bits.
+ 
+-                .if ( eax && [rsi].opnd[rdx].data32l )
++                .if ( eax && [rsi].opnd[rdx].data32l && ![rsi].opnd[rdx].InsFixup && [rsi].rm_byte & ( MOD_01 or MOD_10 ) )
+ 
+                     or  [rsi].rm_byte,MOD_10 ; [reg+disp32]
+                     and [rsi].rm_byte,not MOD_01
