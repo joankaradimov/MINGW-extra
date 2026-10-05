@@ -1,0 +1,73 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=liblinear
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=2.50
+pkgrel=1
+pkgdesc="A library for large linear classification (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://www.csie.ntu.edu.tw/~cjlin/liblinear/'
+msys2_repository_url='https://github.com/cjlin1/liblinear'
+msys2_references=(
+  'aur: liblinear'
+)
+license=('spdx:BSD-3-Clause')
+depends=("${MINGW_PACKAGE_PREFIX}-cc-libs")
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc")
+source=("https://www.csie.ntu.edu.tw/~cjlin/${_realname}/${_realname}-${pkgver}.tar.gz")
+sha256sums=('e5eeafe2159c41148b59304da2ba0ed12648e3d491ce2b9625058e174e96ca29')
+
+# The ABI version, as in the Linux build's liblinear.so.6.
+_shver=6
+
+build() {
+  rm -rf "build-${MSYSTEM}"
+  cp -r "${_realname}-${pkgver}" "build-${MSYSTEM}"
+  cd "build-${MSYSTEM}"
+
+  make CC="${CC}" CXX="${CXX}" CFLAGS="${CFLAGS}" linear.o newton.o blas/blas.a
+
+  # Upstream's Makefile only makes a Linux shared library; this links the
+  # DLL with the exports of its Visual Studio build, plus the version that
+  # linear.h declares.
+  sed '/^LIBRARY/d' linear.def > exports.def
+  printf '\tliblinear_version DATA\n' >> exports.def
+  ${CXX} ${LDFLAGS} -shared -o "${_realname}-${_shver}.dll" \
+    linear.o newton.o blas/blas.a exports.def \
+    -Wl,--out-implib,"${_realname}.dll.a"
+  ${AR:-ar} rcs "${_realname}.a" linear.o newton.o blas/*.o
+
+  # The tools, against the DLL; named as the AUR names them, since train
+  # and predict are too generic for bin/.
+  ${CC} ${CFLAGS} ${LDFLAGS} -o liblinear-train.exe train.c "${_realname}.dll.a"
+  ${CC} ${CFLAGS} ${LDFLAGS} -o liblinear-predict.exe predict.c "${_realname}.dll.a"
+}
+
+check() {
+  cd "build-${MSYSTEM}"
+
+  # The counts are what upstream's own build of the tools gets.
+  local _run
+  for _run in 0:226 1:227 2:228 5:229; do
+    ./liblinear-train.exe -s "${_run%%:*}" heart_scale heart_scale.model > /dev/null
+    ./liblinear-predict.exe heart_scale heart_scale.model heart_scale.out \
+      | tee predict.txt
+    grep -q "(${_run##*:}/270)" predict.txt
+  done
+}
+
+package() {
+  cd "build-${MSYSTEM}"
+
+  install -Dm755 "${_realname}-${_shver}.dll" -t "${pkgdir}${MINGW_PREFIX}/bin"
+  install -Dm755 liblinear-train.exe liblinear-predict.exe \
+    -t "${pkgdir}${MINGW_PREFIX}/bin"
+  install -Dm644 "${_realname}.dll.a" "${_realname}.a" \
+    -t "${pkgdir}${MINGW_PREFIX}/lib"
+  install -Dm644 linear.h -t "${pkgdir}${MINGW_PREFIX}/include"
+
+  install -Dm644 COPYRIGHT \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/COPYRIGHT"
+}
