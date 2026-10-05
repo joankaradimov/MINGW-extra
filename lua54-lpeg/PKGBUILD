@@ -1,0 +1,56 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+# Contributor: David Macek <david.macek.0@gmail.com>
+# Contributor (Arch Linux): Gustavo Alvarez <sl1pkn07@gmail.com>
+# Contributor: Felix Huettner <huettner94@gmx.de>
+
+# Carried here until msys2/MINGW-packages builds lua54-lpeg in
+# mingw-w64-lua-lpeg, as it does lua54-cjson; the build is that recipe's.
+
+_realname=lpeg
+pkgbase=mingw-w64-lua54-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-lua54-${_realname}")
+pkgver=1.1.0
+pkgrel=1
+pkgdesc='Pattern-matching library for Lua 5.4 (mingw-w64)'
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://www.inf.puc-rio.br/~roberto/lpeg/'
+msys2_references=(
+  'archlinux: lua-lpeg'
+)
+license=('spdx:MIT')
+depends=("${MINGW_PACKAGE_PREFIX}-lua54")
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-pkgconf")
+source=("https://www.inf.puc-rio.br/~roberto/${_realname}/${_realname}-${pkgver}.tar.gz"
+        "lpeg-0.12-makefile.patch"
+        "LICENSE")
+sha256sums=('4b155d67d2246c1ffa7ad7bc466c1ea899bbc40fef0257cc9c03cecbaed4352a'
+            'a278438fa745de8e0390f438b5f73229e57d44192457048e0f99d76526d578b4'
+            '6be7688c9c648e7c7cde693081be938c869a10aa4de09fe0a4c4c1d66b3cf03d')
+
+prepare() {
+  cd "${_realname}-${pkgver}"
+  patch -p1 -i "${srcdir}/lpeg-0.12-makefile.patch"
+  sed -i 's/lpeg.so/lpeg.dll/' makefile
+  sed -i 's/env lua/env lua5.4/' test.lua
+}
+
+build() {
+  rm -rf "build-${MSYSTEM}"
+  cp -r "${_realname}-${pkgver}" "build-${MSYSTEM}"
+  cd "build-${MSYSTEM}"
+  make CC=${CC} LUADIR=${MINGW_PREFIX}/include/lua5.4 LDFLAGS="$(pkg-config lua5.4 --libs)"
+}
+
+check() {
+  cd "build-${MSYSTEM}"
+  make test
+}
+
+package() {
+  cd "build-${MSYSTEM}"
+  install -Dm755 lpeg.dll "${pkgdir}${MINGW_PREFIX}/lib/lua/5.4/lpeg.dll"
+  install -Dm644 re.lua "${pkgdir}${MINGW_PREFIX}/share/lua/5.4/re.lua"
+  install -Dm644 "${srcdir}/LICENSE" "${pkgdir}${MINGW_PREFIX}/share/licenses/lua54-lpeg/LICENSE"
+}
