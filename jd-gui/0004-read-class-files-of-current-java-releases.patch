@@ -1,0 +1,139 @@
+Read class files of current Java releases.
+
+ASM 7.1 throws IllegalArgumentException on any class file newer than
+Java 13, so jd-gui could not index or open what JDK 14 and later compile,
+which includes everything the packaged openjdk 27 builds. ASM 9.10.1
+reads class files up to Java 27.
+
+The visitors move to the ASM9 API level as well: at the ASM7 level ASM 9
+throws UnsupportedOperationException on records and sealed classes.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/services/build.gradle b/services/build.gradle
+index e48b03d..c21bdfb 100644
+--- a/services/build.gradle
++++ b/services/build.gradle
+@@ -2,7 +2,7 @@ apply plugin: 'java'
+ 
+ dependencies {
+     implementation 'com.fifesoft:rsyntaxtextarea:3.0.4'
+-    implementation 'org.ow2.asm:asm:7.1'
++    implementation 'org.ow2.asm:asm:9.10.1'
+     compileOnly files(project.property('jdCoreJar'))
+     testImplementation files(project.property('jdCoreJar'))
+     implementation project(':api')
+diff --git a/services/src/main/java/org/jd/gui/service/indexer/ClassFileIndexerProvider.java b/services/src/main/java/org/jd/gui/service/indexer/ClassFileIndexerProvider.java
+index 4a3ce8c..97bc326 100644
+--- a/services/src/main/java/org/jd/gui/service/indexer/ClassFileIndexerProvider.java
++++ b/services/src/main/java/org/jd/gui/service/indexer/ClassFileIndexerProvider.java
+@@ -164,7 +164,7 @@ public class ClassFileIndexerProvider extends AbstractIndexerProvider {
+ 
+         protected String name;
+ 
+-        public ClassIndexer() { super(Opcodes.ASM7); }
++        public ClassIndexer() { super(Opcodes.ASM9); }
+ 
+         @Override
+         public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
+@@ -221,13 +221,13 @@ public class ClassFileIndexerProvider extends AbstractIndexerProvider {
+     }
+ 
+     protected class SignatureIndexer extends SignatureVisitor {
+-        SignatureIndexer() { super(Opcodes.ASM7); }
++        SignatureIndexer() { super(Opcodes.ASM9); }
+ 
+         @Override public void visitClassType(String name) { typeReferenceSet.add(name); }
+     }
+ 
+     protected class AnnotationIndexer extends AnnotationVisitor {
+-        public AnnotationIndexer() { super(Opcodes.ASM7); }
++        public AnnotationIndexer() { super(Opcodes.ASM9); }
+ 
+         @Override public void visitEnum(String name, String desc, String value) { descriptorSet.add(desc); }
+ 
+@@ -242,7 +242,7 @@ public class ClassFileIndexerProvider extends AbstractIndexerProvider {
+         protected AnnotationIndexer annotationIndexer;
+ 
+         public FieldIndexer(AnnotationIndexer annotationIndexer) {
+-            super(Opcodes.ASM7);
++            super(Opcodes.ASM9);
+             this.annotationIndexer = annotationIndexer;
+         }
+ 
+@@ -263,7 +263,7 @@ public class ClassFileIndexerProvider extends AbstractIndexerProvider {
+         protected AnnotationIndexer annotationIndexer;
+ 
+         public MethodIndexer(AnnotationIndexer annotationIndexer) {
+-            super(Opcodes.ASM7);
++            super(Opcodes.ASM9);
+             this.annotationIndexer = annotationIndexer;
+         }
+ 
+diff --git a/services/src/main/java/org/jd/gui/service/indexer/JavaModuleInfoFileIndexerProvider.java b/services/src/main/java/org/jd/gui/service/indexer/JavaModuleInfoFileIndexerProvider.java
+index 9f22e10..6dc3487 100644
+--- a/services/src/main/java/org/jd/gui/service/indexer/JavaModuleInfoFileIndexerProvider.java
++++ b/services/src/main/java/org/jd/gui/service/indexer/JavaModuleInfoFileIndexerProvider.java
+@@ -55,7 +55,7 @@ public class JavaModuleInfoFileIndexerProvider extends AbstractIndexerProvider {
+     protected class ClassIndexer extends ClassVisitor {
+         protected ModuleIndexer moduleIndexer = new ModuleIndexer();
+ 
+-        public ClassIndexer() { super(Opcodes.ASM7); }
++        public ClassIndexer() { super(Opcodes.ASM9); }
+ 
+         @Override
+         public ModuleVisitor visitModule(String moduleName, int moduleFlags, String moduleVersion) {
+@@ -65,7 +65,7 @@ public class JavaModuleInfoFileIndexerProvider extends AbstractIndexerProvider {
+     }
+ 
+     protected class ModuleIndexer extends ModuleVisitor {
+-        public ModuleIndexer() { super(Opcodes.ASM7); }
++        public ModuleIndexer() { super(Opcodes.ASM9); }
+ 
+         @Override public void visitMainClass(final String mainClass) { typeReferenceSet.add(mainClass); }
+         @Override public void visitRequire(final String module, final int access, final String version) { javaModuleReferenceSet.add(module); }
+diff --git a/services/src/main/java/org/jd/gui/service/type/ClassFileTypeFactoryProvider.java b/services/src/main/java/org/jd/gui/service/type/ClassFileTypeFactoryProvider.java
+index b232cb9..9ae40bb 100644
+--- a/services/src/main/java/org/jd/gui/service/type/ClassFileTypeFactoryProvider.java
++++ b/services/src/main/java/org/jd/gui/service/type/ClassFileTypeFactoryProvider.java
+@@ -138,7 +138,7 @@ public class ClassFileTypeFactoryProvider extends AbstractTypeFactoryProvider {
+         protected JavaType(Container.Entry entry, ClassReader classReader, final int outerAccess) {
+             this.entry = entry;
+ 
+-            ClassVisitor classAndInnerClassesVisitor = new ClassVisitor(Opcodes.ASM7) {
++            ClassVisitor classAndInnerClassesVisitor = new ClassVisitor(Opcodes.ASM9) {
+                 @Override
+                 public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
+                     JavaType.this.access = (outerAccess == -1) ? access : outerAccess;
+@@ -194,7 +194,7 @@ public class ClassFileTypeFactoryProvider extends AbstractTypeFactoryProvider {
+                 displayTypeName = displayTypeName.substring(lastPackageSeparatorIndex+1);
+             }
+ 
+-            ClassVisitor fieldsAndMethodsVisitor = new ClassVisitor(Opcodes.ASM7) {
++            ClassVisitor fieldsAndMethodsVisitor = new ClassVisitor(Opcodes.ASM9) {
+                 @Override
+                 public FieldVisitor visitField(int access, String name, String descriptor, String signature, Object value) {
+                     if ((access & (Opcodes.ACC_SYNTHETIC|Opcodes.ACC_ENUM)) == 0) {
+@@ -300,7 +300,7 @@ public class ClassFileTypeFactoryProvider extends AbstractTypeFactoryProvider {
+         protected String innerName;
+ 
+         public InnerClassVisitor(String name) {
+-            super(Opcodes.ASM7);
++            super(Opcodes.ASM9);
+             this.name = name;
+         }
+ 
+diff --git a/services/src/main/java/org/jd/gui/util/container/JarContainerEntryUtil.java b/services/src/main/java/org/jd/gui/util/container/JarContainerEntryUtil.java
+index d710060..3ed4c03 100644
+--- a/services/src/main/java/org/jd/gui/util/container/JarContainerEntryUtil.java
++++ b/services/src/main/java/org/jd/gui/util/container/JarContainerEntryUtil.java
+@@ -96,7 +96,7 @@ public class JarContainerEntryUtil {
+             String p = entry.getPath();
+             final String prefixPath = p.substring(0, p.length() - classReader.getClassName().length() - 6);
+ 
+-            ClassVisitor classVisitor = new ClassVisitor(Opcodes.ASM7) {
++            ClassVisitor classVisitor = new ClassVisitor(Opcodes.ASM9) {
+                 public void visitInnerClass(final String name, final String outerName, final String innerName, final int access) {
+                     innerTypePaths.add(prefixPath + name + ".class");
+                 }

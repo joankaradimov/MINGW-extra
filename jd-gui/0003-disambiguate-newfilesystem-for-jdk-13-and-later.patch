@@ -1,0 +1,22 @@
+Disambiguate FileSystems.newFileSystem(path, null) for JDK 13 and later.
+
+JDK 13 added newFileSystem(Path, Map), so a null second argument matches
+two overloads and javac rejects the call. The cast picks the ClassLoader
+overload, the only one JDK 8 to 12 have.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/services/src/main/java/org/jd/gui/model/container/GenericContainer.java b/services/src/main/java/org/jd/gui/model/container/GenericContainer.java
+index 3477eab..6078753 100644
+--- a/services/src/main/java/org/jd/gui/model/container/GenericContainer.java
++++ b/services/src/main/java/org/jd/gui/model/container/GenericContainer.java
+@@ -170,7 +170,7 @@ public class GenericContainer implements Container {
+             tmpFile.deleteOnExit();
+             Files.copy(fsPath, tmpPath);
+ 
+-            FileSystem subFileSystem = FileSystems.newFileSystem(tmpPath, null);
++            FileSystem subFileSystem = FileSystems.newFileSystem(tmpPath, (ClassLoader) null);
+ 
+             if (subFileSystem != null) {
+                 Iterator<Path> rootDirectories = subFileSystem.getRootDirectories().iterator();

@@ -1,0 +1,121 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=jd-gui
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=1.6.6
+pkgrel=1
+# Bundled into jd-gui's jar, as upstream does; jd-core is not.
+_rstaver=3.0.4
+_asmver=9.10.1
+_antlrver=4.5
+_treelayoutver=1.0.1
+pkgdesc="Graphical Java decompiler (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://java-decompiler.github.io/'
+msys2_repository_url='https://github.com/java-decompiler/jd-gui'
+msys2_references=(
+  'aur: jd-gui'
+)
+license=('spdx:GPL-3.0-only AND BSD-3-Clause')
+depends=("${MINGW_PACKAGE_PREFIX}-jd-core"
+         "${MINGW_PACKAGE_PREFIX}-openjdk")
+makedepends=('gradle')
+source=("${_realname}-${pkgver}.tar.gz::https://github.com/java-decompiler/jd-gui/archive/refs/tags/v${pkgver}.tar.gz"
+        "rsyntaxtextarea-${_rstaver}-LICENSE::https://raw.githubusercontent.com/bobbylight/RSyntaxTextArea/${_rstaver}/RSyntaxTextArea/src/main/resources/META-INF/LICENSE"
+        "asm-${_asmver}-LICENSE.txt::https://gitlab.ow2.org/asm/asm/-/raw/ASM_${_asmver//./_}/LICENSE.txt"
+        "antlr4-${_antlrver}-LICENSE.txt::https://raw.githubusercontent.com/antlr/antlr4/${_antlrver}/LICENSE.txt"
+        "https://repo1.maven.org/maven2/org/abego/treelayout/org.abego.treelayout.core/${_treelayoutver}/org.abego.treelayout.core-${_treelayoutver}-sources.jar"
+        '0001-build-with-current-gradle.patch'
+        '0002-take-jd-core-from-a-jar-the-build-is-given.patch'
+        '0003-disambiguate-newfilesystem-for-jdk-13-and-later.patch'
+        '0004-read-class-files-of-current-java-releases.patch'
+        '0005-open-command-line-files-once-the-services-exist.patch'
+        'verification-metadata.xml'
+        'jd-gui.cmd'
+        'jd-gui.sh'
+        'test-jd-gui.java')
+noextract=("org.abego.treelayout.core-${_treelayoutver}-sources.jar")
+sha256sums=('7fc8eb51de0a65d578a45655a0304ef8b92db9770a00d2e08cb797d21b0c67ed'
+            '0fe4c6d977f7be4c4e01096710aebbf5a55e4bfac139719cc113e6b488b87ebd'
+            '293b6af371eee28b0ff16f0334ea19e20a3d5522143faa4b95b346855507879a'
+            '0c76c37cb13f5bc59c40f4806274069b2404386854fcb4472ae1ee1a562b6ed8'
+            '40347dbdd5c269fe21243dd5abcbb93c21764b272d4f00279e9c8ebf5817b6e7'
+            '57f2300ef80fcdc6c1a29338a9abdd0a9c72a60ab8762dad61b39d72e46911f9'
+            '5ed7522ad3c92c52b61f73356dff04e91257053c69bf520c34558d20924aab05'
+            'cff9aeed420b62857abe649b72bb7327bf19b600d0e9dec9612a69ff219917b5'
+            'db6f3a08701bfd996890183a11ecfac91584df479d3cb4caec9fdbd1adddfd19'
+            'fbfcf1f0d23bdedfc2221554154f7268ecfc7771662cb43d6dedaad73741b361'
+            '29e5c9395e378e4e584f5044336c519c1365333b91f2add5f399a385739995f5'
+            '8634e4cd46f65a27ae5413f2d4d8614fd36f65de440bbe7e16eae1da0caa20ae'
+            '7111a78404673f0a415b16eb34b539ce1db61f3a1a4039e57abea5174d0d6cb0'
+            'bde9290ff126706907baf0868775ae06be76e2c61d2dba6e46acca36aef9239d')
+
+prepare() {
+  cd "${srcdir}/${_realname}-${pkgver}"
+
+  local _p
+  for _p in "${srcdir}"/00*.patch; do
+    patch -Np1 -i "${_p}"
+  done
+
+  # Gradle checks everything it fetches against these checksums, and the
+  # license files above are fetched for the same versions.
+  install -Dm644 "${srcdir}/verification-metadata.xml" -t gradle
+  local _dep
+  for _dep in "rsyntaxtextarea:${_rstaver}" "asm:${_asmver}" "antlr4-runtime:${_antlrver}" \
+      "org.abego.treelayout.core:${_treelayoutver}"; do
+    grep -q "name=\"${_dep%:*}\" version=\"${_dep#*:}\"" gradle/verification-metadata.xml \
+      || { error "the build does not use ${_dep}"; return 1; }
+  done
+}
+
+_java_home() {
+  local _jdk=("${MINGW_PREFIX}"/lib/jvm/java-*-openjdk)
+  echo "${_jdk[0]}"
+}
+
+# The jar finds jd-core through its manifest, beside its own directory.
+_gradle() {
+  JAVA_HOME="$(_java_home)" GRADLE_USER_HOME="${srcdir}/gradle" \
+    gradle --no-daemon \
+      -PjdCoreJar="$(cygpath -m "${MINGW_PREFIX}/share/java/jd-core/jd-core.jar")" \
+      -PjdCoreClassPath=../jd-core/jd-core.jar \
+      "$@"
+}
+
+build() {
+  cd "${srcdir}/${_realname}-${pkgver}"
+  _gradle jar
+}
+
+check() {
+  cd "${srcdir}/${_realname}-${pkgver}"
+  _gradle test
+
+  local _test="${srcdir}/test"
+  rm -rf "${_test}" && mkdir -p "${_test}"/{jd-gui,jd-core,classes}
+  cp "build/libs/${_realname}-${pkgver}.jar" "${_test}/jd-gui/jd-gui.jar"
+  cp "${MINGW_PREFIX}/share/java/jd-core/jd-core.jar" "${_test}/jd-core"
+  "$(_java_home)/bin/java" -cp "${_test}/jd-gui/jd-gui.jar" \
+    "${srcdir}/test-jd-gui.java" "${_test}/classes"
+}
+
+package() {
+  cd "${srcdir}/${_realname}-${pkgver}"
+
+  install -Dm644 "build/libs/${_realname}-${pkgver}.jar" \
+    "${pkgdir}${MINGW_PREFIX}/share/java/${_realname}/${_realname}.jar"
+  install -Dm755 "${srcdir}/jd-gui.cmd" -t "${pkgdir}${MINGW_PREFIX}/bin"
+  install -Dm755 "${srcdir}/jd-gui.sh" "${pkgdir}${MINGW_PREFIX}/bin/jd-gui"
+
+  local _licdir="${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}"
+  install -Dm644 LICENSE NOTICE -t "${_licdir}"
+  install -Dm644 "${srcdir}/rsyntaxtextarea-${_rstaver}-LICENSE" "${_licdir}/rsyntaxtextarea/LICENSE"
+  install -Dm644 "${srcdir}/asm-${_asmver}-LICENSE.txt" "${_licdir}/asm/LICENSE.txt"
+  install -Dm644 "${srcdir}/antlr4-${_antlrver}-LICENSE.txt" "${_licdir}/antlr4/LICENSE.txt"
+  mkdir -p "${_licdir}/treelayout"
+  bsdtar -xOf "${srcdir}/org.abego.treelayout.core-${_treelayoutver}-sources.jar" \
+    org/abego/treelayout/doc-files/LICENSE.TXT > "${_licdir}/treelayout/LICENSE.TXT"
+}

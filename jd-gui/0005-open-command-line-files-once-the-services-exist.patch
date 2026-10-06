@@ -1,0 +1,37 @@
+Open the files named on the command line once the services exist.
+
+show() opened them as soon as the main window was up, but the source
+loader service is created at least 400 ms later, with the dialogs'
+controllers, by a scheduled background task. A class file given on the
+command line therefore failed every time, with a NullPointerException in
+MainController.getSource, and its tab never opened. The files now open
+at the end of that task.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/app/src/main/java/org/jd/gui/controller/MainController.java b/app/src/main/java/org/jd/gui/controller/MainController.java
+index 94b0e88..930e976 100644
+--- a/app/src/main/java/org/jd/gui/controller/MainController.java
++++ b/app/src/main/java/org/jd/gui/controller/MainController.java
+@@ -121,9 +121,6 @@ public class MainController implements API {
+         SwingUtil.invokeLater(() -> {
+             // Show main frame
+             mainView.show(configuration.getMainWindowLocation(), configuration.getMainWindowSize(), configuration.isMainWindowMaximize());
+-            if (!files.isEmpty()) {
+-                openFiles(files);
+-            }
+         });
+ 
+         // Background initializations
+@@ -158,6 +155,10 @@ public class MainController implements API {
+                 new JFileChooser().addChoosableFileFilter(new FileNameExtensionFilter("", "dummy"));
+                 FileSystemView.getFileSystemView().isFileSystemRoot(new File("dummy"));
+                 new JLayer();
++                // Open files once the services and controllers above exist
++                if (!files.isEmpty()) {
++                    openFiles(files);
++                }
+             });
+         }, 400, TimeUnit.MILLISECONDS);
+ 

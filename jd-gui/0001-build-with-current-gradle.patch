@@ -1,0 +1,247 @@
+Build with the Gradle and repositories that exist today.
+
+The build is written for Gradle 5: the compile and runtime configurations
+and JavaExec's main are gone from current Gradle. Gradle 9 also refuses
+the all-in-one jar's resolving of the subprojects' configurations from
+the root project, so the root project depends on :app and packs its
+runtime classpath instead, which holds the same classes and libraries.
+The dependencies and plugins came from JCenter, shut down in 2021.
+
+The tasks for DEB and RPM packages (nebula.ospackage), the Windows
+executable (launch4j) and the minified jar (ProGuard 6.1, which reads
+neither JDK 27's class files nor a JDK without rt.jar) go with their
+plugins.
+
+Upstream: not submitted (no upstream activity since 2019)
+Applies-to: all environments
+
+diff --git a/app/build.gradle b/app/build.gradle
+index 6366e3b..492a45a 100644
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -1,9 +1,9 @@
+ apply plugin: 'java'
+ 
+ dependencies {
+-    provided 'com.yuvimasory:orange-extensions:1.3.0'   // OSX support
+-    compile project(':api')
+-    runtime project(':services')
++    compileOnly 'com.yuvimasory:orange-extensions:1.3.0'   // OSX support
++    implementation project(':api')
++    runtimeOnly project(':services')
+ }
+ 
+ version = parent.version
+diff --git a/build.gradle b/build.gradle
+index 5163340..7ef704d 100644
+--- a/build.gradle
++++ b/build.gradle
+@@ -1,23 +1,8 @@
+-buildscript {
+-    repositories {
+-        jcenter()
+-    }
+-    dependencies {
+-        classpath 'com.netflix.nebula:gradle-ospackage-plugin:5.3.0'    // RPM & DEB support
+-        classpath 'edu.sc.seis.gradle:launch4j:2.4.4'
+-        classpath 'net.sf.proguard:proguard-gradle:6.1.0'
+-    }
+-}
+-
+ apply plugin: 'java'
+-apply plugin: 'distribution'
+-apply plugin: 'edu.sc.seis.launch4j'
+-apply plugin: 'nebula.ospackage'
+ 
+ // Common configuration //
+ rootProject.version='1.6.6'
+ rootProject.ext.set('jdCoreVersion', '1.1.3')
+-targetCompatibility = '1.8'
+ 
+ allprojects {
+     apply plugin: 'eclipse'
+@@ -31,12 +16,7 @@ allprojects {
+     }
+ 
+     repositories {
+-        jcenter()
+-    }
+-
+-    configurations {
+-        provided
+-        compile.extendsFrom provided
++        mavenCentral()
+     }
+ }
+ 
+@@ -52,24 +32,18 @@ subprojects.each { subproject ->
+     evaluationDependsOn(subproject.path)
+ }
+ 
++dependencies {
++    runtimeOnly project(':app')
++}
++
+ jar {
+-    dependsOn subprojects.tasks['jar']
++    dependsOn configurations.runtimeClasspath
+ 
+     // Add SPI directory
+     def tmpSpiDir = file('build/tmp/spi')
+     from tmpSpiDir
+-    // Add dependencies
+-    def deps = []
+-    subprojects.each { subproject ->
+-        from subproject.sourceSets.main.output.classesDirs
+-        from subproject.sourceSets.main.output.resourcesDir
+-        deps += subproject.configurations.runtime - subproject.configurations.provided
+-    }
+-    subprojects.each { subproject ->
+-        deps -= subproject.jar.archivePath
+-    }
+-    deps = deps.unique().collect { it.isDirectory() ? it : zipTree(it) }
+-    from deps
++    // Add subprojects and dependencies
++    from { configurations.runtimeClasspath.collect { zipTree(it) } }
+ 
+     manifest {
+         attributes 'Main-Class': 'org.jd.gui.App',
+@@ -80,7 +54,7 @@ jar {
+     exclude 'META-INF/licenses/**', 'META-INF/maven/**', 'META-INF/INDEX.LIST'
+     exclude '**/ErrorStrip_*.properties', '**/RSyntaxTextArea_*.properties', '**/RTextArea_*.properties'
+     exclude '**/FocusableTip_*.properties', '**/RSyntaxTextArea_License.txt'
+-    duplicatesStrategy DuplicatesStrategy.EXCLUDE
++    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+     doFirst {
+         // Create SPI directory
+         tmpSpiDir.deleteDir()
+@@ -99,90 +73,3 @@ jar {
+     }
+ }
+ 
+-// Minify JAR file //
+-task proguard(type: proguard.gradle.ProGuardTask, dependsOn: 'jar') {
+-    configuration 'src/proguard/resources/proguard.config.txt'
+-    injars jar.archivePath
+-    outjars 'build/libs/' + project.name + '-' + project.version + '-min.jar'
+-    libraryjars System.getProperty('java.home') + '/lib/rt.jar'
+-    libraryjars System.getProperty('java.home') + '/jmods/'
+-}
+-
+-// Java executable wrapper for Windows //
+-launch4j {
+-    createExe.dependsOn 'proguard'
+-
+-    version = textVersion = project.version
+-    fileDescription = productName = 'JD-GUI'
+-    errTitle 'JD-GUI Windows Wrapper'
+-    copyright 'JD-GUI (C) 2008-2019 Emmanuel Dupuy'
+-    icon projectDir.path + '/src/launch4j/resources/images/jd-gui.ico'
+-    jar projectDir.path + '/' + proguard.outJarFiles[0]
+-    bundledJrePath = '%JAVA_HOME%'
+-}
+-
+-// Packages for Linux //
+-ospackage {
+-    buildDeb.dependsOn 'proguard'
+-    buildRpm.dependsOn 'proguard'
+-
+-    license = file('LICENSE')
+-    maintainer 'Emmanuel Dupuy <emmanue1@users.noreply.github.com>'
+-    os LINUX
+-    packageDescription 'JD-GUI, a standalone graphical utility that displays Java sources from CLASS files'
+-    packageGroup 'java'
+-    packageName project.name
+-    release '0'
+-    summary 'A Java Decompiler'
+-    url 'https://github.com/java-decompiler/jd-gui'
+-
+-    into '/opt/' + project.name
+-    from (proguard.outJarFiles[0]) {
+-        fileMode 0755
+-    }
+-    from ('src/linux/resources/') {
+-        fileMode 0755
+-    }
+-    from 'LICENSE', 'NOTICE', 'README.md'
+-
+-    postInstall 'cd /opt/' + project.name + '; ln -s ./' + file(proguard.outJarFiles[0]).name + ' ./jd-gui.jar; xdg-icon-resource install --size 128 --novendor ./jd_icon_128.png jd-gui; xdg-desktop-menu install ./*.desktop'
+-    preUninstall 'cd /opt/' + project.name + '; rm -f ./jd-gui.jar; rm -fr ./ext; xdg-desktop-menu uninstall ./*.desktop'
+-}
+-
+-// Distributions for OSX and Windows //
+-distributions {
+-    osx.contents {
+-        into('JD-GUI.app/Contents') {
+-            from('src/osx/resources') {
+-                include 'Info.plist'
+-                expand VERSION: project.version,
+-                       JAR: file(proguard.outJarFiles[0]).name
+-            }
+-        }
+-        into('JD-GUI.app/Contents/MacOS') {
+-            from('src/osx/resources') {
+-                include 'universalJavaApplicationStub.sh'
+-                fileMode 0755
+-            }
+-        }
+-        into('JD-GUI.app/Contents/Resources/Java') {
+-            from proguard.outJarFiles[0]
+-        }
+-        from 'LICENSE', 'NOTICE', 'README.md'
+-    }
+-    windows.contents {
+-        from 'build/launch4j/jd-gui.exe'
+-        from 'LICENSE', 'NOTICE', 'README.md'
+-    }
+-
+-    installWindowsDist.dependsOn createExe
+-    windowsDistTar.dependsOn createExe
+-    windowsDistZip.dependsOn createExe
+-
+-    installOsxDist.dependsOn 'proguard'
+-    osxDistTar.dependsOn 'proguard'
+-    osxDistZip.dependsOn 'proguard'
+-}
+-
+-build.finalizedBy buildDeb
+-build.finalizedBy buildRpm
+diff --git a/services/build.gradle b/services/build.gradle
+index 6ed884b..87e0a5b 100644
+--- a/services/build.gradle
++++ b/services/build.gradle
+@@ -1,11 +1,11 @@
+ apply plugin: 'java'
+ 
+ dependencies {
+-    compile 'com.fifesoft:rsyntaxtextarea:3.0.4'
+-    compile 'org.ow2.asm:asm:7.1'
+-    compile 'org.jd:jd-core:' + parent.jdCoreVersion
+-    compile project(':api')
+-    testCompile 'junit:junit:4.12'
++    implementation 'com.fifesoft:rsyntaxtextarea:3.0.4'
++    implementation 'org.ow2.asm:asm:7.1'
++    implementation 'org.jd:jd-core:' + parent.jdCoreVersion
++    implementation project(':api')
++    testImplementation 'junit:junit:4.12'
+ }
+ 
+ version = parent.version
+@@ -24,7 +24,7 @@ configurations {
+ }
+ 
+ dependencies {
+-    compile 'org.antlr:antlr4-runtime:4.5'
++    implementation 'org.antlr:antlr4-runtime:4.5'
+     antlr4 'org.antlr:antlr4:4.5'
+ }
+ 
+@@ -41,7 +41,7 @@ task antlr4GenerateGrammarSource(dependsOn: antlr4OutputDir, type: JavaExec) {
+     def grammars = fileTree(antlr4.antlrSource).include('**/*.g4')
+     def pkg = antlr4.grammarPackage.replaceAll("\\.", "/")
+ 
+-    main = 'org.antlr.v4.Tool'
++    mainClass = 'org.antlr.v4.Tool'
+     classpath = configurations.antlr4
+     args = ['-o', "${antlr4.destinationDir}/${pkg}", '-package', antlr4.grammarPackage, grammars.files].flatten()
+ }
