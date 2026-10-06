@@ -1,0 +1,60 @@
+Recompile the decompiled test classes for a release javac still supports.
+
+ClassFileToJavaSourceTest recompiles what it decompiled, asking for the
+Java release the class files came from. javac 12 dropped -source 6 and
+javac 20 dropped 7, so on a current JDK 41 tests fail before compiling
+anything; the harness already raised anything older than 6 for the same
+reason, and now raises to the oldest release the running javac takes.
+
+It also compiles with --release rather than -source/-target, against that
+release's class library. Against JDK 21's, the decompiled
+commons-collections4 4.1 clashes with SequencedCollection (addFirst,
+addLast, firstEntry, lastEntry) whatever the decompiler does.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/src/test/java/org/jd/core/v1/compiler/CompilerUtil.java b/src/test/java/org/jd/core/v1/compiler/CompilerUtil.java
+index 646891d..e6b9e2d 100644
+--- a/src/test/java/org/jd/core/v1/compiler/CompilerUtil.java
++++ b/src/test/java/org/jd/core/v1/compiler/CompilerUtil.java
+@@ -10,6 +10,7 @@ package org.jd.core.v1.compiler;
+ import javax.tools.*;
+ import java.io.File;
+ import java.io.StringWriter;
++import java.util.ArrayList;
+ import java.util.Arrays;
+ import java.util.List;
+ 
+@@ -26,7 +27,14 @@ public class CompilerUtil {
+         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+         StringWriter writer = new StringWriter();
+         DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
+-        List<String> options = Arrays.asList("-source", javaVersion, "-target", javaVersion, "-d", DESTINATION_DIRECTORY_PATH, "-cp", System.getProperty("java.class.path"));
++        List<String> options = new ArrayList<>();
++        if (parseJavaVersion(System.getProperty("java.version")) <= 8) {
++            options.addAll(Arrays.asList("-source", javaVersion, "-target", javaVersion));
++        } else {
++            // Against that release's class library: a newer one can clash with the sources
++            options.addAll(Arrays.asList("--release", javaVersion));
++        }
++        options.addAll(Arrays.asList("-d", DESTINATION_DIRECTORY_PATH, "-cp", System.getProperty("java.class.path")));
+         List<JavaFileObject> compilationUnits = Arrays.asList(javaFileObjects);
+ 
+         try (StandardJavaFileManager fileManager = compiler.getStandardFileManager(diagnostics, null, null)) {
+@@ -67,12 +75,10 @@ public class CompilerUtil {
+             return preferredJavaVersion;
+         } else {
+             int numericPreferredJavaVersion = parseJavaVersion(preferredJavaVersion);
++            // javac 9 to 11 compile for 6 and later, 12 to 19 for 7, 20 and later for 8
++            int numericOldestJavaVersion = (numericSystemJavaVersion >= 20) ? 8 : (numericSystemJavaVersion >= 12) ? 7 : 6;
+ 
+-            if (numericPreferredJavaVersion < 6) {
+-                return "1.6";
+-            } else {
+-                return preferredJavaVersion;
+-            }
++            return Integer.toString(Math.max(numericPreferredJavaVersion, numericOldestJavaVersion));
+         }
+     }
+ 

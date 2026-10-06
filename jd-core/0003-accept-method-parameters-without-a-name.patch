@@ -1,0 +1,25 @@
+Accept MethodParameters entries that have no name.
+
+A name_index of zero is legal and means the parameter has no name (JVMS
+4.7.24). javac 21 and later write such entries for mandated and synthetic
+parameters: an enum's valueOf and constructor, an inner class
+constructor's outer instance. jd-core read every name from the constant
+pool, so any class with one of those failed with a NullPointerException
+in ConstantPool.getConstantUtf8.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/src/main/java/org/jd/core/v1/service/deserializer/classfile/ClassFileDeserializer.java b/src/main/java/org/jd/core/v1/service/deserializer/classfile/ClassFileDeserializer.java
+index 09b99a2..b5e5005 100644
+--- a/src/main/java/org/jd/core/v1/service/deserializer/classfile/ClassFileDeserializer.java
++++ b/src/main/java/org/jd/core/v1/service/deserializer/classfile/ClassFileDeserializer.java
+@@ -565,7 +565,7 @@ public class ClassFileDeserializer {
+         for (int i=0; i<count; i++) {
+             int nameIndex = reader.readUnsignedShort();
+ 
+-            String name = constants.getConstantUtf8(nameIndex);
++            String name = (nameIndex == 0) ? null : constants.getConstantUtf8(nameIndex);
+ 
+             parameters[i] = new MethodParameter(name, reader.readUnsignedShort());
+         }

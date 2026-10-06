@@ -1,0 +1,107 @@
+Build with the Gradle and repositories that exist today.
+
+The build is written for Gradle 5: testCompile and the Jar task's
+classifier are gone from current Gradle, and the "propName value"
+assignments go in Gradle 10. Both of its repositories are gone too:
+JCenter and Bintray shut down in 2021, so the dependencies come from Maven
+Central and the Bintray publishing plugin and block go.
+
+Upstream: not submitted (no upstream activity since 2020)
+Applies-to: all environments
+
+diff --git a/build.gradle b/build.gradle
+index 0a8cd35..680fe4d 100644
+--- a/build.gradle
++++ b/build.gradle
+@@ -2,13 +2,12 @@ apply plugin: 'java'
+ apply plugin: 'eclipse'
+ apply plugin: 'idea'
+ apply plugin: 'maven-publish'
+-apply plugin: 'com.jfrog.bintray'
+ 
+ dependencies {
+-    testCompile 'commons-codec:commons-codec:1.13'
+-    testCompile 'org.apache.commons:commons-collections4:4.1'
+-    testCompile 'org.apache.commons:commons-lang3:3.9'
+-    testCompile 'junit:junit:4.12'
++    testImplementation 'commons-codec:commons-codec:1.13'
++    testImplementation 'org.apache.commons:commons-collections4:4.1'
++    testImplementation 'org.apache.commons:commons-lang3:3.9'
++    testImplementation 'junit:junit:4.12'
+ }
+ 
+ version='1.1.3'
+@@ -20,17 +19,8 @@ tasks.withType(JavaCompile) {
+     options.encoding = 'UTF-8'    
+ }
+ 
+-buildscript {
+-    repositories {
+-        jcenter()
+-    }
+-    dependencies {
+-        classpath 'com.jfrog.bintray.gradle:gradle-bintray-plugin:1.+'
+-    }
+-}
+-
+ repositories {
+-    jcenter()
++    mavenCentral()
+ }
+ 
+ jar {
+@@ -41,50 +31,22 @@ jar {
+ 
+ // Publication to JCenter Maven repository
+ task sourceJar(type: Jar) {
+-    classifier 'sources'
++    archiveClassifier = 'sources'
+     from sourceSets.main.allJava
+ }
+ 
+ publishing {
+     publications {
+         publicationJdCore(MavenPublication) {
+-            groupId 'org.jd'
+-            artifactId 'jd-core'
+-            version project.version
++            groupId = 'org.jd'
++            artifactId = 'jd-core'
++            version = project.version
+             from components.java
+             artifact tasks.sourceJar
+         }
+     }
+ }
+ 
+-bintray {
+-    user = System.getProperty('bintray.user')
+-    key = System.getProperty('bintray.key')
+-    publications = ['publicationJdCore']
+-
+-    dryRun = false //[Default: false] Whether to run this as dry-run, without deploying
+-    publish = true //[Default: false] Whether version should be auto published after an upload
+-    override = false //[Default: false] Whether to override version artifacts already published
+-
+-    pkg {
+-        userOrg = 'java-decompiler'
+-        repo = 'maven'
+-        name = 'org.jd:jd-core'
+-        description = 'JD-Core is a JAVA decompiler written in JAVA.'
+-        licenses = ['GPL-3.0']
+-
+-        websiteUrl = 'https://github.com/java-decompiler/jd-core'
+-        issueTrackerUrl = 'https://github.com/java-decompiler/jd-core/issues'
+-        vcsUrl = 'https://github.com/java-decompiler/jd-core.git'
+-
+-        publicDownloadNumbers = true
+-        version {
+-            name = project.version
+-            released = new Date()
+-        }
+-    }
+-}
+-
+ // 'cleanIdea' task extension //
+ cleanIdea.doFirst {
+     delete project.name + '.iws'
