@@ -244,6 +244,17 @@ not really ported to Windows yet. Say so rather than grinding through it.
   it. The npm modules of a Node.js application are the one exception — they ship inside the
   application, pinned by its lockfile (`msys2-nodejs`) — but any C library an addon bundles
   still comes from its MinGW package.
+
+  A bundled copy never breaks the build, so you will not notice one by building. Look for it:
+  `msys2-new-package/survey.sh` lists `lib/`, `third_party/`, `external/` and their kin,
+  checks each name against the repositories, and lists submodules and configure-time
+  downloads.
+
+  Two things are not vendoring. A submodule that is the project's own fork, maintained by the
+  same people and used by nothing else, is part of the source: fetch it pinned in `source=()`
+  and say what it is in a comment. And a header-only library from its package, compiled into
+  the program because that is how the library is used, goes in `makedepends`. Delete the bundled copy in
+  `prepare()` so the build cannot quietly use it.
 - **Never put a name in `depends` that you have not confirmed with `pacman -Si`.** An
   unresolvable name makes the package uninstallable for everyone but you.
 - **Never leave a locally built dependency uncommitted** while committing the parent. The

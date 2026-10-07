@@ -22,6 +22,15 @@ used here only as a reference of last resort, never as the source of conventions
 | `msys2-licensing` | `license=()` SPDX rules and license file placement. |
 | `msys2-nodejs` | Node.js applications: lockfile-pinned `npm ci`, bundled modules, node-gyp addons on shared MinGW libraries. |
 
+## Two scripts
+
+`msys2-new-package/survey.sh <source-dir>` reports what a build will not: bundled libraries
+MSYS2 already packages, empty submodules, the switch for upstream's tests, install rules.
+`msys2-pkgbuild/lint.sh <package-dir>` checks a PKGBUILD against every rule that can be
+checked mechanically and prints one line per finding, with the fix and the skill to read.
+The router makes both part of "done". They exist so that a model need not remember the rules,
+which smaller models don't reliably do.
+
 ## Four things these skills insist on
 
 **Check `msys2/MINGW-packages` first.** A package that already has an upstream recipe should not

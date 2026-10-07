@@ -56,7 +56,10 @@ That is a common mistake: if the package is genuinely *both*, use one entry with
 | `custom` | see below |
 
 Never guess between `-only` and `-or-later`, or between BSD variants. Read the actual license
-header in the source.
+header in the source. The GPL's own text says "any later version" in its closing section on
+how to apply the license, so grepping the LICENSE file finds those words in every GPL project.
+Only a grant outside the license text, in source headers or the README, makes it
+`-or-later`. `survey.sh` (`msys2-new-package`) looks for one.
 
 ### Custom or unlisted licenses
 

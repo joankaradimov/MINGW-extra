@@ -20,7 +20,10 @@ Answer these first. Half of failed packaging attempts die on question 2 or 4.
    depth-first, leaves before roots. Do this before Phase 1, not when the build fails.
 4. **Is there prior art?** Phase 0b. A recipe someone else already debugged is worth more
    than anything you will write from a blank file.
-5. **Does it build by hand?** In a UCRT64 shell, configure and build it manually once. If you
+5. **What is in the source tree?** Unpack the release tarball and run
+   `.claude/skills/msys2-new-package/survey.sh <dir>`. Act on every section of its report;
+   see Phase 0d.
+6. **Does it build by hand?** In a UCRT64 shell, configure and build it manually once. If you
    cannot, the PKGBUILD will not help you.
 
 ## Phase 0a — does msys2/MINGW-packages already have it?
@@ -151,6 +154,25 @@ If the missing set turns out to be more than one package, or more than one level
 and show the user the full build order before starting it. Packaging one library can quietly
 become packaging six, and that is their decision to make.
 
+## Phase 0d — what the source tree hides
+
+A build succeeds with a bundled library in it, with its tests switched off, and with an
+install target that puts the binary somewhere odd, so the build loop never tells you about
+any of these. `survey.sh` does. Turn its report into PKGBUILD decisions before writing one:
+
+| `survey.sh` says | Do |
+|---|---|
+| `FOUND <package>` under bundled code | Add the package to `depends` (or `makedepends` for header-only), patch the build to use it, and `rm -r` the copy in `prepare()` so the build cannot fall back to it. |
+| `not packaged` under bundled code | Check `pacman -Ss` first. If it really is missing, package it first (`msys2-dependencies`) or, if the user agrees, keep it bundled and name it in a comment. |
+| `EMPTY`, plus a `.gitmodules` entry | The tarball lacks the submodule. A fork maintained by the same project and used by nothing else is part of the source: add it to `source=()` pinned at the release's commit. Anything else is a dependency to package. |
+| a `FetchContent` or wrap download | A dependency. Take it from its package. |
+| a `*TEST*` option defaulting `OFF` | Turn it on in `build()`, run the suite in `check()`. |
+| an `INSTALL` option defaulting `OFF`, or `DESTINATION .` | Turn the option on; patch `.` to `GNUInstallDirs` (`CMAKE_INSTALL_BINDIR` and friends). Never copy files by hand in `package()`. Search upstream for an existing fix first: other distributions often carry one. |
+| no "or later" outside the license text | The GPL text says "any later version" in its own appendix; that is not a grant. Without one elsewhere, `GPL-3.0-only`. |
+
+Patches that Arch or the AUR carry are worth reading here too. Take each one that fixes
+something your build will hit, and say in its header where it came from.
+
 ## Phase 1 — set up
 
 ```bash
@@ -159,8 +181,10 @@ mkdir <upstream-name>          # bare upstream name, e.g. aubio — NOT mingw-w6
 cd <upstream-name>
 ```
 
-Start from the matching template in `msys2-pkgbuild` (CMake, Meson, autotools, Python, waf,
-git). Do not start from an Arch PKGBUILD — you will forget the environment indirection. A
+Copy the header block and the matching skeleton from `msys2-pkgbuild` (CMake, Meson,
+autotools, Python, waf, git) into the new PKGBUILD, then edit the copy. Do not write the
+PKGBUILD from memory, and do not start from an Arch PKGBUILD: either way, the environment
+indirection, `pkgbase`, `mingw_arch` and the `msys2_*` fields go missing. A
 Node.js application follows `msys2-nodejs` instead, including its own Phase 0 survey.
 
 Fill in the header. Set `mingw_arch=('ucrt64')` and nothing else. Set `license` per
@@ -171,6 +195,10 @@ updpkgsums          # rewrites sha256sums from the actual downloaded sources
 ```
 
 `updpkgsums` covers local patch files too. `SKIP` belongs only to VCS sources.
+
+```bash
+.claude/skills/msys2-pkgbuild/lint.sh .     # fix every ERROR before the first build
+```
 
 ## Phase 2 — the UCRT64 loop
 
@@ -239,6 +267,12 @@ during a version bump, that header is the only thing standing between you and a 
 
 ## Checklist before committing
 
+`lint.sh` checks the mechanical items on this list. Run it last and quote its output in your
+report. The items it cannot check are marked *(by hand)*.
+
+- [ ] `lint.sh` prints no `ERROR`; every `WARN` is fixed or explained in a PKGBUILD comment
+- [ ] `survey.sh` was run, and every `FOUND` bundled library is taken from its package
+      *(by hand)*
 - [ ] `msys2/MINGW-packages` checked (Phase 0a); if the package exists there, the reason for
       keeping a local copy is stated in the commit message
 - [ ] `arch=('any')`, `mingw_arch` lists only verified environments

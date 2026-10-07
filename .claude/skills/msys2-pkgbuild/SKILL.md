@@ -9,6 +9,9 @@ An MSYS2 MinGW PKGBUILD is an Arch PKGBUILD plus an environment indirection laye
 that would be an absolute path or a compiler name in Arch becomes a variable here, because the
 same file is evaluated once per environment.
 
+`lint.sh` in this directory checks the rules below that can be checked mechanically. Run it
+after every edit: `.claude/skills/msys2-pkgbuild/lint.sh <package-dir>`.
+
 ## Substitution variables
 
 | Variable | Example value (UCRT64) | Use |
@@ -143,8 +146,10 @@ Every package has one. CI builds with `--nocheck`, so a local build is the only 
 package's tests ever run.
 
 - **Upstream's suite first:** ctest, `meson test`, `make check`, `waf test`, a test program,
-  a pytest suite. Switch on the option that builds it if upstream leaves it off. A suite that
-  needs the network is fine here.
+  a pytest suite. Switch on the option that builds it if upstream leaves it off. Many CMake
+  projects do (`BUILD_TESTS`, `BUILD_TESTING`, `<NAME>_BUILD_TESTS`); `survey.sh` lists
+  them. A `check()` that runs ctest without that switch passes with no tests at all. A suite
+  that needs the network is fine here.
 - **Your own test where upstream has none,** or where its suite cannot run here, needing game
   data or paths on upstream's machine. Exercise what the package built: compile a consumer
   against the build tree and run it, or run the tool on real input. Ship the source beside
@@ -258,13 +263,15 @@ build() {
       -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
       "${extra_config[@]}" \
       -DBUILD_{SHARED,STATIC}_LIBS=ON \
+      -DBUILD_TESTING=ON \
       -S "${_realname}-${pkgver}" \
       -B "build-${MSYSTEM}"
 
   cmake --build "build-${MSYSTEM}"
 }
 
-check() { cmake --build "build-${MSYSTEM}" --target test; }
+# BUILD_TESTING is CTest's switch; replace it with the project's own (survey.sh lists it)
+check() { ctest --test-dir "build-${MSYSTEM}" --output-on-failure; }
 
 package() {
   DESTDIR="${pkgdir}" cmake --install "build-${MSYSTEM}"

@@ -10,6 +10,27 @@ package, named after the **upstream project** (`casclib/`, `suil/`, `unarr/`), e
 `PKGBUILD` and any `*.patch` files. Note this differs from upstream `msys2/MINGW-packages`,
 which uses `mingw-w64-<name>/` — when copying a recipe from upstream, rename the directory.
 
+## Two scripts, run every time
+
+Most of the rules below are mechanical, and two scripts check them. Run them; do not rely on
+remembering the rules.
+
+```bash
+# before writing the PKGBUILD, on the unpacked upstream source
+.claude/skills/msys2-new-package/survey.sh <source-dir>
+# before every build you report on, and before saying the package is done
+.claude/skills/msys2-pkgbuild/lint.sh <package-dir>
+```
+
+`survey.sh` finds what a build will not complain about: bundled libraries that MSYS2 already
+packages, empty git submodules, the switch that turns on upstream's tests, and install rules
+that put files in the wrong place. `lint.sh` prints one line per broken rule, with the fix and
+the skill that explains it. Fix every `ERROR`. A `WARN` either gets fixed or gets a comment in
+the PKGBUILD saying why it stays.
+
+**Done** means: `lint.sh` prints no `ERROR`, `check()` passes, the isolated smoke test passes
+(`msys2-test-isolated`), and your report quotes the last `lint.sh` output.
+
 ## The four laws of this repo
 
 **1. Check upstream first.** Before writing anything, confirm that `msys2/MINGW-packages` does
