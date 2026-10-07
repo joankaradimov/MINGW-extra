@@ -362,6 +362,37 @@ jobs:
           REMOVE: ${{ needs.plan.outputs.remove }}
         run: ci/publish.sh artifacts $REMOVE
 
+  # Package files nothing references any more, deleted once they are old
+  # enough that nobody can still be pointed at one: ci/prune.sh has the window
+  # and the reasons. It reads the databases publish left, and covers every
+  # environment, not only the ones this run touched.
+  prune:
+    name: prune
+    needs: [databases, publish]
+    if: ${{ !cancelled() && needs.databases.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: publish
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/deploy-ssh
+        with:
+          key: ${{ secrets.DEPLOY_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          port: ${{ secrets.DEPLOY_PORT }}
+
+      - name: Delete what no database references
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          bash ci/fetch-published.sh databases published
+          bash ci/prune.sh published
+
   # The published repository, mirrored to ghcr.io for pull requests: each
   # environment an OCI artifact tagged with its name (ci/autobuild/registry.py
   # has the layout). It mirrors the host as it is after publish, on every run,

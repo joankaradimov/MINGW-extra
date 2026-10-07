@@ -70,6 +70,17 @@ some packages takes nothing out, having not read the others, and neither does a
 pull request. A database is never emptied this way: the plan warns instead, and
 leaves that to a person.
 
+**prune** (Linux) deletes package files no database references any more, 30
+days after it first saw them unreferenced (`PRUNE_DAYS` in `ci/prune.sh`).
+Until then a superseded file is worth keeping: a client that synced before the
+publish has a database naming it, and `pacman -U` on that URL is the way back
+from a bad build. The clock is a `.prune-state` beside each database rather
+than the file's own timestamp, which is when it was built -- that would delete
+the version a long-untouched package just replaced on the same day. Deletion
+goes through rsync like every other write here, an empty source directory with
+`--delete` and only the doomed names included, so the key still never needs a
+shell. `ci/prune.sh published --dry-run` lists what a run would delete.
+
 **site** (Linux) uploads `ci/site/`, the home page users land on, to the top
 of `DEPLOY_PATH`. It runs on every run, alongside the rest; the page is small,
 and this way the one on the server never drifts from the one in the repository.
@@ -83,7 +94,7 @@ the registry lacks; an environment that did not change is not tagged again, and
 one an earlier run failed to mirror is repaired by the next.
 `ci/autobuild/registry.py` has the details.
 
-Only databases, mirror, publish, site and ghcr hold the deploy key, and none of
+Only databases, mirror, publish, prune, site and ghcr hold the deploy key, and none of
 them runs a PKGBUILD. plan and build run PKGBUILDs — `build()` is arbitrary
 upstream code — and **hold no secrets**, deliberately.
 
@@ -322,10 +333,11 @@ build scripts, which is exactly what the current split avoids.
   run forever. At thirteen packages that is cheap and arguably useful, since
   upstream fixing a dead source URL resolves itself. msys2-autobuild uploads a
   `.failed` marker to stop retrying; worth copying if the queue grows.
-- **Pruning old versions.** Nothing deletes superseded packages from the
-  server, so the repository grows without bound. `paccache -r` over
-  `DEPLOY_PATH` on a timer is the usual answer. The files of packages taken out
-  of a database stay too, unreferenced.
+- **Pruning a package's own history.** prune keeps every file a database
+  references, so a package that is rebuilt often keeps only its current file
+  and 30 days of superseded ones. Keeping, say, the last three versions of
+  everything for longer would mean a policy per package rather than per file:
+  openjdk alone is 220 MB an environment.
 - **Mirroring only what a queue needs.** The mirror job copies every current
   package of an environment, even when the queue needs two of them. Resolving
   the queue's dependencies against the database would cut that down, once the
