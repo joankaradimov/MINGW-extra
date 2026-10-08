@@ -1,0 +1,62 @@
+From 47a76f4bb1a9565a20a03545b2458f089d748ae5 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Fri, 9 Oct 2026 02:44:06 +0300
+Subject: [PATCH] Install the header and a pkg-config file, and build a DLL on
+ Windows
+
+The release installs the library but not smacker.h, so nothing can
+build against it, and libtool builds no DLL without -no-undefined.
+
+Upstream: not submitted
+Applies-to: all environments
+---
+ Makefile.am      |  6 +++++-
+ configure.ac     |  2 +-
+ libsmacker.pc.in | 10 ++++++++++
+ 3 files changed, 16 insertions(+), 2 deletions(-)
+ create mode 100644 libsmacker.pc.in
+
+diff --git a/Makefile.am b/Makefile.am
+index c999987..48f6ccb 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -4,7 +4,11 @@ AM_CPPFLAGS = -Wall -Wextra
+ 
+ lib_LTLIBRARIES = libsmacker.la
+ libsmacker_la_SOURCES = smacker.c
+-libsmacker_la_LDFLAGS = -version-info 1:2:0
++libsmacker_la_LDFLAGS = -no-undefined -version-info 1:2:0
++include_HEADERS = smacker.h
++
++pkgconfigdir = $(libdir)/pkgconfig
++pkgconfig_DATA = libsmacker.pc
+ 
+ noinst_PROGRAMS = driver smk2avi
+ 
+diff --git a/configure.ac b/configure.ac
+index 192ca05..1bb28ac 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -9,5 +9,5 @@ AC_HEADER_ASSERT
+ 
+ AC_PROG_LIBTOOL
+ 
+-AC_CONFIG_FILES([Makefile])
++AC_CONFIG_FILES([Makefile libsmacker.pc])
+ AC_OUTPUT
+diff --git a/libsmacker.pc.in b/libsmacker.pc.in
+new file mode 100644
+index 0000000..0307649
+--- /dev/null
++++ b/libsmacker.pc.in
+@@ -0,0 +1,10 @@
++prefix=@prefix@
++exec_prefix=@exec_prefix@
++libdir=@libdir@
++includedir=@includedir@
++
++Name: libsmacker
++Description: C library for decoding Smacker Video files
++Version: @PACKAGE_VERSION@
++Libs: -L${libdir} -lsmacker
++Cflags: -I${includedir}

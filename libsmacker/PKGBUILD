@@ -1,0 +1,92 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=libsmacker
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=1.2.0r43
+pkgrel=1
+pkgdesc="C library for decoding Smacker Video files (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://libsmacker.sourceforge.net/'
+license=('spdx:LGPL-2.1-or-later')
+msys2_repository_url='https://github.com/greg-kennedy/libsmacker'
+msys2_references=(
+  'aur: libsmacker'
+)
+makedepends=("${MINGW_PACKAGE_PREFIX}-autotools"
+             "${MINGW_PACKAGE_PREFIX}-cc")
+checkdepends=("${MINGW_PACKAGE_PREFIX}-ffmpeg"
+              "${MINGW_PACKAGE_PREFIX}-pkgconf")
+# Two of FFmpeg's test samples, for check() to decode
+source=("https://downloads.sourceforge.net/project/${_realname}/${_realname}-${pkgver%.*}/${_realname}-${pkgver}.tar.gz"
+        "hypnotix.smk::https://samples.ffmpeg.org/game-formats/smacker/wetlands/hypnotix.smk"
+        "ajfstr1.smk::https://samples.ffmpeg.org/game-formats/smacker/mech2/ajfstr1.smk"
+        "0001-Remove-the-spurious-palette-overlap-check.patch"
+        "0002-Install-the-header-and-a-pkg-config-file.patch"
+        "0003-Let-smk_free-take-a-NULL-pointer.patch"
+        "test-smacker.c")
+sha256sums=('e259b0ea31d205f490d840c5612ab8fb9c8f6f738cbafd0cbb8ddb2e89ad42ab'
+            'e6d447c547036c072b1f43672335ef4da0a25ef05bc8c9469428b9f845cc5459'
+            '6edccaea4f356db4887d16adb2c88a39824f48253323b02401e58640e501a15f'
+            '53d00e9a326439114fccbf775ec2ac86ff2f9faa633dcf34f3fa2b5cf7289e7f'
+            '6674d18dc822db9a51e4c0dade28424c005645cc5bcd8978393eec4e2a54ede7'
+            '984d49fcf39128e655a403768d387a648127d21678847c4080046d739d49c8c1'
+            'cf409274638e8a505efd2d80759dfff62fa269cb4a8ed73a6ce1a96915f25f9c')
+
+prepare() {
+  cd "${_realname}-${pkgver%r*}"
+
+  local _p
+  for _p in "${srcdir}"/000*.patch; do
+    patch -Np1 -i "${_p}"
+  done
+
+  autoreconf -fiv
+}
+
+build() {
+  mkdir -p "build-${MSYSTEM}" && cd "build-${MSYSTEM}"
+
+  ../"${_realname}-${pkgver%r*}"/configure \
+    --prefix="${MINGW_PREFIX}" \
+    --build="${MINGW_CHOST}" \
+    --host="${MINGW_CHOST}" \
+    --target="${MINGW_CHOST}"
+
+  make
+}
+
+check() {
+  local _stage="${srcdir}/stage-${MSYSTEM}"
+  rm -rf "${_stage}"
+  make -C "build-${MSYSTEM}" DESTDIR="${_stage}" install
+
+  cd "build-${MSYSTEM}"
+  cc -std=c99 -Wall -Werror -o test-smacker.exe "${srcdir}/test-smacker.c" \
+    $(PKG_CONFIG_SYSROOT_DIR="${_stage}" \
+      PKG_CONFIG_PATH="${_stage}${MINGW_PREFIX}/lib/pkgconfig" \
+      pkg-config --cflags --libs libsmacker)
+
+  # Every frame must match FFmpeg's decoder byte for byte
+  local _smk
+  for _smk in hypnotix ajfstr1; do
+    PATH="${_stage}${MINGW_PREFIX}/bin:${PATH}" \
+      ./test-smacker.exe "${srcdir}/${_smk}.smk" "${_smk}.rgb"
+    ffmpeg -v error -i "${srcdir}/${_smk}.smk" -f rawvideo -pix_fmt rgb24 -y "${_smk}.ffmpeg.rgb"
+    cmp "${_smk}.rgb" "${_smk}.ffmpeg.rgb"
+  done
+
+  # A file that is not a Smacker video is rejected, not aborted on
+  local _rc=0
+  PATH="${_stage}${MINGW_PREFIX}/bin:${PATH}" \
+    ./test-smacker.exe "${srcdir}/test-smacker.c" junk.rgb || _rc=$?
+  test "${_rc}" -eq 1
+}
+
+package() {
+  make -C "build-${MSYSTEM}" DESTDIR="${pkgdir}" install
+
+  install -Dm644 "${_realname}-${pkgver%r*}/COPYING" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/COPYING"
+}
