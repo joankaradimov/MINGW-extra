@@ -1,0 +1,85 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=dethrace
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=0.10.1
+pkgrel=1
+pkgdesc="Reimplementation of the 1997 driving game Carmageddon (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://github.com/dethrace-labs/dethrace'
+license=('spdx:GPL-3.0-only')
+msys2_repository_url='https://github.com/dethrace-labs/dethrace'
+msys2_references=(
+  'aur: dethrace'
+)
+depends=("${MINGW_PACKAGE_PREFIX}-libinih"
+         "${MINGW_PACKAGE_PREFIX}-libsmacker"
+         "${MINGW_PACKAGE_PREFIX}-SDL2")
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-cmake"
+             "${MINGW_PACKAGE_PREFIX}-miniaudio"
+             "${MINGW_PACKAGE_PREFIX}-ninja"
+             "${MINGW_PACKAGE_PREFIX}-pkgconf"
+             "${MINGW_PACKAGE_PREFIX}-stb")
+# BRender is dethrace-labs' own fork of the engine, used by nothing else, so it
+# is built as part of the game.
+_brender_commit=44d27ffa026a0a3ea4dc0642315913bf5bc27e25
+source=("${_realname}-${pkgver}.tar.gz::https://github.com/dethrace-labs/${_realname}/archive/v${pkgver}.tar.gz"
+        "BRender-v1.3.2-${_brender_commit}.tar.gz::https://github.com/dethrace-labs/BRender-v1.3.2/archive/${_brender_commit}.tar.gz"
+        "0001-Use-GNUInstallDirs-in-CMakeLists.txt.patch"
+        "0002-Add-DETHRACE_SYSTEM_LIBS-to-build-against-the-system.patch")
+sha256sums=('05040a0e3b40b82ca0e2856648969816bca846880d4ea0cb02446d91a5a12985'
+            '40f2291104a4503c4a6dea8db1c75c0101bdcc2545775f483a6ab38d64e592a4'
+            '178a9fa0546610746275e7e178567ad46bacca4c35c6e1203c482e23588343d1'
+            'ac2e2bf665fa297b1e87188a6eaf7a5e12b2b249bca3544ca21cfc34fa8d5896')
+
+prepare() {
+  cd "${_realname}-${pkgver}"
+
+  rmdir lib/BRender-v1.3.2
+  mv "${srcdir}/BRender-v1.3.2-${_brender_commit}" lib/BRender-v1.3.2
+  rm -r lib/inih lib/libsmacker lib/miniaudio lib/stb
+
+  # read instead of `git describe`, which a tarball cannot answer
+  echo "${pkgver}" > VERSION
+
+  patch -Np1 -i "${srcdir}/0001-Use-GNUInstallDirs-in-CMakeLists.txt.patch"
+  patch -Np1 -i "${srcdir}/0002-Add-DETHRACE_SYSTEM_LIBS-to-build-against-the-system.patch"
+}
+
+build() {
+  declare -a extra_config
+  if check_option "debug" "n"; then
+    extra_config+=("-DCMAKE_BUILD_TYPE=Release")
+  else
+    extra_config+=("-DCMAKE_BUILD_TYPE=Debug")
+  fi
+
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
+    "${MINGW_PREFIX}"/bin/cmake.exe \
+      -G Ninja \
+      -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
+      "${extra_config[@]}" \
+      -DDETHRACE_INSTALL=ON \
+      -DDETHRACE_SYSTEM_LIBS=ON \
+      -DBUILD_TESTS=ON \
+      -B "build-${MSYSTEM}" \
+      -S "${_realname}-${pkgver}"
+
+  "${MINGW_PREFIX}"/bin/cmake.exe --build "build-${MSYSTEM}"
+}
+
+check() {
+  "${MINGW_PREFIX}"/bin/ctest.exe --test-dir "build-${MSYSTEM}" --output-on-failure
+}
+
+package() {
+  DESTDIR="${pkgdir}" "${MINGW_PREFIX}"/bin/cmake.exe --install "build-${MSYSTEM}"
+
+  install -Dm644 "${_realname}-${pkgver}/LICENSE" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/LICENSE"
+  install -Dm644 "${_realname}-${pkgver}/docs/CONFIGURATION.md" \
+    "${pkgdir}${MINGW_PREFIX}/share/doc/${_realname}/CONFIGURATION.md"
+}

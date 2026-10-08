@@ -1,0 +1,63 @@
+From cdde6320f3029080dec5e8b3247572b8dddfda5f Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Thu, 8 Oct 2026 23:33:13 +0300
+Subject: [PATCH] Add DETHRACE_SYSTEM_LIBS to build against the system inih,
+ libsmacker, miniaudio and stb
+
+lib/ carries copies of inih, libsmacker, miniaudio and stb, all of which
+have packages. The option is off by default, so upstream's own builds
+keep using lib/.
+
+Upstream: not submitted
+Applies-to: all environments
+---
+ CMakeLists.txt | 27 +++++++++++++++++++++++----
+ 1 file changed, 23 insertions(+), 4 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 9f9a62c..05d4c47 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -45,6 +45,7 @@ option(DETHRACE_NET_ENABLED "Include net support" ON)
+ option(DETHRACE_PLATFORM_SDL1 "Support SDL 1.2 platform driver" OFF)
+ option(DETHRACE_PLATFORM_SDL2 "Support SDL 2 platform driver" ON)
+ option(DETHRACE_PLATFORM_SDL3 "Support SDL 3 platform driver" OFF)
++option(DETHRACE_SYSTEM_LIBS "Use the system inih, libsmacker, miniaudio and stb instead of lib/" OFF)
+ 
+ option(MSVC_42_FOR_RECCMP "Build with MSVC 4.2 to match assembly" OFF)
+ 
+@@ -143,12 +144,30 @@ if(NOT DETHRACE_PLATFORMS AND NOT MSVC_42_FOR_RECCMP)
+ endif()
+ 
+ add_subdirectory(lib/BRender-v1.3.2)
+-add_subdirectory(lib/libsmacker)
+-add_subdirectory(lib/inih)
++if(DETHRACE_SYSTEM_LIBS)
++    find_package(PkgConfig REQUIRED)
++    pkg_check_modules(SMACKER REQUIRED IMPORTED_TARGET GLOBAL libsmacker)
++    add_library(libsmacker ALIAS PkgConfig::SMACKER)
++    pkg_check_modules(INIH REQUIRED IMPORTED_TARGET GLOBAL inih)
++    add_library(inih ALIAS PkgConfig::INIH)
++else()
++    add_subdirectory(lib/libsmacker)
++    add_subdirectory(lib/inih)
++endif()
+ 
+ if(DETHRACE_SOUND_ENABLED)
+-    add_subdirectory(lib/miniaudio)
+-    add_subdirectory(lib/stb)
++    if(DETHRACE_SYSTEM_LIBS)
++        find_path(MINIAUDIO_INCLUDE_DIR miniaudio/miniaudio.h REQUIRED)
++        add_library(miniaudio INTERFACE)
++        target_include_directories(miniaudio SYSTEM INTERFACE "${MINIAUDIO_INCLUDE_DIR}")
++
++        find_path(STB_INCLUDE_DIR stb/stb_vorbis.c REQUIRED)
++        add_library(stb INTERFACE)
++        target_include_directories(stb SYSTEM INTERFACE "${STB_INCLUDE_DIR}")
++    else()
++        add_subdirectory(lib/miniaudio)
++        add_subdirectory(lib/stb)
++    endif()
+ endif()
+ 
+ add_library(compile_with_werror INTERFACE)

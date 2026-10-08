@@ -1,0 +1,49 @@
+From 7a5e500a8f0b1ab341aad05c4a645178b3024f62 Mon Sep 17 00:00:00 2001
+From: buzz <buzz@users.noreply.github.com>
+Date: Thu, 25 Sep 2025 11:01:27 +0200
+Subject: [PATCH] Use `GNUInstallDirs` in `CMakeLists.txt`
+
+Backported from upstream. The install target put dethrace.exe at the
+prefix root, the layout of upstream's zip release.
+
+Upstream: https://github.com/dethrace-labs/dethrace/pull/485 (merged after 0.10.1)
+Applies-to: all environments
+---
+ CMakeLists.txt              | 3 ++-
+ src/DETHRACE/CMakeLists.txt | 2 +-
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 488b782..9f9a62c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -13,6 +13,7 @@ if(MSVC)
+     set(CMAKE_INSTALL_DOCDIR "." CACHE PATH "Documentation root")
+ endif()
+ 
++include(GNUInstallDirs)
+ include(CheckCCompilerFlag)
+ include(CMakeDependentOption)
+ 
+@@ -171,7 +172,7 @@ endif()
+ 
+ if(DETHRACE_INSTALL)
+     install(FILES LICENSE
+-        DESTINATION "."
++        DESTINATION "${CMAKE_INSTALL_DOCDIR}"
+     )
+ 
+     set(DETHRACE_PACKAGE_PLATFORM "" CACHE STRING "Dethrace binary package platform")
+diff --git a/src/DETHRACE/CMakeLists.txt b/src/DETHRACE/CMakeLists.txt
+index 97d51d5..b4fecad 100644
+--- a/src/DETHRACE/CMakeLists.txt
++++ b/src/DETHRACE/CMakeLists.txt
+@@ -236,7 +236,7 @@ endif()
+ if(DETHRACE_INSTALL)
+     install(TARGETS dethrace
+         BUNDLE DESTINATION . COMPONENT Runtime
+-        RUNTIME DESTINATION . COMPONENT Runtime
++        RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT Runtime
+     )
+ 
+     if(APPLE)
