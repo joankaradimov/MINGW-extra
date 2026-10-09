@@ -1,0 +1,43 @@
+Recognise Windows junctions on Java 26 and later.
+
+isJunction() takes a path for a junction when its attributes, read without
+following links, are both a directory and "other". JDK-8364277 (Java 26)
+made isDirectory() false for every reparse point read that way, so no
+junction is found any more: DirectoryScanner and <delete> follow junctions
+they are told not to follow, and nine of Ant's own junction tests fail.
+Temurin 27 reports junctions the same way. The raw DOS attributes still
+carry FILE_ATTRIBUTE_DIRECTORY for a junction, dangling or not.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/src/main/org/apache/tools/ant/util/WindowsJunctionUtils.java
++++ b/src/main/org/apache/tools/ant/util/WindowsJunctionUtils.java
+@@ -37,6 +37,8 @@
+ 
+     private static final boolean ON_WINDOWS = Os.isFamily("windows");
+ 
++    private static final int FILE_ATTRIBUTE_DIRECTORY = 0x10;
++
+     /**
+      * Shared instance.
+      */
+@@ -111,6 +113,17 @@
+         // see Alan Bateman's comment in https://bugs.openjdk.org/browse/JDK-8031083
+         BasicFileAttributes attrs =
+             Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+-        return attrs.isDirectory() && attrs.isOther();
++        if (!attrs.isOther()) {
++            return false;
++        }
++        if (attrs.isDirectory()) {
++            return true;
++        }
++        // Since JDK-8364277 (Java 26) no reparse point is a directory when links
++        // are not followed; the raw attributes still mark a junction as one.
++        Object dosAttributes =
++            Files.getAttribute(path, "dos:attributes", LinkOption.NOFOLLOW_LINKS);
++        return dosAttributes instanceof Integer
++            && ((Integer) dosAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+     }
+ }

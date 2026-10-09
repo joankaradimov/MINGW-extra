@@ -1,0 +1,180 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=ant
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=1.10.18
+pkgrel=1
+_javaver=27
+pkgdesc="Java based build tool (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://ant.apache.org/'
+msys2_repository_url='https://github.com/apache/ant'
+msys2_references=(
+  'archlinux: ant'
+)
+license=('spdx:Apache-2.0')
+# Without a JAVA_HOME the launchers take the JDK that built Ant, by its
+# directory name, so the next major version needs a rebuild.
+depends=("${MINGW_PACKAGE_PREFIX}-openjdk>=${_javaver}"
+         "${MINGW_PACKAGE_PREFIX}-openjdk<$((_javaver + 1))")
+_central=https://repo1.maven.org/maven2
+_jboss=https://repository.jboss.org/nexus/content/groups/public
+# What the optional tasks compile against, at the versions upstream's
+# fetch.xml downloads (lib/libraries.properties). With these the jars match
+# Apache's binary release; Ant ships none of them.
+_optional=("${_central}/antlr/antlr/2.7.7/antlr-2.7.7.jar"
+           "${_central}/bsf/bsf/2.4.0/bsf-2.4.0.jar"
+           "${_central}/com/jcraft/jsch/0.1.55/jsch-0.1.55.jar"
+           "${_central}/com/sun/activation/jakarta.activation/2.0.1/jakarta.activation-2.0.1.jar"
+           "${_central}/com/sun/mail/jakarta.mail/2.0.2/jakarta.mail-2.0.2.jar"
+           "${_central}/com/sun/mail/javax.mail/1.6.2/javax.mail-1.6.2.jar"
+           "${_central}/commons-logging/commons-logging-api/1.1/commons-logging-api-1.1.jar"
+           "${_central}/commons-net/commons-net/3.13.0/commons-net-3.13.0.jar"
+           "${_central}/jakarta-regexp/jakarta-regexp/1.4/jakarta-regexp-1.4.jar"
+           "${_central}/javax/activation/activation/1.1/activation-1.1.jar"
+           "${_central}/jdepend/jdepend/2.9.1/jdepend-2.9.1.jar"
+           "${_central}/junit/junit/4.13.2/junit-4.13.2.jar"
+           "${_central}/log4j/log4j/1.2.14/log4j-1.2.14.jar"
+           "${_central}/org/apache/bcel/bcel/6.12.0/bcel-6.12.0.jar"
+           "${_central}/org/hamcrest/hamcrest/3.0/hamcrest-3.0.jar"
+           "${_central}/org/junit/platform/junit-platform-commons/1.10.5/junit-platform-commons-1.10.5.jar"
+           "${_central}/org/junit/platform/junit-platform-engine/1.10.5/junit-platform-engine-1.10.5.jar"
+           "${_central}/org/junit/platform/junit-platform-launcher/1.10.5/junit-platform-launcher-1.10.5.jar"
+           "${_central}/org/tukaani/xz/1.9/xz-1.9.jar"
+           "${_central}/oro/oro/2.0.8/oro-2.0.8.jar"
+           "${_central}/xalan/serializer/2.7.3/serializer-2.7.3.jar"
+           "${_central}/xalan/xalan/2.7.3/xalan-2.7.3.jar"
+           "${_central}/xml-resolver/xml-resolver/1.2/xml-resolver-1.2.jar"
+           "${_jboss}/com/sun/media/jai-codec/1.1.3/jai-codec-1.1.3.jar"
+           "${_jboss}/javax/media/jai-core/1.1.3/jai-core-1.1.3.jar"
+           "https://www.netrexx.org/files/NetRexxC-2.05.jar")
+# What Ant's own tests need on top: AntUnit, the JUnit 5 engines and what
+# BCEL runs on.
+_testlibs=("${_central}/commons-io/commons-io/2.21.0/commons-io-2.21.0.jar"
+           "${_central}/org/apache/ant/ant-antunit/1.5.0/ant-antunit-1.5.0.jar"
+           "${_central}/org/apache/commons/commons-lang3/3.20.0/commons-lang3-3.20.0.jar"
+           "${_central}/org/apiguardian/apiguardian-api/1.1.2/apiguardian-api-1.1.2.jar"
+           "${_central}/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar"
+           "${_central}/org/junit/jupiter/junit-jupiter-api/5.10.5/junit-jupiter-api-5.10.5.jar"
+           "${_central}/org/junit/jupiter/junit-jupiter-engine/5.10.5/junit-jupiter-engine-5.10.5.jar"
+           "${_central}/org/junit/jupiter/junit-jupiter-params/5.10.5/junit-jupiter-params-5.10.5.jar"
+           "${_central}/org/junit/vintage/junit-vintage-engine/5.10.5/junit-vintage-engine-5.10.5.jar"
+           "${_central}/org/opentest4j/opentest4j/1.3.0/opentest4j-1.3.0.jar")
+source=("https://archive.apache.org/dist/ant/source/apache-ant-${pkgver}-src.tar.xz"{,.asc}
+        "${_optional[@]}"
+        "${_testlibs[@]}"
+        '0001-bootstrap-from-msys2-shells-as-from-cygwin.patch'
+        '0002-recognise-windows-junctions-on-java-26-and-later.patch'
+        'launcher.cmd'
+        'launcher.ps1'
+        'launcher.sh'
+        'test-ant.xml')
+noextract=("${_optional[@]##*/}" "${_testlibs[@]##*/}")
+sha256sums=('89779e1d1288baa10687a2f1f7cdb6e9a666839a971a0c502a0c6b11bc061629'
+            'SKIP'
+            '88fbda4b912596b9f56e8e12e580cc954bacfb51776ecfddd3e18fc1cf56dc4c'
+            'f873773deb91c1a1c12150f6cdb13b8a2e1b496a75ac903c4bbfa103b363a7c7'
+            'd492b15a6d2ea3f1cc39c422c953c40c12289073dbe8360d98c0f6f9ec74fc44'
+            'b9e24b7dd6e07495562ea96531be3130c96dba4d78e1dfd88adbbdebf4332871'
+            '536f0ae5dd774e257f3064f19a2b982aa56072c07c675c70f98cdc262047b4b5'
+            '45b515e7104944c09e45b9c7bb1ce5dff640486374852dd2b2e80cc3752dfa11'
+            '33a4dd47bb4764e4eb3692d86386d17a0d9827f4f4bb0f70121efab6bc03ba35'
+            '9e88444afadc9467f0bf3d328f93b9538da35a9be05cdee430766e64fddbd6c5'
+            '85ea3985d7fec552d6de6f02d8e18789c3fcd539081eb8c7c444eabf6cb3f7bc'
+            '2881c79c9d6ef01c58e62beea13e9d1ac8b8baa16f2fc198ad6e6776defdcdd3'
+            'b8105789bd4497836bcec263d5a12d6326d4eb7b4fe38535d179e4a44de83370'
+            '8e495b634469d64fb8acfa3495a065cbacc8a0fff55ce1e31007be4c16dc57d3'
+            'e3bff9ab64a09b1ac2800f3b5fb1e3d99728064acb6dd3924938507638a404fb'
+            '012639e3d2a3079f4c9c1350f18202cea83a7112ef210e50c93b0b771ad5d3af'
+            '5d66b6a4a680755cb6ed7cb104fa7835ef644667586ff0737adeb977c39ecdbc'
+            'abdaeaaf4cebd121ab9a7498ed7861693d2bb0ac5976b26c0060a308922ef49d'
+            'bfd71f57dffefee94e3f0cfd553be5e5dd7b8f9f273aba2515075e28b8c8e76a'
+            'b90521d0414948797e15b62043045ffd52d79137bd565d632075ba5fd0ff3466'
+            '211b306cfc44f8f96df3a0a3ddaf75ba8c5289eed77d60d72f889bb855f535e5'
+            'e00ccdad5df7eb43fdee44232ef64602bf63807c2d133a7be83ba09fd49af26e'
+            '5f6804bacdfdb3ccc52d2538536fab8986696d61559b081054a420c653806667'
+            'febd48bb133a96c447282213951a6b74ea7fb45c0d896121296c014316bda6b0'
+            '47dcde8986019314ef78ae7280a94973a21d2ed95075a40a000b42da956429e1'
+            '6d7824d972c0b6e10daa95f430f917d2256954535e62def9d287e79bf7824200'
+            '8b696cf067533545f44c2f68339e24ab1a2669153ed2081aa5be8749f4d592bf'
+            '2443dfe8d8974a38a390ee55c2757396f3e2350d4b18cc8dc489709bf5593b61'
+            '7d643a2afea8b058b762aa6fb90e5b256f6c729739f8b3784c3370ddc609e88d'
+            'ab283783011f0b338394e1a5ff78dfa8075fb7d357090952ba38e09f84cb3aac'
+            '69e5c9fa35da7a51a5fd2099dfe56a2d8d32cf233e2f6d770e796146440263f4'
+            'b509448ac506d607319f182537f0b35d71007582ec741832a1f111e5b5b70b38'
+            '66fdef91e9739348df7a096aa384a5685f4e875584cce89386a7a47251c4d8e9'
+            '42251c2f1c29658c156ca0f3d9670588a051e9b6dd04f52a82de19ea32343e4c'
+            '11af62d3b0806b5de4550b1ec384e9b97b08757c468fcbdcb8d56d88e7e18470'
+            '9f00bf572c3e7f196091234e08e21d32facc47ad2a446bf444dc2720334baaf4'
+            '9fb212b72c733fec59c0b056709385f6c30b9fc82b6b871e6618df967688edf9'
+            '48e2df636cab6563ced64dcdff8abb2355627cb236ef0bf37598682ddf742f1b'
+            '109a2426e2cb6409c7be5f520c025b571d50d2ce5cc281f5491e1be7910aced8'
+            '4ceac1f59e52913041eb2c2505fbee31ee298f8287df3f542edf6759f45fe280'
+            '791ee5c2f4b3111eb4f57eeac46900d0bbd3a0a803c179c561f5a26a998a562c'
+            '107718385a15f2c24187f507deffd6978480a121ef1592c89fcdc6f64d6ce63e'
+            'c23e2a635322aa4fe1fab0beb45e00d6d86715b6afa15f6ae79267b4fcf462ee'
+            '929d99b38b8e879949224f9e9b51b3370c77e051124799d39193524f9e840504')
+validpgpkeys=('BC26C53AF531F8B4B3F5930AAFBD3AF8EAFA72DA') # Stefan Bodewig
+
+_jvmdir="java-${_javaver}-openjdk"
+
+prepare() {
+  cd "${srcdir}/apache-ant-${pkgver}"
+  patch -Np1 -i "${srcdir}/0001-bootstrap-from-msys2-shells-as-from-cygwin.patch"
+  patch -Np1 -i "${srcdir}/0002-recognise-windows-junctions-on-java-26-and-later.patch"
+
+  mkdir -p lib/optional
+  local _jar
+  for _jar in "${_optional[@]##*/}"; do
+    cp "${srcdir}/${_jar}" lib/optional/
+  done
+}
+
+build() {
+  cd "${srcdir}/apache-ant-${pkgver}"
+  export JAVA_HOME="${MINGW_PREFIX}/lib/jvm/${_jvmdir}"
+
+  # The manual stays; its 38 MB of API documentation is left out.
+  sh ./build.sh -Djavadoc.notrequired=true dist
+}
+
+check() {
+  cd "${srcdir}/apache-ant-${pkgver}"
+  export JAVA_HOME="${MINGW_PREFIX}/lib/jvm/${_jvmdir}"
+
+  local _jar
+  for _jar in "${_testlibs[@]##*/}"; do
+    cp "${srcdir}/${_jar}" lib/optional/
+  done
+  # Without a script engine the <script> tests are left out or skip
+  # themselves: JDK 15 dropped Nashorn, and none is pinned here. Ant puts
+  # makepkg's SOURCE_DATE_EPOCH before the timestamps the tstamp tests set.
+  env -u SOURCE_DATE_EPOCH sh ./build.sh -Djavadoc.notrequired=true test
+
+  rm -rf "${srcdir}/test" && mkdir "${srcdir}/test"
+  cp "${srcdir}/test-ant.xml" "${srcdir}/test/"
+  "apache-ant-${pkgver}/bin/ant" -f "${srcdir}/test/test-ant.xml" | tee "${srcdir}/test/ant.log"
+  grep -q 'test-ant: passed' "${srcdir}/test/ant.log"
+}
+
+package() {
+  local _dist="${srcdir}/apache-ant-${pkgver}/apache-ant-${pkgver}"
+  local _home="${pkgdir}${MINGW_PREFIX}/share/ant"
+  mkdir -p "${_home}" "${pkgdir}${MINGW_PREFIX}"/{bin,share/doc}
+  cp -r "${_dist}"/{bin,etc,lib} "${_home}/"
+  cp -r "${_dist}/manual" "${pkgdir}${MINGW_PREFIX}/share/doc/${_realname}"
+
+  # The launchers default JAVA_HOME to this openjdk; the .cmd and .ps1 also
+  # put bin on PATH, where its executables find the MinGW DLLs, and run
+  # upstream's ant.bat. --binary keeps the .cmd's CRLF line ends.
+  sed --binary "s|@JVMDIR@|${_jvmdir}|" "${srcdir}/launcher.cmd" \
+    > "${pkgdir}${MINGW_PREFIX}/bin/ant.cmd"
+  sed "s|@JVMDIR@|${_jvmdir}|" "${srcdir}/launcher.ps1" \
+    > "${pkgdir}${MINGW_PREFIX}/bin/ant.ps1"
+  sed "s|@JVMDIR@|${_jvmdir}|" "${srcdir}/launcher.sh" \
+    > "${pkgdir}${MINGW_PREFIX}/bin/ant"
+
+  install -Dm644 "${_dist}"/{LICENSE,NOTICE} -t "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}"
+}

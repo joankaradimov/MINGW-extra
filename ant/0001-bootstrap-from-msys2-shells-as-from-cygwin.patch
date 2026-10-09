@@ -1,0 +1,23 @@
+Bootstrap from MSYS2 and Git Bash shells as from Cygwin.
+
+bootstrap.sh switches its class path to Windows form only when uname says
+CYGWIN. In MSYS2's and Git for Windows' shells it says MINGW64_NT or
+MSYS_NT, so the relative, colon-separated class path reaches the Windows
+javac unchanged and the bootstrap cannot compile. Both shells have cygpath,
+which the Cygwin branch uses. The installed ant script already handles
+these shells.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/bootstrap.sh
++++ b/bootstrap.sh
+@@ -19,7 +19,7 @@
+ cygwin=false
+ darwin=false
+ case "`uname`" in
+-  CYGWIN*)
++  CYGWIN*|MINGW*|MSYS*)
+     cygwin=true
+     ;;
+   Darwin*)

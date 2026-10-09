@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Builds and runs a small program the way a project would: javac, jar, a
+     forked java and an exec of cmd.exe. Prints the JDK's vendor, so a run
+     through the launchers shows which JDK they picked. -->
+<project name="test-ant" default="test">
+  <property name="work" location="${basedir}/test-ant-work"/>
+
+  <target name="test">
+    <delete dir="${work}"/>
+    <mkdir dir="${work}/src/demo"/>
+    <echo file="${work}/src/demo/Hello.java">package demo;
+
+public class Hello {
+    public static void main(String[] args) {
+        System.out.println("hello from " + System.getProperty("java.vendor") + " "
+            + Runtime.version().feature());
+    }
+}
+</echo>
+    <mkdir dir="${work}/classes"/>
+    <javac srcdir="${work}/src" destdir="${work}/classes" includeantruntime="false"/>
+    <jar destfile="${work}/hello.jar">
+      <fileset dir="${work}/classes"/>
+      <manifest>
+        <attribute name="Main-Class" value="demo.Hello"/>
+      </manifest>
+    </jar>
+
+    <java jar="${work}/hello.jar" fork="true" failonerror="true" outputproperty="hello"/>
+    <echo message="${hello}"/>
+    <fail message="the forked java printed '${hello}'">
+      <condition>
+        <not><matches string="${hello}" pattern="^hello from .+ [0-9]+$"/></not>
+      </condition>
+    </fail>
+
+    <exec executable="cmd" failonerror="true" outputproperty="echoed">
+      <arg line="/c echo test-ant-exec"/>
+    </exec>
+    <fail message="cmd.exe printed '${echoed}'">
+      <condition>
+        <not><equals arg1="${echoed}" arg2="test-ant-exec"/></not>
+      </condition>
+    </fail>
+
+    <delete dir="${work}"/>
+    <echo message="test-ant: passed"/>
+  </target>
+</project>
