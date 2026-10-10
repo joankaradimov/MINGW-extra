@@ -1,0 +1,33 @@
+Keep the sleigh scanner's isatty stub to Visual C++.
+
+The flex scanner turns off <unistd.h> on _WIN32 and defines a static
+isatty() in its place. MinGW-w64 has <unistd.h>, and its <io.h>, which
+the scanner includes later, declares isatty() with C linkage, so GCC and
+Clang reject the stub. The stub is only needed where <unistd.h> is
+missing, which is Visual C++.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/slghscan.l
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/slghscan.l
+@@ -21,7 +21,7 @@
+ 
+ /* If we are building don't include unistd.h */
+ /* flex provides us with this macro for turning it off */
+-#ifdef _WIN32
++#ifdef _MSC_VER
+ #define YY_NO_UNISTD_H
+ static int isatty (int fildes) { return 0; }
+ #endif
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/slghscan.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/slghscan.cc
+@@ -1140,7 +1140,7 @@
+ 
+ /* If we are building don't include unistd.h */
+ /* flex provides us with this macro for turning it off */
+-#ifdef _WIN32
++#ifdef _MSC_VER
+ #define YY_NO_UNISTD_H
+ static int isatty (int fildes) { return 0; }
+ #endif

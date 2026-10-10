@@ -1,0 +1,31 @@
+Link sleigh against the system zlib.
+
+The sleigh compiler compiles in a copy of zlib. Packages here use the
+shared zlib instead.
+
+Upstream: not submitted (downstream packaging choice)
+Applies-to: all environments
+
+--- a/Ghidra/Features/Decompiler/buildNatives.gradle
++++ b/Ghidra/Features/Decompiler/buildNatives.gradle
+@@ -197,19 +197,11 @@
+ 						srcDir "src/decompile/cpp"
+ 					}
+ 				} // end cpp
+-				
+-				c {
+-					source {
+-						srcDir "src/decompile/zlib"
+-						include "*.c"
+-					}
+-				}
+ 			} // end sources (sleigh)
+ 			
+ 			binaries {
+ 				all{ b ->
+-					b.cppCompiler.define "LOCAL_ZLIB"
+-					b.cCompiler.define "NO_GZIP"
++					b.linker.args "-lz"
+ 				}
+ 			} // end binaries.all (sleigh)
+ 		} // end sleigh

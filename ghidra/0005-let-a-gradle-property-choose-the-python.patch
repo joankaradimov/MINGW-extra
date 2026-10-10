@@ -1,0 +1,22 @@
+Let a python3 Gradle property name the Python that builds the wheels.
+
+findPython3() takes the first supported Python it can run, trying the py
+launcher before python3 and python. On Windows that is any Python the
+machine happens to have, ahead of the one on the PATH; -Ppython3=python
+pins the build to MSYS2's.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/build.gradle
++++ b/build.gradle
+@@ -251,6 +251,9 @@
+ 
+ 	def pyCmds = supportedVersions.collectMany { [["python$it"], ["py", "-$it"]] }
+ 	pyCmds += [['python3'], ['python'], ['py']]
++	if (findProperty("python3")) {
++		pyCmds = [[findProperty("python3")]]
++	}
+ 	for (pyCmd in pyCmds) {	
+ 		def pyVer = checkPythonVersion(pyCmd)
+ 		def pyExe = getPythonExecutable(pyCmd)

@@ -1,0 +1,100 @@
+Build the Windows natives with MinGW-w64 when Visual Studio is off.
+
+Ghidra builds its native tools on Windows only with Visual Studio:
+CheckToolChain fails without it, and Gradle's own toolchain search puts
+Visual C++ ahead of GCC whenever it can find one. Here an empty
+VISUAL_STUDIO_INSTALL_DIR (-PVISUAL_STUDIO_INSTALL_DIR=, which also skips
+the vswhere search) means "build with the cc and c++ on the PATH" instead.
+Gradle's GCC toolchain takes them when they are GCC and its Clang
+toolchain when they are Clang. Left to look for "gcc", the GCC toolchain
+finds MSYS2's own Cygwin-targeting /usr/bin/gcc in a CLANG64 shell.
+
+The decompiler keys its Windows code on _WINDOWS, which only the Visual C++
+branch defined; without it, decompile.exe reads its protocol from stdin in
+text mode. pdb.exe needs Microsoft's DIA SDK, so it is left out; the PDB
+loader written in Java remains.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/GPL/nativeBuildProperties.gradle
++++ b/GPL/nativeBuildProperties.gradle
+@@ -49,10 +49,25 @@
+ 			gcc(Gcc).target(current)
+ 			clang(Clang).target(current)
+ 		}
+-		if (isWindows(current) && VISUAL_STUDIO_INSTALL_DIR) {
+-			// https://github.com/gradle/gradle-native/issues/617#issuecomment-575735288
+-			visualCpp(VisualCpp) {
+-				installDir = VISUAL_STUDIO_INSTALL_DIR
++		if (isWindows(current)) {
++			if (VISUAL_STUDIO_INSTALL_DIR) {
++				// https://github.com/gradle/gradle-native/issues/617#issuecomment-575735288
++				visualCpp(VisualCpp) {
++					installDir = VISUAL_STUDIO_INSTALL_DIR
++				}
++			}
++			else {
++				// Without Visual Studio, use the cc and c++ on the PATH: a
++				// MinGW-w64 GCC or Clang. A bare "gcc" can find an MSYS2 or
++				// Cygwin compiler that builds for neither.
++				removeAll { it in VisualCpp }
++				def mingw = { t ->
++					t.cCompiler.executable = "cc"
++					t.cppCompiler.executable = "c++"
++					t.linker.executable = "c++"
++				}
++				gcc(Gcc).target(current, mingw)
++				clang(Clang).target(current, mingw)
+ 			}
+ 		}
+ 	}
+@@ -63,14 +78,6 @@
+  ******************************************************************************************/
+ task CheckToolChain {
+ 	// Native C/Cpp plugins will trigger failure if no tool chain found
+-	doFirst {
+-		if (isCurrentWindows()) {
+-			// ensure that required MS Visual Studio is installed
+-			if (!VISUAL_STUDIO_INSTALL_DIR) {
+-				throw new GradleException("Supported Windows native toolchain not found!");
+-			}	
+-		}
+-	}
+ }
+ 
+ /*******************************************************************************************
+--- a/Ghidra/Features/Decompiler/buildNatives.gradle
++++ b/Ghidra/Features/Decompiler/buildNatives.gradle
+@@ -229,6 +229,9 @@
+ 					b.cppCompiler.define "LINUX"
+ 					b.cppCompiler.define "_LINUX"
+ 				}
++				if (b.targetPlatform.operatingSystem.windows) {
++					b.cppCompiler.define "_WINDOWS"
++				}
+ 			}
+ 		 	else if (b.toolChain in VisualCpp) {
+ 				b.cppCompiler.args "/EHsc"
+@@ -270,6 +273,9 @@
+ 				if (b.targetPlatform.operatingSystem.linux) {
+ //					b.linker.args "-static"
+ 				}
++				if (b.targetPlatform.operatingSystem.windows) {
++					b.cppCompiler.define "_WINDOWS"
++				}
+ 			}
+ 		}
+ 	}
+--- a/Ghidra/Features/PDB/buildNatives.gradle
++++ b/Ghidra/Features/PDB/buildNatives.gradle
+@@ -22,7 +22,8 @@
+ 	apply from: "../../../GPL/nativeBuildProperties.gradle"
+ }
+ 
+-if ("win_x86_64".equals(getCurrentPlatformName())) {
++// pdb.exe needs Microsoft's DIA SDK, which only Visual Studio provides
++if ("win_x86_64".equals(getCurrentPlatformName()) && VISUAL_STUDIO_INSTALL_DIR) {
+ 
+ 	String makeName = "win_x86_64PDBMake"
+ 	task(type: Exec, makeName) {

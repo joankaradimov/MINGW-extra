@@ -1,0 +1,254 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=ghidra
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=12.1.4
+pkgrel=1
+_javaver=27
+_yajsw=13.18
+# The JNA releases that Ghidra and YAJSW bundle
+_jna=5.14.0
+_yajsw_jna=5.12.1
+pkgdesc="Software reverse engineering framework (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://ghidra-sre.org/'
+msys2_repository_url='https://github.com/NationalSecurityAgency/ghidra'
+msys2_references=(
+  'archlinux: ghidra'
+)
+license=('spdx:Apache-2.0 AND GPL-3.0-or-later')
+# The launchers run Ghidra on the JDK that built it, by its directory name,
+# so the next major version needs a rebuild.
+depends=("${MINGW_PACKAGE_PREFIX}-cc-libs"
+         "${MINGW_PACKAGE_PREFIX}-libffi"
+         "${MINGW_PACKAGE_PREFIX}-openjdk>=${_javaver}"
+         "${MINGW_PACKAGE_PREFIX}-openjdk<$((_javaver + 1))"
+         "${MINGW_PACKAGE_PREFIX}-zlib")
+makedepends=("${MINGW_PACKAGE_PREFIX}-ant"
+             "${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-python"
+             "${MINGW_PACKAGE_PREFIX}-python-pip"
+             "${MINGW_PACKAGE_PREFIX}-python-setuptools"
+             "${MINGW_PACKAGE_PREFIX}-python-wheel"
+             'gradle'
+             'make'
+             'zip')
+# docs/ ships Ghidra's exercise binaries; stripping them would take away the
+# symbols the exercises use.
+options=('!strip')
+_data=https://github.com/NationalSecurityAgency/ghidra-data/raw/Ghidra_${pkgver}
+# Beside the source tarball, the build takes what upstream's
+# gradle/support/fetchDependencies.gradle downloads, by the same checksums:
+# two jars missing from Maven Central, the debugger's type library, YAJSW
+# for the server and the Function ID databases. The Maven Central jars come
+# with the build itself.
+_fidbs=({vs2012,vs2015,vs2017,vs2019,vsOlder}_{x64,x86}.fidb)
+source=("${_realname}-${pkgver}.tar.gz::https://github.com/NationalSecurityAgency/ghidra/archive/refs/tags/Ghidra_${pkgver}_build.tar.gz"
+        "${_data}/lib/java-sarif-2.1-modified.jar"
+        "${_data}/Debugger/dbgmodel.tlb"
+        'https://storage.googleapis.com/google-code-archive-downloads/v2/code.google.com/android4me/AXMLPrinter2.jar'
+        "https://sourceforge.net/projects/yajsw/files/yajsw/yajsw-stable-${_yajsw}/yajsw-stable-${_yajsw}.zip"
+        "${_fidbs[@]/#/${_data}/FunctionID/}"
+        "jna-${_jna}.tar.gz::https://github.com/java-native-access/jna/archive/refs/tags/${_jna}.tar.gz"
+        "jna-${_yajsw_jna}.tar.gz::https://github.com/java-native-access/jna/archive/refs/tags/${_yajsw_jna}.tar.gz"
+        '0001-build-the-windows-natives-with-mingw-w64.patch'
+        '0002-keep-the-sleigh-scanners-isatty-stub-to-msvc.patch'
+        '0003-link-sleigh-against-the-system-zlib.patch'
+        '0004-compile-the-gui-test-helpers-without-appcontext.patch'
+        '0005-let-a-gradle-property-choose-the-python.patch'
+        '0006-leave-yajsws-sigar-out-of-the-distribution.patch'
+        'launcher.cmd'
+        'launcher.sh'
+        'test-ghidra.cpp'
+        'test-ghidra.java'
+        'test-jna.java')
+noextract=('java-sarif-2.1-modified.jar'
+           'AXMLPrinter2.jar'
+           "yajsw-stable-${_yajsw}.zip")
+sha256sums=('2a858300c350f05ae2e729dff86b4f584d0b9a6b398879c55025574e67696cec'
+            '7f736566494756d271aa5e4b1af6c89dc50d074ab1c6374a47df822264226b01'
+            '8cf5f3a2eb81160aa349056a5ca4c2c726b1b6e98bf3097cd4135147163343c7'
+            '00ed038eb6abaf6ddec8d202a3ed7a81b521458f4cd459948115cfd02ff59d6d'
+            '50b34e9817c54b2970fa511ff4584f6556c179f69833aa8b9b1ff6485b61684f'
+            'd4e98ab3f790b831793218430bba0d8b24a5fbf4da65b0c1ffa8cb0cfbeb0cdc'
+            'a490ed7e2ed21e587459feaeace7036b7ede4ce84e72e10dfd8c57434a6918b6'
+            'e04e9e40f9ecb601c85f4d84ed9bf66b45363be1d1e82c162e4c9902b8cb508f'
+            'b66ee696653e2ed365919deaaef885103120c792e22e79af70d1209d7e1d8644'
+            'd5fa5f697298174fa53d247d3599e6a12884605ad181c7b954e2380ec1f0bd89'
+            'd389cb8d76ff4a59ca35f891b8521c72ad5f0df96e253973a2d21a8614a4cc81'
+            '150007796fc36a4069660ad62449aadaaf3dd11b3864a5ef21e79831c9ce9118'
+            'eb630a36faa586a371eb734dc0bbd8d13ccaef697f3db5872596358f3dd2432a'
+            '8c3b51f4660cd27e1a0d610a9f3f2d5fbc833a66ac9ee4393ee2f2481e855866'
+            '98605c6b6b9214a945d844e41c85860d54649a45bca7873ef6991c0e93720787'
+            'b8a51f4c97708171fc487304f98832ce954b6c02e85780de71d18888fddc69e3'
+            '2046655137ecd7f03e57a14bbe05e14d8299440604f993cef171c449daa3789c'
+            'dccfc7511b819e0f53a07f5f2f47acd9c55d5cf4dedf188c1a850f36ba1c30d4'
+            '670085b88cf8f90c66ac7a5f117e150c725223e1501c2b2d3f8e69ffe5ed1cda'
+            'c860bbcd61e990d6b8e86b5112f189677968988aaed7dbc3d287cadf8140ac21'
+            'b4a3a2ac064bb3a4ed304ee68137c0b6dc018f56d7b4edcd27819707367c3c5b'
+            '67a97102d7f331035efd800147e268c95dd40606eed2c3ecacf6bd743d88eff2'
+            '4c6c445fbe6692da0de5067e33dffb6894d8bee96e59384e3965540d9898f8fc'
+            '5186b5468ac6c0a4ad5a69b7a84ad73d4653ee181e88efb135f3390030cc3652'
+            'e6be601ad0fb8494dc62b4cbd0eef043b26e3c2c65a4745a58b9e74df38f1e25'
+            '3f568aad40a3f5e6318c164d99626584e29911958a3e20f1bd5ee2e147f6aa11'
+            '68dd88cc5ed95abc5c0f9c7a348c856f7e80fe62a552c4e04bc301765d89b445'
+            'c4ff30adaa1910203a30fbe876c73dacf500b6d0fb694276c74d4ef8e287ac75')
+
+_srcdir="ghidra-Ghidra_${pkgver}_build"
+_jvmdir="java-${_javaver}-openjdk"
+
+prepare() {
+  cd "${srcdir}/${_srcdir}"
+
+  local _p
+  for _p in "${srcdir}"/00*.patch; do
+    patch -Np1 -i "${_p}"
+  done
+
+  # It needs Z3's Java bindings, which MSYS2's z3 does not build.
+  rm -r Ghidra/Extensions/SymbolicSummaryZ3
+
+  local _f _sum
+  for _f in java-sarif-2.1-modified.jar AXMLPrinter2.jar dbgmodel.tlb \
+      "yajsw-stable-${_yajsw}.zip" "${_fidbs[@]}"; do
+    _sum=$(sha256sum "${srcdir}/${_f}" | cut -d' ' -f1)
+    grep -q "${_sum}" gradle/support/fetchDependencies.gradle \
+      || { error "${_f} is not the one fetchDependencies.gradle names"; return 1; }
+  done
+  install -Dm644 "${srcdir}"/{java-sarif-2.1-modified,AXMLPrinter2}.jar \
+    -t dependencies/flatRepo
+  install -Dm644 "${srcdir}/dbgmodel.tlb" -t dependencies/Debugger-agent-dbgeng
+  install -Dm644 "${srcdir}/yajsw-stable-${_yajsw}.zip" -t dependencies/GhidraServer
+  install -Dm644 "${_fidbs[@]/#/${srcdir}/}" -t dependencies/fidb
+
+  grep -q "net.java.dev.jna:jna:${_jna}\"" Ghidra/Framework/Pty/build.gradle \
+    || { error "Ghidra no longer bundles JNA ${_jna}"; return 1; }
+  bsdtar -tf "${srcdir}/yajsw-stable-${_yajsw}.zip" | grep -q "/lib/core/jna/jna-${_yajsw_jna}.jar$" \
+    || { error "YAJSW no longer bundles JNA ${_yajsw_jna}"; return 1; }
+}
+
+# Runs JNA $1's own Ant build with the targets that follow, jnidispatch.dll
+# linked against MSYS2's libffi. JNA's Makefile knows MSYS2's shells by
+# neither uname nor compiler, so OS and CC are given. Its MinGW rules link
+# msvcrt and add --add-stdcall-alias, which lld rejects and x86_64 has no use
+# for; clang's -W warns about DllMain's unused parameters under JNA's -Werror.
+# These releases' Makefile is not safe under make -j: testlib2.dll links
+# testlib.dll without depending on it (fixed on JNA's master).
+_ant_jna() {
+  local _v=$1; shift
+  (cd "${srcdir}/jna-${_v}" && MAKEFLAGS= ant \
+    -Ddynlink.native=true \
+    -Dcflags_extra.native=-Wno-unused-parameter \
+    -DCC=cc \
+    -Dmake.OS=OS=win32 \
+    "-DEXTRA_MAKE_OPTS=WINDRES=windres LIBS='-lffi -lpsapi' LDFLAGS='-o \$@ -shared'" \
+    "$@")
+}
+
+# Replaces the jnidispatch libraries in the JNA jar $1, built by upstream for
+# every platform, with the one built for JNA $2.
+_swap_jnidispatch() {
+  local _dir="${srcdir}/jna-$2/build/jar-swap"
+  mkdir -p "${_dir}/com/sun/jna/win32-x86-64"
+  cp "${srcdir}/jna-$2/build/native-win32-x86-64/jnidispatch.dll" \
+    "${_dir}/com/sun/jna/win32-x86-64/"
+  zip -q -d "$1" 'com/sun/jna/*/*jnidispatch*'
+  (cd "${_dir}" && zip -q -X "$1" com/sun/jna/win32-x86-64/jnidispatch.dll)
+}
+
+build() {
+  cd "${srcdir}/${_srcdir}"
+
+  export JAVA_HOME="${MINGW_PREFIX}/lib/jvm/${_jvmdir}"
+  export GRADLE_USER_HOME="${srcdir}/gradle"
+  # Ghidra's Python packages build with MSYS2's setuptools and wheel, not
+  # ones pip would look for in dependencies/.
+  export PIP_NO_BUILD_ISOLATION=0
+
+  # The empty Visual Studio directory keeps the natives on MinGW (0001).
+  gradle --no-daemon \
+    -PVISUAL_STUDIO_INSTALL_DIR= \
+    -Ppython3="$(cygpath -w "${MINGW_PREFIX}/bin/python.exe")" \
+    buildGhidra
+
+  rm -rf "${srcdir}/stage" && mkdir "${srcdir}/stage"
+  bsdtar -xf build/dist/ghidra_${pkgver}_DEV_*_win_x86_64.zip -C "${srcdir}/stage"
+
+  # Ghidra's JNA and YAJSW's come with upstream's jnidispatch.dll, built
+  # with Visual C++; both get one built here instead.
+  local _ghidra=("${srcdir}"/stage/ghidra_*)
+  _ant_jna ${_jna} native
+  _swap_jnidispatch "${_ghidra}/Ghidra/Framework/Pty/lib/jna-${_jna}.jar" ${_jna}
+  _ant_jna ${_yajsw_jna} native
+  _swap_jnidispatch \
+    "${_ghidra}/Ghidra/Features/GhidraServer/data/yajsw-stable-${_yajsw}/lib/core/jna/jna-${_yajsw_jna}.jar" \
+    ${_yajsw_jna}
+}
+
+check() {
+  local _ghidra=("${srcdir}"/stage/ghidra_*)
+  rm -rf "${srcdir}/test" && mkdir "${srcdir}/test" && cd "${srcdir}/test"
+
+  c++ -O2 -o test-ghidra.exe "${srcdir}/test-ghidra.cpp"
+  # A Ghidra script's file is named after its class.
+  cp "${srcdir}/test-ghidra.java" TestGhidra.java
+
+  # What the launcher sets up, with settings and caches kept out of the
+  # user's profile.
+  local _test="$(cygpath -w "${PWD}")"
+  JAVA_HOME="$(cygpath -w "${MINGW_PREFIX}/lib/jvm/${_jvmdir}")" \
+  PATH="${MINGW_PREFIX}/lib/jvm/${_jvmdir}/bin:${PATH}" \
+  XDG_CONFIG_HOME="${_test}\\config" \
+  XDG_CACHE_HOME="${_test}\\cache" \
+    "${_ghidra}/support/analyzeHeadless.bat" "${_test}" test \
+      -import test-ghidra.exe \
+      -scriptPath "${_test}" -postScript TestGhidra.java \
+      -deleteProject 2>&1 | tee analyze.log
+  grep -q 'test-ghidra: passed' analyze.log
+
+  _ant_jna ${_jna} test
+  _ant_jna ${_yajsw_jna} test
+
+  # JNA on the jnidispatch.dll built here, from Ghidra's jars and YAJSW's;
+  # Pty.jar and the libraries it uses are on both class paths for the
+  # test's compilation.
+  local _fw="${_ghidra}/Ghidra/Framework"
+  local _yj="${_ghidra}/Ghidra/Features/GhidraServer/data/yajsw-stable-${_yajsw}/lib/core/jna"
+  local _cp="${_fw}/Pty/lib/Pty.jar:${_fw}/Utility/lib/Utility.jar:$(ls "${_fw}"/Generic/lib/*.jar | tr '\n' ':')"
+  "${MINGW_PREFIX}/lib/jvm/${_jvmdir}/bin/java" \
+    -cp "$(cygpath -wp "${_fw}/Pty/lib/jna-${_jna}.jar:${_fw}/Pty/lib/jna-platform-${_jna}.jar:${_cp}")" \
+    "${srcdir}/test-jna.java" 2>&1 | tee jna.log
+  "${MINGW_PREFIX}/lib/jvm/${_jvmdir}/bin/java" \
+    -cp "$(cygpath -wp "${_yj}/jna-${_yajsw_jna}.jar:${_yj}/jna-platform-${_yajsw_jna}.jar:${_cp}")" \
+    "${srcdir}/test-jna.java" yajsw 2>&1 | tee -a jna.log
+  [[ $(grep -c 'test-jna: passed' jna.log) == 2 ]]
+}
+
+package() {
+  local _ghidra=("${srcdir}"/stage/ghidra_*)
+  mkdir -p "${pkgdir}${MINGW_PREFIX}"/{lib,bin}
+  cp -a "${_ghidra}" "${pkgdir}${MINGW_PREFIX}/lib/${_realname}"
+
+  # Ghidra's scripts take the JDK from JAVA_HOME; the launchers point it at
+  # this openjdk and put bin on PATH, where its executables and Ghidra's
+  # natives find the MinGW DLLs. sed reads a backslash as an escape, hence
+  # the doubled ones; --binary keeps the .cmd's CRLF line ends.
+  local -A _launchers=(
+    [ghidra]='ghidraRun.bat'
+    [ghidra-analyzeHeadless]='support\\analyzeHeadless.bat'
+  )
+  local _name
+  for _name in "${!_launchers[@]}"; do
+    sed --binary -e "s|@JVMDIR@|${_jvmdir}|" -e "s|@SCRIPT@|${_launchers[${_name}]}|" \
+      "${srcdir}/launcher.cmd" > "${pkgdir}${MINGW_PREFIX}/bin/${_name}.cmd"
+    sed "s|@NAME@|${_name}|" "${srcdir}/launcher.sh" \
+      > "${pkgdir}${MINGW_PREFIX}/bin/${_name}"
+  done
+
+  local _licdir="${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}"
+  install -Dm644 "${_ghidra}/LICENSE" -t "${_licdir}"
+  cp -r "${_ghidra}/licenses" "${_licdir}/licenses"
+  cp -r "${_ghidra}/GPL/licenses" "${_licdir}/GPL"
+}

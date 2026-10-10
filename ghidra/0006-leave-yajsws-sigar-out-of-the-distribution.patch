@@ -1,0 +1,22 @@
+Leave YAJSW's SIGAR out of the distribution.
+
+SIGAR 1.6.4 (2010) is among YAJSW's optional extras for users' own
+scripts. Its 64-bit Windows DLL truncates pointers: the first call,
+Sigar.getPid(), reads 0xffffffffe67d7f88 and crashes the JVM, Temurin's as
+well. Nothing in YAJSW or Ghidra's server configuration loads it; YAJSW's
+manifests still name its jars, and Java skips class-path entries that do
+not exist.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/Ghidra/Features/GhidraServer/build.gradle
++++ b/Ghidra/Features/GhidraServer/build.gradle
+@@ -50,6 +50,7 @@
+ 		include "${yajswRelease}/doc/**"
+ 		include "${yajswRelease}/LICENSE.txt"
+ 		include "${yajswRelease}/yajsw.policy.txt"
++		exclude "${yajswRelease}/lib/extended/sigar/**"
+ 	}
+ }
+ // Unpack YAJSW archive into build/data for development use

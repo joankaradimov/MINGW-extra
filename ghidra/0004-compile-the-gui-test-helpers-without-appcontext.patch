@@ -1,0 +1,55 @@
+Compile the GUI test helpers without sun.awt.AppContext.
+
+JDK 27 removed sun.awt.AppContext, and Gui and Docking compile their test
+helpers into the main jars, so the build stops there. On JDK 27 the
+shared owner frame is an ordinary frame in Frame.getFrames(), and
+JTextComponent keeps the focused component in a static field.
+
+Upstream: not submitted (Ghidra supports building with JDK 21 only)
+Applies-to: all environments
+
+--- a/Ghidra/Framework/Gui/src/main/java/generic/test/AbstractGuiTest.java
++++ b/Ghidra/Framework/Gui/src/main/java/generic/test/AbstractGuiTest.java
+@@ -42,7 +42,6 @@
+ import ghidra.util.task.AbstractSwingUpdateManager;
+ import ghidra.util.task.SwingUpdateManager;
+ import junit.framework.AssertionFailedError;
+-import sun.awt.AppContext;
+ import utility.function.ExceptionalCallback;
+ 
+ /**
+@@ -69,12 +68,7 @@
+ 	 */
+ 	public static Set<Window> getAllWindows() {
+ 		Set<Window> set = new HashSet<>();
+-		Frame sharedOwnerFrame = (Frame) AppContext.getAppContext()
+-				.get(new StringBuffer("SwingUtilities.sharedOwnerFrame"));
+-		if (sharedOwnerFrame != null) {
+-			set.addAll(getAllWindows(sharedOwnerFrame));
+-		}
+-
++		// Swing's shared owner frame is one of these
+ 		for (Frame frame : Frame.getFrames()) {
+ 			set.addAll(getAllWindows(frame));
+ 		}
+--- a/Ghidra/Framework/Docking/src/main/java/docking/test/AbstractDockingTest.java
++++ b/Ghidra/Framework/Docking/src/main/java/docking/test/AbstractDockingTest.java
+@@ -61,7 +61,6 @@
+ import ghidra.util.worker.Worker;
+ import junit.framework.AssertionFailedError;
+ import resources.icons.UrlImageIcon;
+-import sun.awt.AppContext;
+ import util.CollectionUtils;
+ import utility.application.ApplicationLayout;
+ 
+@@ -1518,9 +1517,7 @@
+ 		runSwing(() -> {
+ 
+ 			// Update Swing's notion of the focused component
+-			Object contextKey = getInstanceField("FOCUSED_COMPONENT", tc);
+-			AppContext context = AppContext.getAppContext();
+-			context.put(contextKey, tc);
++			setInstanceField("focusedComponent", tc, tc);
+ 
+ 			/*
+ 			 	The FlatLaf will select all text in a text field when it gains focus.  This will 
