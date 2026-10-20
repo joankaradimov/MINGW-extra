@@ -84,6 +84,10 @@ shell. `ci/prune.sh published --dry-run` lists what a run would delete.
 **site** (Linux) uploads `ci/site/`, the home page users land on, to the top
 of `DEPLOY_PATH`. It runs on every run, alongside the rest; the page is small,
 and this way the one on the server never drifts from the one in the repository.
+It also uploads an empty database for every environment in
+`ci/autobuild/config.py` that has none on the server: the page tells users to
+add every environment's section, and pacman fails a whole `-Sy` over a single
+404. An environment that already has a database is left to publish.
 
 **ghcr** (Linux) mirrors the published repository to GitHub's container
 registry, as `ghcr.io/<owner>/<repository>`, for pull requests. Each
@@ -175,8 +179,8 @@ the previous database for hours after a publish.
 
 Restrict the deploy key to that directory — `command="rrsync /srv/mingw-extra"`
 in `authorized_keys`, or the equivalent forced-command wrapper — where the host
-allows it. The jobs only ever run rsync (publish creates the per-environment
-directories with `--mkpath`), so the key never needs a shell.
+allows it. The jobs only ever run rsync (publish and site create the
+per-environment directories with `--mkpath`), so the key never needs a shell.
 
 rrsync resolves every path the client sends *inside* its directory, stripping
 any leading slash, so under rrsync `DEPLOY_PATH` must be `.`. An absolute

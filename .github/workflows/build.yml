@@ -49,6 +49,8 @@ env:
 jobs:
   # The home page, uploaded on every run like the packages. It takes seconds,
   # and the page on the server can never drift from the one in the repository.
+  # Every environment the page lists also gets a database, empty until
+  # something is built for it, so that its pacman.conf sections all sync.
   site:
     name: site
     runs-on: ubuntu-latest

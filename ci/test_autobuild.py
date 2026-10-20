@@ -190,6 +190,13 @@ class PublishedCopy(TemporaryTree):
         self.write(PUBLISHED_MARKER)
         self.assertEqual(len(repodb.published(self.directory, "clang64")), 0)
 
+    def test_an_empty_database_is_nothing_published(self):
+        # What ci/publish-site.sh uploads for an environment nothing is built for:
+        # a tar of nothing but its end-of-archive zeros.
+        self.write(PUBLISHED_MARKER)
+        self.write("clangarm64/mingw-extra-clangarm64.db", gzip.compress(bytes(10240)))
+        self.assertEqual(len(repodb.published(self.directory, "clangarm64")), 0)
+
     def test_no_copy_at_all_means_nothing_published(self):
         self.assertEqual(len(repodb.published(None, "ucrt64")), 0)
 
@@ -259,6 +266,11 @@ class PacmanConfiguration(TemporaryTree):
         self.write(os.path.join("empty", PUBLISHED_MARKER))
         self.assertEqual(self.names("ucrt64", [os.path.join(self.directory, "empty")]), [])
         self.assertNotIn("mingw-extra", self.conf([]))
+
+    def test_an_empty_published_database_means_no_section(self):
+        self.write(os.path.join("empty", PUBLISHED_MARKER))
+        self.write("empty/ucrt64/mingw-extra-ucrt64.db", gzip.compress(bytes(10240)))
+        self.assertEqual(self.names("ucrt64", [os.path.join(self.directory, "empty")]), [])
 
 
 class Packager(unittest.TestCase):
