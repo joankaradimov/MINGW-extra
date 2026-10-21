@@ -139,28 +139,28 @@
   <h2>1. Add the repository</h2>
   <p>Append these sections to the end of <code>/etc/pacman.conf</code>, after MSYS2's own
   repositories, so that MSYS2 keeps precedence. Keep the environments you use, and
-  <code>mingw-extra-msys</code> in any case: some packages here depend on an MSYS package from it.</p>
-<pre>[mingw-extra-ucrt64]
+  <code>msys-extra</code> in any case: some packages here depend on an MSYS package from it.</p>
+<pre>[ucrt64-extra]
 SigLevel = Optional TrustAll
 Server = https://msys2pkgs.karadimov.org/ucrt64
 
-[mingw-extra-clang64]
+[clang64-extra]
 SigLevel = Optional TrustAll
 Server = https://msys2pkgs.karadimov.org/clang64
 
-[mingw-extra-clangarm64]
+[clangarm64-extra]
 SigLevel = Optional TrustAll
 Server = https://msys2pkgs.karadimov.org/clangarm64
 
-[mingw-extra-mingw64]
+[mingw64-extra]
 SigLevel = Optional TrustAll
 Server = https://msys2pkgs.karadimov.org/mingw64
 
-[mingw-extra-mingw32]
+[mingw32-extra]
 SigLevel = Optional TrustAll
 Server = https://msys2pkgs.karadimov.org/mingw32
 
-[mingw-extra-msys]
+[msys-extra]
 SigLevel = Optional TrustAll
 Server = https://msys2pkgs.karadimov.org/msys
 </pre>
@@ -170,7 +170,7 @@ Server = https://msys2pkgs.karadimov.org/msys
   <h2>2. Install packages</h2>
   <p>Refresh the package databases, see what is available, and install. From a UCRT64 shell:</p>
 <pre>pacman -Sy
-pacman -Sl mingw-extra-ucrt64
+pacman -Sl ucrt64-extra
 pacman -S mingw-w64-ucrt-x86_64-stormlib
 </pre>
   <p>In any environment's shell, <code>${MINGW_PACKAGE_PREFIX}-stormlib</code> expands to the
@@ -183,12 +183,12 @@ pacman -S mingw-w64-ucrt-x86_64-stormlib
         <tr><th>Environment</th><th>Repository</th><th>Package names start with</th></tr>
       </thead>
       <tbody>
-        <tr><td>UCRT64</td><td><code>mingw-extra-ucrt64</code></td><td><code>mingw-w64-ucrt-x86_64-</code></td></tr>
-        <tr><td>CLANG64</td><td><code>mingw-extra-clang64</code></td><td><code>mingw-w64-clang-x86_64-</code></td></tr>
-        <tr><td>CLANGARM64</td><td><code>mingw-extra-clangarm64</code></td><td><code>mingw-w64-clang-aarch64-</code></td></tr>
-        <tr><td>MINGW64</td><td><code>mingw-extra-mingw64</code></td><td><code>mingw-w64-x86_64-</code></td></tr>
-        <tr><td>MINGW32</td><td><code>mingw-extra-mingw32</code></td><td><code>mingw-w64-i686-</code></td></tr>
-        <tr><td>MSYS</td><td><code>mingw-extra-msys</code></td><td>no prefix</td></tr>
+        <tr><td>UCRT64</td><td><code>ucrt64-extra</code></td><td><code>mingw-w64-ucrt-x86_64-</code></td></tr>
+        <tr><td>CLANG64</td><td><code>clang64-extra</code></td><td><code>mingw-w64-clang-x86_64-</code></td></tr>
+        <tr><td>CLANGARM64</td><td><code>clangarm64-extra</code></td><td><code>mingw-w64-clang-aarch64-</code></td></tr>
+        <tr><td>MINGW64</td><td><code>mingw64-extra</code></td><td><code>mingw-w64-x86_64-</code></td></tr>
+        <tr><td>MINGW32</td><td><code>mingw32-extra</code></td><td><code>mingw-w64-i686-</code></td></tr>
+        <tr><td>MSYS</td><td><code>msys-extra</code></td><td>no prefix</td></tr>
       </tbody>
     </table>
   </div>
@@ -213,7 +213,7 @@ pacman -S mingw-w64-ucrt-x86_64-stormlib
 
   <h2>Trouble?</h2>
   <p>From a cloud VM or a CI runner, the host's bot protection can answer with a challenge page
-  instead of the database, and pacman then calls the <code>mingw-extra</code> database invalid
+  instead of the database, and pacman then calls the <code>*-extra</code> databases invalid
   or corrupted. Ordinary connections are not affected. For anything else,
   <a href="https://github.com/joankaradimov/MINGW-extra/issues">open an issue</a>.</p>
 
@@ -267,11 +267,11 @@ pacman -S mingw-w64-ucrt-x86_64-stormlib
   (() => {
     if (typeof DecompressionStream !== "function") return;
 
-    // A row names the database, mingw-extra-ucrt64, which lives in ucrt64/.
+    // A row names the database, ucrt64-extra, which lives in ucrt64/.
     const environments = [...document.getElementById("environments").tBodies[0].rows].map(row => {
       const db = row.cells[1].textContent.trim();
       return {
-        name: db.slice(db.lastIndexOf("-") + 1),
+        name: db.slice(0, db.lastIndexOf("-")),
         label: row.cells[0].textContent.trim(),
         db,
         prefix: row.cells[2].querySelector("code")?.textContent.trim() ?? "",

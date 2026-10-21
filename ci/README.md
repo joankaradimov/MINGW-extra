@@ -157,12 +157,12 @@ to users over HTTPS. The layout builds itself:
 
 ```
 <DEPLOY_PATH>/index.html                            -> https://packages.example.com/mingw-extra/
-<DEPLOY_PATH>/ucrt64/mingw-extra-ucrt64.db          -> https://packages.example.com/mingw-extra/ucrt64/...
-<DEPLOY_PATH>/ucrt64/mingw-extra-ucrt64.files
+<DEPLOY_PATH>/ucrt64/ucrt64-extra.db                -> https://packages.example.com/mingw-extra/ucrt64/...
+<DEPLOY_PATH>/ucrt64/ucrt64-extra.files
 <DEPLOY_PATH>/ucrt64/mingw-w64-ucrt-x86_64-stormlib-9.40-4-any.pkg.tar.zst
 <DEPLOY_PATH>/clang64/...
 <DEPLOY_PATH>/mingw32/...
-<DEPLOY_PATH>/msys/mingw-extra-msys.db              -> the MSYS packages
+<DEPLOY_PATH>/msys/msys-extra.db                    -> the MSYS packages
 ```
 
 The host has to serve files ending in `.db`: that is the name pacman asks for,
@@ -214,12 +214,12 @@ Users add one section per environment to `/etc/pacman.conf`, after the MSYS2
 repositories so upstream keeps precedence:
 
 ```ini
-[mingw-extra-ucrt64]
+[ucrt64-extra]
 SigLevel = Optional TrustAll
 Server = https://packages.example.com/mingw-extra/ucrt64
 ```
 
-Add `[mingw-extra-msys]` too, served from `.../msys`, whatever environment you
+Add `[msys-extra]` too, served from `.../msys`, whatever environment you
 use: some MinGW packages here depend on an MSYS package from it.
 
 `SigLevel = Optional TrustAll` is what unsigned packages require. See

@@ -29,9 +29,9 @@ shift
 : "${DEPLOY_HOST:?DEPLOY_HOST is not set}"
 : "${DEPLOY_PATH:?DEPLOY_PATH is not set}"
 
-# Must match REPO_NAME in ci/autobuild/config.py: the planner reads the database
-# this script writes, and they find each other by name alone.
-repo_name=mingw-extra
+# Must match REPO_SUFFIX in ci/autobuild/config.py: the planner reads the
+# database this script writes, and they find each other by name alone.
+repo_suffix=extra
 
 # Uploaded as .htaccess next to the databases; the file itself says why.
 htaccess="$(dirname "${BASH_SOURCE[0]}")/pacman-repo.htaccess"
@@ -69,7 +69,7 @@ for environment in "${environments[@]}"; do
     packages=("$artifacts/$environment/"*.pkg.tar.zst)
     read -ra unwanted <<< "${remove[$environment]:-}"
 
-    db="${repo_name}-${environment}"
+    db="${environment}-${repo_suffix}"
     work=$(mktemp -d)
     if [[ ${#packages[@]} -gt 0 ]]; then
         cp "${packages[@]}" "$work/"

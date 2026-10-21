@@ -9,10 +9,10 @@
 #
 # Usage:
 #   ci/fetch-published.sh databases <dest>
-#       <dest>/<environment>/mingw-extra-<environment>.db for every environment
+#       <dest>/<environment>/<environment>-extra.db for every environment
 #       published so far, then <dest>/COMPLETE once all of it has arrived.
 #   ci/fetch-published.sh packages <environment> <dest> [<list>]
-#       Every package file <dest>/<environment>/mingw-extra-<environment>.db
+#       Every package file <dest>/<environment>/<environment>-extra.db
 #       references, copied next to it: a local repository pacman can install
 #       from. <dest> is what the databases step produced. With <list>, a file
 #       of package filenames, only those: what the ghcr.io mirror lacks.
@@ -28,8 +28,8 @@ set -euo pipefail
 : "${DEPLOY_HOST:?DEPLOY_HOST is not set}"
 : "${DEPLOY_PATH:?DEPLOY_PATH is not set}"
 
-# Must match REPO_NAME and PUBLISHED_MARKER in ci/autobuild/config.py.
-repo_name=mingw-extra
+# Must match REPO_SUFFIX and PUBLISHED_MARKER in ci/autobuild/config.py.
+repo_suffix=extra
 marker=COMPLETE
 
 here=$(dirname "${BASH_SOURCE[0]}")
@@ -45,11 +45,11 @@ case "${1:-}" in
         # no marker behind. Nothing deeper than one directory is walked.
         rsync -a --prune-empty-dirs \
             --include='/*/' \
-            --include="/*/${repo_name}-*.db" \
+            --include="/*/*-${repo_suffix}.db" \
             --exclude='*' \
             "$DEPLOY_HOST:$DEPLOY_PATH/" "$dest/"
         touch "$dest/$marker"
-        found=$(find "$dest" -name "${repo_name}-*.db" -printf '%P\n' | sort)
+        found=$(find "$dest" -name "*-${repo_suffix}.db" -printf '%P\n' | sort)
         if [[ -n "$found" ]]; then
             echo "copied:"
             printf '  %s\n' $found

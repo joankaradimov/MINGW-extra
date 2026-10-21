@@ -12,12 +12,12 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-REPO_NAME = "mingw-extra"
-"""pacman repository name.
+REPO_SUFFIX = "extra"
+"""What the pacman repository adds to an environment's name.
 
-Each environment gets its own database, so the pacman.conf section for e.g.
-ucrt64 is ``[mingw-extra-ucrt64]`` and its database is
-``<repository>/ucrt64/mingw-extra-ucrt64.db``.
+Each environment gets its own database, named after MSYS2's own for it, so the
+pacman.conf section for e.g. ucrt64 is ``[ucrt64-extra]`` and its database is
+``<repository>/ucrt64/ucrt64-extra.db``.
 """
 
 PUBLISHED_MARKER = "COMPLETE"
@@ -97,7 +97,7 @@ error.
 
 def db_name(env: str) -> str:
     """Name of the pacman database (and of the pacman.conf section) for `env`."""
-    return f"{REPO_NAME}-{env}"
+    return f"{env}-{REPO_SUFFIX}"
 
 
 def db_path(directory: str, env: str) -> str:

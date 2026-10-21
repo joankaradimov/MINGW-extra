@@ -26,8 +26,8 @@ set -euo pipefail
 : "${DEPLOY_HOST:?DEPLOY_HOST is not set}"
 : "${DEPLOY_PATH:?DEPLOY_PATH is not set}"
 
-# Must match REPO_NAME in ci/autobuild/config.py.
-repo_name=mingw-extra
+# Must match REPO_SUFFIX in ci/autobuild/config.py.
+repo_suffix=extra
 
 here=$(dirname "${BASH_SOURCE[0]}")
 site="$here/site"
@@ -49,7 +49,7 @@ trap 'rm -rf "$work"' EXIT
 bash "$here/fetch-published.sh" databases "$work/live"
 
 for environment in $environments; do
-    db="${repo_name}-${environment}"
+    db="${environment}-${repo_suffix}"
     if [[ -f "$work/live/$environment/$db.db" ]]; then
         continue
     fi

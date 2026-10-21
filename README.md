@@ -12,31 +12,31 @@ repositories, not to replace anything they ship.
 
 Append these sections to the end of `/etc/pacman.conf`, after MSYS2's own
 repositories, so that MSYS2 keeps precedence. Keep the environments you use, and
-`mingw-extra-msys` in any case: some packages here depend on an MSYS package
+`msys-extra` in any case: some packages here depend on an MSYS package
 from it.
 
 ```ini
-[mingw-extra-ucrt64]
+[ucrt64-extra]
 SigLevel = Optional TrustAll
 Server = https://msys2pkgs.karadimov.org/ucrt64
 
-[mingw-extra-clang64]
+[clang64-extra]
 SigLevel = Optional TrustAll
 Server = https://msys2pkgs.karadimov.org/clang64
 
-[mingw-extra-clangarm64]
+[clangarm64-extra]
 SigLevel = Optional TrustAll
 Server = https://msys2pkgs.karadimov.org/clangarm64
 
-[mingw-extra-mingw64]
+[mingw64-extra]
 SigLevel = Optional TrustAll
 Server = https://msys2pkgs.karadimov.org/mingw64
 
-[mingw-extra-mingw32]
+[mingw32-extra]
 SigLevel = Optional TrustAll
 Server = https://msys2pkgs.karadimov.org/mingw32
 
-[mingw-extra-msys]
+[msys-extra]
 SigLevel = Optional TrustAll
 Server = https://msys2pkgs.karadimov.org/msys
 ```
@@ -48,7 +48,7 @@ Then refresh, see what is available, and install. From a UCRT64 shell:
 
 ```sh
 pacman -Sy
-pacman -Sl mingw-extra-ucrt64
+pacman -Sl ucrt64-extra
 pacman -S mingw-w64-ucrt-x86_64-stormlib
 ```
 
@@ -58,19 +58,19 @@ what yours has.
 
 | Environment | Repository | Package names start with |
 | --- | --- | --- |
-| UCRT64 | `mingw-extra-ucrt64` | `mingw-w64-ucrt-x86_64-` |
-| CLANG64 | `mingw-extra-clang64` | `mingw-w64-clang-x86_64-` |
-| CLANGARM64 | `mingw-extra-clangarm64` | `mingw-w64-clang-aarch64-` |
-| MINGW64 | `mingw-extra-mingw64` | `mingw-w64-x86_64-` |
-| MINGW32 | `mingw-extra-mingw32` | `mingw-w64-i686-` |
-| MSYS | `mingw-extra-msys` | no prefix |
+| UCRT64 | `ucrt64-extra` | `mingw-w64-ucrt-x86_64-` |
+| CLANG64 | `clang64-extra` | `mingw-w64-clang-x86_64-` |
+| CLANGARM64 | `clangarm64-extra` | `mingw-w64-clang-aarch64-` |
+| MINGW64 | `mingw64-extra` | `mingw-w64-x86_64-` |
+| MINGW32 | `mingw32-extra` | `mingw-w64-i686-` |
+| MSYS | `msys-extra` | no prefix |
 
 To stop using it, delete the sections and run `pacman -Sy`. Installed packages
 stay installed; `pacman -Qm` lists the ones no remaining repository provides.
 
 From a cloud VM or a CI runner, the host's bot protection can answer with a
-challenge page instead of the database, and pacman then calls the `mingw-extra`
-database invalid or corrupted. Ordinary connections are not affected.
+challenge page instead of the database, and pacman then calls the `*-extra`
+databases invalid or corrupted. Ordinary connections are not affected.
 
 ## Working on it
 

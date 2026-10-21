@@ -183,7 +183,7 @@ class PublishedCopy(TemporaryTree):
 
     def test_a_published_database_is_read(self):
         self.write(PUBLISHED_MARKER)
-        self.write("ucrt64/mingw-extra-ucrt64.db", make_db([("serd", "0.30.10-1")]))
+        self.write("ucrt64/ucrt64-extra.db", make_db([("serd", "0.30.10-1")]))
         self.assertTrue(repodb.published(self.directory, "ucrt64").has("serd", "0.30.10-1"))
 
     def test_an_environment_never_published_is_empty(self):
@@ -194,7 +194,7 @@ class PublishedCopy(TemporaryTree):
         # What ci/publish-site.sh uploads for an environment nothing is built for:
         # a tar of nothing but its end-of-archive zeros.
         self.write(PUBLISHED_MARKER)
-        self.write("clangarm64/mingw-extra-clangarm64.db", gzip.compress(bytes(10240)))
+        self.write("clangarm64/clangarm64-extra.db", gzip.compress(bytes(10240)))
         self.assertEqual(len(repodb.published(self.directory, "clangarm64")), 0)
 
     def test_no_copy_at_all_means_nothing_published(self):
@@ -203,13 +203,13 @@ class PublishedCopy(TemporaryTree):
     def test_a_copy_without_the_marker_is_refused(self):
         # An interrupted copy would make a published database look missing,
         # and missing means "rebuild everything".
-        self.write("ucrt64/mingw-extra-ucrt64.db", make_db([("serd", "0.30.10-1")]))
+        self.write("ucrt64/ucrt64-extra.db", make_db([("serd", "0.30.10-1")]))
         with self.assertRaisesRegex(RuntimeError, PUBLISHED_MARKER):
             repodb.published(self.directory, "ucrt64")
 
     def test_a_file_that_is_not_a_database_says_what_it_holds(self):
         self.write(PUBLISHED_MARKER)
-        self.write("ucrt64/mingw-extra-ucrt64.db", b"<!DOCTYPE html><html>challenge</html>")
+        self.write("ucrt64/ucrt64-extra.db", b"<!DOCTYPE html><html>challenge</html>")
         with self.assertRaises(RuntimeError) as caught:
             repodb.published(self.directory, "ucrt64")
         self.assertIn("<!DOCTYPE html>", str(caught.exception))
@@ -235,41 +235,41 @@ class PacmanConfiguration(TemporaryTree):
 
     def test_our_repositories_are_local_files_ahead_of_the_stock_ones(self):
         text = self.conf([
-            ("mingw-extra-ucrt64-staging", "/c/_b/staging/ucrt64", "Never"),
-            ("mingw-extra-ucrt64", "/d/a/published/ucrt64", "Optional TrustAll"),
+            ("ucrt64-extra-staging", "/c/_b/staging/ucrt64", "Never"),
+            ("ucrt64-extra", "/d/a/published/ucrt64", "Optional TrustAll"),
         ])
-        self.assertLess(text.index("[mingw-extra-ucrt64-staging]"), text.index("[mingw-extra-ucrt64]"))
-        self.assertLess(text.index("[mingw-extra-ucrt64]"), text.index("[options]"))
+        self.assertLess(text.index("[ucrt64-extra-staging]"), text.index("[ucrt64-extra]"))
+        self.assertLess(text.index("[ucrt64-extra]"), text.index("[options]"))
         self.assertIn("Server = file:///c/_b/staging/ucrt64\n", text)
         self.assertIn("Server = file:///d/a/published/ucrt64\n", text)
         self.assertNotIn("http", text)
 
     def test_a_mingw_build_sees_msys_too_built_before_published(self):
-        self.write("staging/ucrt64/mingw-extra-ucrt64-staging.db.tar.gz")
-        self.write("staging/msys/mingw-extra-msys-staging.db.tar.gz")
+        self.write("staging/ucrt64/ucrt64-extra-staging.db.tar.gz")
+        self.write("staging/msys/msys-extra-staging.db.tar.gz")
         own = self.published_copy("own", "ucrt64")
         msys = self.published_copy("msys-copy", "msys")
         self.assertEqual(self.names("ucrt64", [own, msys]), [
-            "mingw-extra-ucrt64-staging", "mingw-extra-msys-staging",
-            "mingw-extra-ucrt64", "mingw-extra-msys",
+            "ucrt64-extra-staging", "msys-extra-staging",
+            "ucrt64-extra", "msys-extra",
         ])
 
     def test_an_msys_build_sees_msys_alone(self):
-        self.write("staging/msys/mingw-extra-msys-staging.db.tar.gz")
-        self.write("staging/ucrt64/mingw-extra-ucrt64-staging.db.tar.gz")
+        self.write("staging/msys/msys-extra-staging.db.tar.gz")
+        self.write("staging/ucrt64/ucrt64-extra-staging.db.tar.gz")
         msys = self.published_copy("msys-copy", "msys")
         own = self.published_copy("own", "ucrt64")
         self.assertEqual(self.names("msys", [msys, own]),
-                         ["mingw-extra-msys-staging", "mingw-extra-msys"])
+                         ["msys-extra-staging", "msys-extra"])
 
     def test_nothing_built_or_published_means_no_section(self):
         self.write(os.path.join("empty", PUBLISHED_MARKER))
         self.assertEqual(self.names("ucrt64", [os.path.join(self.directory, "empty")]), [])
-        self.assertNotIn("mingw-extra", self.conf([]))
+        self.assertNotIn(db_name("ucrt64"), self.conf([]))
 
     def test_an_empty_published_database_means_no_section(self):
         self.write(os.path.join("empty", PUBLISHED_MARKER))
-        self.write("empty/ucrt64/mingw-extra-ucrt64.db", gzip.compress(bytes(10240)))
+        self.write("empty/ucrt64/ucrt64-extra.db", gzip.compress(bytes(10240)))
         self.assertEqual(self.names("ucrt64", [os.path.join(self.directory, "empty")]), [])
 
 
@@ -523,7 +523,7 @@ class RegistryMirror(TemporaryTree):
         self.assertTrue(registry.push(fake_registry, self.published(), "ucrt64", self.SOURCE))
         document = fake_registry.get_manifest("ucrt64")
         titles = [layer["annotations"][registry.TITLE] for layer in document["layers"]]
-        self.assertEqual(titles, ["mingw-extra-ucrt64.db",
+        self.assertEqual(titles, ["ucrt64-extra.db",
                                   "p-asmc-1-1-any.pkg.tar.zst", "p-openjdk-1-1-any.pkg.tar.zst"])
         self.assertEqual(document["annotations"][registry.SOURCE], self.SOURCE)
         self.assertEqual(document["config"]["mediaType"], registry.CONFIG_TYPE)
@@ -555,7 +555,7 @@ class RegistryMirror(TemporaryTree):
         registry.push(fake_registry, copy, "ucrt64", self.SOURCE)
         dest = os.path.join(self.directory, "pulled")
         self.assertEqual(registry.pull(fake_registry, ["ucrt64"], dest), ["ucrt64"])
-        for name in ("mingw-extra-ucrt64.db", "p-asmc-1-1-any.pkg.tar.zst",
+        for name in ("ucrt64-extra.db", "p-asmc-1-1-any.pkg.tar.zst",
                      "p-openjdk-1-1-any.pkg.tar.zst"):
             with open(os.path.join(copy, "ucrt64", name), "rb") as a, \
                     open(os.path.join(dest, "ucrt64", name), "rb") as b:
@@ -567,7 +567,7 @@ class RegistryMirror(TemporaryTree):
         registry.push(fake_registry, self.published(), "ucrt64", self.SOURCE)
         dest = os.path.join(self.directory, "pulled")
         registry.pull(fake_registry, ["ucrt64"], dest, packages=False)
-        self.assertEqual(os.listdir(os.path.join(dest, "ucrt64")), ["mingw-extra-ucrt64.db"])
+        self.assertEqual(os.listdir(os.path.join(dest, "ucrt64")), ["ucrt64-extra.db"])
         self.assertEqual(len(repodb.published(dest, "ucrt64")), 2)
 
     def test_an_environment_never_pushed_is_left_out(self):
@@ -594,7 +594,7 @@ class RegistryMirror(TemporaryTree):
         fake_registry = FakeRegistry()
         fake_registry.manifests["ucrt64"] = json.dumps({"layers": [{
             "mediaType": registry.DATABASE_TYPE, "digest": "sha256:00", "size": 0,
-            "annotations": {registry.TITLE: "../mingw-extra-ucrt64.db"}}]}).encode()
+            "annotations": {registry.TITLE: "../ucrt64-extra.db"}}]}).encode()
         with self.assertRaisesRegex(RuntimeError, "refusing"):
             registry.pull(fake_registry, ["ucrt64"], os.path.join(self.directory, "pulled"))
 
