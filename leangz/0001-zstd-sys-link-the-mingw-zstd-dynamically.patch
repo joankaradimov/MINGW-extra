@@ -1,0 +1,27 @@
+Let pkg-config link the MinGW zstd dynamically.
+
+zstd-sys probes pkg-config with .statik(true). The pkg-config crate then
+asks rustc for static=zstd whenever a libzstd.a sits in a directory that
+is not a system root, and on Windows there are no system roots unless
+PKG_CONFIG_SYSROOT_DIR or SYSROOT is set. So the MinGW zstd's static
+library is always taken and every binary carries its own copy of zstd.
+Without the flag the import library is used and the binaries load
+libzstd.dll.
+
+msys2/MINGW-packages carries the same change as
+zstd-sys-remove-statik.patch in twelve recipes, mingw-w64-dotslash among
+them.
+
+Upstream: not submitted from here
+Applies-to: all environments
+
+--- a/build.rs
++++ b/build.rs
+@@ -54,7 +54,6 @@
+ 
+ fn pkg_config() -> (Vec<&'static str>, Vec<PathBuf>) {
+     let library = pkg_config::Config::new()
+-        .statik(true)
+         .cargo_metadata(!cfg!(feature = "non-cargo"))
+         .probe("libzstd")
+         .expect("Can't probe for zstd in pkg-config");

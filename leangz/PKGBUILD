@@ -1,0 +1,74 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=leangz
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=0.1.21
+pkgrel=1
+pkgdesc="Lean 4 .olean compressor and the leantar archiver (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://github.com/digama0/leangz'
+msys2_repository_url='https://github.com/digama0/leangz'
+license=('spdx:Apache-2.0')
+depends=("${MINGW_PACKAGE_PREFIX}-cc-libs"
+         "${MINGW_PACKAGE_PREFIX}-zstd")
+makedepends=("${MINGW_PACKAGE_PREFIX}-rust"
+             "${MINGW_PACKAGE_PREFIX}-pkgconf")
+# The zstd-sys release in leangz's Cargo.lock, patched to link zstd
+# dynamically and swapped in with [patch.crates-io].
+_zstd_sys_ver='2.0.15+zstd.1.5.7'
+source=("${_realname}-${pkgver}.tar.gz::https://github.com/digama0/leangz/archive/refs/tags/v${pkgver}.tar.gz"
+        "zstd-sys-${_zstd_sys_ver}.tar.gz::https://static.crates.io/crates/zstd-sys/${_zstd_sys_ver}/download"
+        '0001-zstd-sys-link-the-mingw-zstd-dynamically.patch')
+sha256sums=('3362da6b4f88e24d30e397414b6400a7a265dec8cf6367cf2664897b3c96ed57'
+            'eb81183ddd97d0c74cedf1d50d85c8d08c1b8b68ee863bdee9e706eedba1a237'
+            '76a12f51ab77a2bd3824c5b9efe49c8b7e93de064a97b1bf5fd1a23787dfec05')
+
+# Link the MinGW zstd rather than the copy inside zstd-sys, and dynamically.
+_cargo_env() {
+  export ZSTD_SYS_USE_PKG_CONFIG=1
+  export RUSTFLAGS="${RUSTFLAGS/+crt-static/-crt-static}"
+}
+
+prepare() {
+  patch -d "zstd-sys-${_zstd_sys_ver}" -Np1 \
+    -i "${srcdir}/0001-zstd-sys-link-the-mingw-zstd-dynamically.patch"
+
+  cd "${_realname}-${pkgver}"
+  cat >> Cargo.toml <<END
+
+[patch.crates-io]
+zstd-sys.path = "../zstd-sys-${_zstd_sys_ver}"
+END
+  cargo update -p zstd-sys
+  cargo fetch --locked --target "${RUST_CHOST}"
+}
+
+build() {
+  cd "${_realname}-${pkgver}"
+
+  _cargo_env
+  cargo build --release --frozen
+}
+
+check() {
+  cd "${_realname}-${pkgver}"
+
+  _cargo_env
+  cargo test --release --frozen
+}
+
+package() {
+  cd "${_realname}-${pkgver}"
+
+  _cargo_env
+  cargo install \
+    --frozen \
+    --offline \
+    --no-track \
+    --path . \
+    --root "${pkgdir}${MINGW_PREFIX}"
+
+  install -Dm644 LICENSE "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/LICENSE"
+}
