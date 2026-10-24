@@ -1,0 +1,78 @@
+Build mobical only where mmap and fork exist.
+
+The model based tester mobical runs its test cases in forked children and
+shares state with them through mmap. MinGW has neither, so make stops at
+sys/mman.h, and the solver's own test suites stop with it, because every
+test/*/run.sh starts by running make. BUILD.md already says that mobical
+does not compile with MinGW and suggests "make cadical".
+
+makefile.in names the default goals itself in this release. Have
+configure fill them in through @GOALS@ instead, as later releases do, and
+leave mobical out after a compile probe written like the existing
+unlocked IO and closefrom checks.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/configure
++++ b/configure
+@@ -538,6 +538,40 @@
+ 
+ #--------------------------------------------------------------------------#
+ 
++# The model based tester 'mobical' runs its test cases in forked child
++# processes and shares state with them through 'mmap', neither of which is
++# available on Windows (MinGW), so it is only built where they are.
++
++feature=./configure-have-mmap-and-fork
++cat <<EOF > $feature.cpp
++#include <sys/mman.h>
++#include <sys/wait.h>
++#include <unistd.h>
++int main () {
++  void * p = mmap (0, 1, PROT_READ | PROT_WRITE,
++                   MAP_SHARED | MAP_ANONYMOUS, -1, 0);
++  if (p == MAP_FAILED) return 1;
++  pid_t child = fork ();
++  if (child < 0) return 1;
++  if (!child) _exit (0);
++  int status;
++  waitpid (child, &status, 0);
++  return 0;
++}
++EOF
++if $CXX $CXXFLAGS -o $feature.exe $feature.cpp 2>>configure.log
++then
++  mobical=yes
++else
++  msg "not building 'mobical' (failed to compile '$feature.cpp')"
++  mobical=no
++fi
++
++goals="libcadical.a cadical"
++[ $mobical = yes ] && goals="$goals mobical"
++
++#--------------------------------------------------------------------------#
++
+ # Instantiate '../makefile.in' template to produce 'makefile' in 'build'.
+ 
+ msg "compiling with ${HILITE}'$CXX $CXXFLAGS'${NORMAL}"
+@@ -552,6 +586,7 @@
+ -e "s#@CONTRIB@#$contrib#" \
+ -e "s#@IPASIR@#$ipasir#" \
+ -e "s#@ROOT@#$root#" \
++-e "s#@GOALS@#$goals#" \
+ ../makefile.in > makefile
+ 
+ msg "generated '$build/makefile' from '../makefile.in'"
+--- a/makefile.in
++++ b/makefile.in
+@@ -38,7 +38,7 @@
+ 
+ #--------------------------------------------------------------------------#
+ 
+-all: libcadical.a cadical mobical
++all: @GOALS@
+ 
+ #--------------------------------------------------------------------------#
+ 

@@ -1,0 +1,66 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=cadical
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+# The release lean pins in its CMakeLists.txt. Its check() compares the
+# counterexamples bv_decide reports, and other releases find other ones.
+pkgver=2.1.2
+pkgrel=1
+pkgdesc="Simplified, fast and reliable CDCL SAT solver (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://fmv.jku.at/cadical/'
+msys2_repository_url='https://github.com/arminbiere/cadical'
+msys2_references=(
+  'archlinux: cadical'
+)
+license=('spdx:MIT')
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             'make')
+depends=("${MINGW_PACKAGE_PREFIX}-cc-libs")
+# For the CNF suite's solution checker; without it the suite skips the check.
+checkdepends=("${MINGW_PACKAGE_PREFIX}-zlib")
+source=("${_realname}-${pkgver}.tar.gz::https://github.com/arminbiere/cadical/archive/refs/tags/rel-${pkgver}.tar.gz"
+        '0001-configure-build-mobical-only-with-mmap-and-fork.patch'
+        '0002-test-run-the-test-suites-on-windows.patch')
+sha256sums=('292c2bb8d712d6d05fce3d3df63b922b8fa45e03974a79f7bae5bf68c284f131'
+            '57a3c215b6cd0066f4e19652ce16263ff80220d40ff8e3df5e26945e1e28b125'
+            '807de23bf1fb3026ee4a20b15428a4ce3ace820703658ecac5c8c243c8ad9bb0')
+
+prepare() {
+  cd "${_realname}-rel-${pkgver}"
+
+  patch -Np1 -i "${srcdir}/0001-configure-build-mobical-only-with-mmap-and-fork.patch"
+  patch -Np1 -i "${srcdir}/0002-test-run-the-test-suites-on-windows.patch"
+}
+
+build() {
+  rm -rf "build-${MSYSTEM}"
+  cp -r "${_realname}-rel-${pkgver}" "build-${MSYSTEM}"
+  cd "build-${MSYSTEM}"
+
+  # configure has no LDFLAGS; CXXFLAGS also reach the link. No -shared: it
+  # builds a libcadical.so, which Windows cannot link against by that name.
+  CXXFLAGS="${CXXFLAGS} ${LDFLAGS}" ./configure
+  make
+}
+
+check() {
+  cd "build-${MSYSTEM}"
+
+  # The trace and mbt suites drive mobical, which needs mmap and fork. Each
+  # suite runs make in build/ first, so they cannot run in parallel.
+  make -j1 -C test usage api cnf icnf contrib
+}
+
+package() {
+  cd "build-${MSYSTEM}"
+
+  install -Dm755 build/cadical.exe -t "${pkgdir}${MINGW_PREFIX}/bin/"
+  install -Dm644 build/libcadical.a -t "${pkgdir}${MINGW_PREFIX}/lib/"
+  install -Dm644 src/{cadical.hpp,ccadical.h,ipasir.h,tracer.hpp} \
+    -t "${pkgdir}${MINGW_PREFIX}/include/cadical/"
+  install -Dm644 LICENSE contrib/craigtracer.LICENSE.MIT \
+    -t "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/"
+}

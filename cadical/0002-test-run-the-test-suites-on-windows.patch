@@ -1,0 +1,95 @@
+Run the test suites on Windows.
+
+Five API tests use alarm and SIGALRM (terminate, cipasir, parcompwrite),
+fork (cfreeze) or setenv (apitrace). MinGW provides none of them, so the
+tests fail to compile. Skip them when the compiler targets Windows.
+
+example_tracer writes its proofs under /tmp. A native Windows program
+resolves that against the root of the current drive, which usually has
+no tmp directory, so on Windows it writes them to the working directory.
+
+The CNF suite checks each solution with precochk, which compares the
+solver's output byte by byte against '\n'. On Windows the solver writes
+its output in text mode, as '\r\n', and precochk rejects every
+satisfiable result. Skip the '\r' as it reads.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/test/api/run.sh
++++ b/test/api/run.sh
+@@ -67,7 +67,24 @@
+   status=$?
+ }
+ 
++# These tests use 'alarm', 'fork' or 'setenv', which Windows does not have.
++
++posixonly=" terminate cfreeze cipasir parcompwrite apitrace "
++case x"`$CXX -dumpmachine 2>/dev/null`" in
++  *mingw*|*windows*) windows=yes;;
++  *) windows=no;;
++esac
++
+ run () {
++  case "$posixonly" in
++    *" $1 "*)
++      if test $windows = yes
++      then
++        msg "skipping API test ${HILITE}'$1'${NORMAL} on Windows"
++        return
++      fi
++      ;;
++  esac
+   msg "running API test ${HILITE}'$1'${NORMAL}"
+   if [ -f $tests/$1.c ]
+   then
+--- a/test/api/example_tracer.cpp
++++ b/test/api/example_tracer.cpp
+@@ -25,8 +25,13 @@
+ 
+   Solver *solver = new Solver;
+ 
+-  File *f1 = File::write (0, "/tmp/lrat.proof");
+-  File *f2 = File::write (0, "/tmp/frat.proof");
++#ifdef _WIN32
++#define PROOF_DIR ""
++#else
++#define PROOF_DIR "/tmp/"
++#endif
++  File *f1 = File::write (0, PROOF_DIR "lrat.proof");
++  File *f2 = File::write (0, PROOF_DIR "frat.proof");
+ 
+   InternalTracer *t1 = new LratChecker (0);
+   InternalTracer *t2 = new Checker (0);
+@@ -41,7 +46,7 @@
+   solver->connect_proof_tracer (t2, 0);
+   solver->connect_proof_tracer (ft1, 1);
+   solver->set ("veripb", 4);
+-  solver->trace_proof ("/tmp/veripb.proof");
++  solver->trace_proof (PROOF_DIR "veripb.proof");
+   solver->connect_proof_tracer (ft2, 0, 1);
+   solver->connect_proof_tracer (st1, 1);
+   solver->connect_proof_tracer (st2, 0);
+--- a/test/cnf/precochk.c
++++ b/test/cnf/precochk.c
+@@ -10,6 +10,20 @@
+ #include <string.h>
+ #include <zlib.h>
+ 
++/* A solver on Windows writes its output in text mode, ending lines with
++ * '\r\n'.  No '\r' means anything here, so skip them all.
++ */
++static int getc_skipping_cr (gzFile file) {
++  int ch;
++  do
++    ch = gzgetc (file);
++  while (ch == '\r');
++  return ch;
++}
++
++#undef gzgetc
++#define gzgetc getc_skipping_cr
++
+ static void die (const char *msg, ...) {
+   va_list ap;
+   fputs ("*** precochk: ", stdout);
