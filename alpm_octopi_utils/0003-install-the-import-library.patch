@@ -1,0 +1,28 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Install the import library
+
+install(TARGETS) names RUNTIME and LIBRARY but not ARCHIVE. On ELF there is
+no import library and the omission costs nothing. On Windows ARCHIVE is the
+import library -- the half a consumer actually links against -- so without
+it the installed alpm_octopi_utils_target.cmake has no IMPORTED_IMPLIB, and
+find_package(alpm_octopi_utils) fails at generate time in any project that
+uses it. octopi is one.
+
+Worth sending upstream.
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 8bb65a8..72bf247 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -31,7 +31,11 @@ if(WIN32)
+   target_include_directories(alpm_octopi_utils PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/win32")
+ endif()
+ target_link_libraries(alpm_octopi_utils PUBLIC glib-2.0::glib-2.0 PUBLIC gobject-2.0::gobject-2.0 PUBLIC gio-2.0::gio-2.0 PUBLIC alpm::alpm)
+-install(TARGETS alpm_octopi_utils EXPORT alpm_octopi_utils_target RUNTIME DESTINATION bin LIBRARY DESTINATION lib PUBLIC_HEADER DESTINATION include)
++# ARCHIVE is the import library. On ELF there is none and the omission costs
++# nothing; on Windows it is the half a consumer links against, and without
++# it the exported target has no IMPORTED_IMPLIB, so every find_package() of
++# this library fails at generate time rather than at link time.
++install(TARGETS alpm_octopi_utils EXPORT alpm_octopi_utils_target RUNTIME DESTINATION bin LIBRARY DESTINATION lib ARCHIVE DESTINATION lib PUBLIC_HEADER DESTINATION include)
+ install(EXPORT alpm_octopi_utils_target DESTINATION lib/cmake/alpm_octopi_utils)
+ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/alpm_octopi_utils.h" DESTINATION include)
+ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/alpm_octopi_utils.vapi" DESTINATION share/vala/vapi)

@@ -1,0 +1,83 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Add a minimal <sys/utsname.h> for mingw-w64
+
+alpm_config.vala calls Posix.utsname() to resolve pacman.conf's
+"Architecture = auto". mingw-w64 ships no <sys/utsname.h>, so the generated
+C fails to compile before anything else is even tried.
+
+The shim answers from the compiler's target rather than from the running
+machine. GetNativeSystemInfo() would answer properly, but it needs
+<windows.h>, whose macros collide with glib in the generated C -- and for
+this library the two answers agree, since it is built for the architecture
+of the installation it manages.
+
+Not sent upstream: upstream targets Arch, where the question does not arise.
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 22e761b..3898584 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -19,6 +19,12 @@ configure_file(libalpm_octopi_utils.pc.in "${CMAKE_CURRENT_BINARY_DIR}/libalpm_o
+ add_library(alpm_octopi_utils SHARED ${VALA_GEN_C})
+ target_compile_definitions(alpm_octopi_utils PRIVATE _FILE_OFFSET_BITS=64)
+ target_include_directories(alpm_octopi_utils PUBLIC "$<INSTALL_INTERFACE:include>" "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>")
++# mingw-w64 has no <sys/utsname.h>; win32/ supplies just enough of one for the
++# single uname() call in alpm_config.vala. Private and Windows-only, so it
++# cannot shadow the real header anywhere that has one.
++if(WIN32)
++  target_include_directories(alpm_octopi_utils PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/win32")
++endif()
+ target_link_libraries(alpm_octopi_utils PUBLIC glib-2.0::glib-2.0 PUBLIC gio-2.0::gio-2.0 PUBLIC alpm::alpm)
+ install(TARGETS alpm_octopi_utils EXPORT alpm_octopi_utils_target RUNTIME DESTINATION bin LIBRARY DESTINATION lib PUBLIC_HEADER DESTINATION include)
+ install(EXPORT alpm_octopi_utils_target DESTINATION lib/cmake/alpm_octopi_utils)
+diff --git a/src/win32/sys/utsname.h b/src/win32/sys/utsname.h
+new file mode 100644
+index 0000000..6abb09b
+--- /dev/null
++++ b/src/win32/sys/utsname.h
+@@ -0,0 +1,46 @@
++/* Minimal <sys/utsname.h> for mingw-w64, which does not ship one.
++ *
++ * alpm_config.vala reads exactly one field of it, uname()->machine, to
++ * resolve pacman.conf's "Architecture = auto". The value is taken from the
++ * compiler's target rather than from the running machine: GetNativeSystemInfo
++ * would answer that question properly but needs <windows.h>, whose macros
++ * (interface, ERROR, min/max) collide with glib in the generated C. For this
++ * library the two answers agree -- it is built for the architecture of the
++ * MSYS2 installation it manages.
++ *
++ * The other fields exist so the struct is not a lie to anything that looks at
++ * it; nothing here fills them, and nothing here reads them. */
++#ifndef ALPM_OCTOPI_UTILS_COMPAT_SYS_UTSNAME_H
++#define ALPM_OCTOPI_UTILS_COMPAT_SYS_UTSNAME_H
++
++#include <string.h>
++
++#if defined(__x86_64__) || defined(_M_X64)
++#  define ALPM_OCTOPI_UTILS_MACHINE "x86_64"
++#elif defined(__aarch64__) || defined(_M_ARM64)
++#  define ALPM_OCTOPI_UTILS_MACHINE "aarch64"
++#elif defined(__i386__) || defined(_M_IX86)
++#  define ALPM_OCTOPI_UTILS_MACHINE "i686"
++#else
++#  error "no uname()->machine for this target"
++#endif
++
++struct utsname {
++	char sysname[65];
++	char nodename[65];
++	char release[65];
++	char version[65];
++	char machine[65];
++};
++
++static __inline int uname(struct utsname *buf)
++{
++	if (buf == NULL)
++		return -1;
++	memset(buf, 0, sizeof(*buf));
++	strcpy(buf->sysname, "Windows");
++	strcpy(buf->machine, ALPM_OCTOPI_UTILS_MACHINE);
++	return 0;
++}
++
++#endif

@@ -1,0 +1,89 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Resolve Include paths against the prefix conf_path implies
+
+An Include line names an absolute path in the installation's own terms.
+Where the installation is not rooted at / that is not a path this process
+can open, and every one of them is reported missing -- an MSYS2 pacman.conf
+has six, so a consumer that builds an AlpmUtils per operation prints them in
+sixes, repeatedly, and gets no Server URLs at all.
+
+The prefix is not guessed and nothing new has to be passed in. The caller
+already had to supply a conf_path this process can open, and that file is
+<prefix>/etc/pacman.conf -- so the prefix is whatever precedes its /etc/
+component. Where the installation *is* rooted at / it comes out empty and
+resolve_include() is the identity, which is why none of this is conditional
+on the platform.
+
+Deliberately narrow: the paths that go on to libalpm -- DBPath, CacheDir,
+LogFile, GPGDir -- are left exactly as written. Those are for libalpm to
+open rather than for this process, and libalpm is where / is /.
+
+Worth sending upstream: it is inert everywhere it is not needed.
+diff --git a/src/alpm_config.vala b/src/alpm_config.vala
+diff --git a/src/alpm_config.vala b/src/alpm_config.vala
+index 5625082..c4c4ae5 100644
+--- a/src/alpm_config.vala
++++ b/src/alpm_config.vala
+@@ -45,6 +45,9 @@ class AlpmRepo {
+ [Compact]
+ class AlpmConfig {
+ 	public string conf_path;
++	// What an absolute Include path is absolute to; see set_include_prefix ().
++	// Public only because [Compact] classes cannot have private fields.
++	public string include_prefix;
+ 	public string? rootdir;
+ 	public string? dbpath;
+ 	public string? logfile;
+@@ -70,9 +73,43 @@ class AlpmConfig {
+ 
+ 	public AlpmConfig (string path) {
+ 		conf_path = path;
++		set_include_prefix ();
+ 		reload ();
+ 	}
+ 
++	/*
++	 * An Include line names an absolute path in the *installation's* terms --
++	 * /etc/pacman.d/mirrorlist and the like. Where the installation is not
++	 * rooted at /, that is not a path this process can open: an MSYS2 tree is
++	 * a directory on a Windows drive, so /etc/pacman.d/mirrorlist.msys means
++	 * <prefix>/etc/pacman.d/mirrorlist.msys and nothing else.
++	 *
++	 * The caller already had to hand over a conf_path this process can open,
++	 * and that file is <prefix>/etc/pacman.conf -- so the prefix is whatever
++	 * precedes its /etc/ component. Where the installation *is* rooted at /
++	 * the prefix comes out empty and resolve_include() is the identity, which
++	 * is why none of this is conditional on the platform.
++	 *
++	 * Note what is not done here: the paths that go on to libalpm -- DBPath,
++	 * CacheDir, LogFile, GPGDir -- are left exactly as written. Those are for
++	 * libalpm to open, not this process, and libalpm is where / is /.
++	 */
++	void set_include_prefix () {
++		include_prefix = "";
++		var normalised = conf_path.replace ("\\", "/");
++		var cut = normalised.last_index_of ("/etc/");
++		if (cut > 0) {
++			include_prefix = normalised.substring (0, cut);
++		}
++	}
++
++	string resolve_include (string path) {
++		if (include_prefix == "" || !path.has_prefix ("/")) {
++			return path;
++		}
++		return include_prefix + path;
++	}
++
+ 	public void reload () {
+ 		// set default options
+ 		cachedirs.free_inner (GLib.free);
+@@ -208,7 +245,7 @@ class AlpmConfig {
+ 						val = splitted[1]._strip ();
+ 					}
+ 					if (key == "Include") {
+-						parse_file (val, current_section);
++						parse_file (resolve_include (val), current_section);
+ 					}
+ 					if (current_section == "options") {
+ 						if (key == "RootDir") {

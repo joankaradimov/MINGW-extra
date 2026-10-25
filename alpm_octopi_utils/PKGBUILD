@@ -1,0 +1,97 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=alpm_octopi_utils
+# The tip of master, which is also what the AUR's octopi pins. There are no
+# tags and no releases; the CMake project declares VERSION 1.0, and that is
+# what the installed .pc file says, so the version here is built around it.
+_commit=0ed2a8bd6b869f40683cf7a79727dc64d7da274e
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=1.0.r24.0ed2a8b
+pkgrel=2
+pkgdesc="Vala/GLib convenience layer over libalpm, used by octopi (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64')
+url='https://github.com/aarnt/alpm_octopi_utils'
+license=('spdx:GPL-3.0-or-later')
+# Upstream ships no licence file at all -- no COPYING, no LICENSE. The terms
+# are stated only in the header comment of each source file ("either version 3
+# of the License, or (at your option) any later version"), so there is nothing
+# to install into share/licenses and none is invented here.
+msys2_repository_url='https://github.com/aarnt/alpm_octopi_utils'
+# No -cc-libs: the DLL imports the UCRT, glib and libalpm-14.dll and nothing
+# else -- checked, not assumed.
+depends=("${MINGW_PACKAGE_PREFIX}-alpmrpc"
+         "${MINGW_PACKAGE_PREFIX}-glib2")
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-cmake"
+             "${MINGW_PACKAGE_PREFIX}-ninja"
+             "${MINGW_PACKAGE_PREFIX}-pkgconf"
+             "${MINGW_PACKAGE_PREFIX}-vala"
+             'git')
+source=("${_realname}::git+https://github.com/aarnt/${_realname}.git#commit=${_commit}"
+        "0001-add-a-minimal-sys-utsname-h-for-mingw-w64.patch"
+        "0002-link-gobject-2.0-explicitly.patch"
+        "0003-install-the-import-library.patch"
+        "0004-resolve-include-paths-against-the-prefix-conf-path-implies.patch"
+        "test-search.c")
+sha256sums=('SKIP'
+            'fd4cac14ddb38395fe975d3773fb8b54208cca261be3dc302705988fd15ead2f'
+            '16884657465e7e18ab0f593c8052c73b3639cea432bde5f2f508e393983f43f9'
+            'b786787ed8d30858221dbcbfba3cb3520eaf7046c211e5f846b0fdab5e059b7a'
+            '162240985bf39e91398633590d29c07c2c7e99a3045b1f8a38cce37ec054fc9b'
+            'SKIP')
+
+pkgver() {
+  # Not a moving target -- the commit is pinned above. This recomputes the
+  # version from it so the two cannot drift when the pin is bumped.
+  cd "${srcdir}/${_realname}"
+  printf "1.0.r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+prepare() {
+  cd "${srcdir}/${_realname}"
+
+  patch -Np1 -i "${srcdir}/0001-add-a-minimal-sys-utsname-h-for-mingw-w64.patch"
+  patch -Np1 -i "${srcdir}/0002-link-gobject-2.0-explicitly.patch"
+  patch -Np1 -i "${srcdir}/0003-install-the-import-library.patch"
+  patch -Np1 -i "${srcdir}/0004-resolve-include-paths-against-the-prefix-conf-path-implies.patch"
+}
+
+build() {
+  declare -a extra_config
+  if check_option "debug" "n"; then
+    extra_config+=("-DCMAKE_BUILD_TYPE=Release")
+  else
+    extra_config+=("-DCMAKE_BUILD_TYPE=Debug")
+  fi
+
+  # libalpm here is mingw-w64-alpmrpc's shim, not MSYS2's own: upstream's
+  # generated Findalpm.cmake looks for alpm.h and libalpm next to the
+  # compiler, which in this environment is what that package installs. The
+  # library therefore talks to libalpm over alpmrpc's pipe, which is the only
+  # way a native build of it can talk to libalpm at all.
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
+    "${MINGW_PREFIX}"/bin/cmake.exe \
+      -B "build-${MSYSTEM}" \
+      -S "${srcdir}/${_realname}" \
+      -G Ninja \
+      -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
+      "${extra_config[@]}"
+
+  "${MINGW_PREFIX}"/bin/cmake.exe --build "build-${MSYSTEM}"
+}
+
+check() {
+  cd "build-${MSYSTEM}"
+  ${CC} ${CFLAGS} ${LDFLAGS} $(pkg-config --cflags glib-2.0) -Isrc \
+    "${srcdir}/test-search.c" -Lsrc -lalpm_octopi_utils -lalpm \
+    $(pkg-config --libs glib-2.0) -o test-search.exe
+  cp src/libalpm_octopi_utils.dll .
+  ./test-search.exe "$(cygpath -m /etc/pacman.conf)" | tr -d '\r' \
+    | grep -x "i msys pacman $(pacman -Q pacman | cut -d' ' -f2)"
+}
+
+package() {
+  DESTDIR="${pkgdir}" "${MINGW_PREFIX}"/bin/cmake.exe --install "build-${MSYSTEM}"
+}

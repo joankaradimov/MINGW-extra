@@ -1,0 +1,57 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Link gobject-2.0 explicitly
+
+g_object_unref() and the rest of the GObject API live in libgobject. On ELF
+the link succeeds anyway, because libgio's DT_NEEDED pulls libgobject in and
+the linker resolves through it. An import library carries no such record, so
+on Windows every g_object_* call is an undefined reference.
+
+Naming a library whose symbols you use is correct on every platform, so this
+is unconditional rather than guarded on WIN32.
+
+Worth sending upstream: it is a latent bug on Linux too, exposed by
+--no-undefined or a static link.
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 3898584..8bb65a8 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -3,9 +3,14 @@ include(GenerateFindModule)
+ 
+ generate_find_module(FIND_FILE_GLIB_PATH glib-2.0 LIB_NAMES glib-2.0 HEADER_NAMES glib.h HEADER_PATH_SUFFIXES glib)
+ generate_find_module(FIND_FILE_GIO_PATH gio-2.0 LIB_NAMES gio-2.0 HEADER_NAMES gfile.h HEADER_PATH_SUFFIXES gio)
++# g_object_unref() and friends live in gobject, which on ELF arrives through
++# libgio's DT_NEEDED. An import library carries no such link, so on Windows it
++# has to be named here. Naming it is correct on every platform.
++generate_find_module(FIND_FILE_GOBJECT_PATH gobject-2.0 LIB_NAMES gobject-2.0 HEADER_NAMES glib-object.h)
+ generate_find_module(FIND_FILE_ALPM_PATH alpm LIB_NAMES alpm HEADER_NAMES alpm.h)
+ find_package(glib-2.0)
+ find_package(gio-2.0)
++find_package(gobject-2.0)
+ find_package(alpm)
+ 
+ set(SOURCES alpm_config.vala alpm_octopi_utils.vala)
+@@ -25,7 +30,7 @@ target_include_directories(alpm_octopi_utils PUBLIC "$<INSTALL_INTERFACE:include
+ if(WIN32)
+   target_include_directories(alpm_octopi_utils PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/win32")
+ endif()
+-target_link_libraries(alpm_octopi_utils PUBLIC glib-2.0::glib-2.0 PUBLIC gio-2.0::gio-2.0 PUBLIC alpm::alpm)
++target_link_libraries(alpm_octopi_utils PUBLIC glib-2.0::glib-2.0 PUBLIC gobject-2.0::gobject-2.0 PUBLIC gio-2.0::gio-2.0 PUBLIC alpm::alpm)
+ install(TARGETS alpm_octopi_utils EXPORT alpm_octopi_utils_target RUNTIME DESTINATION bin LIBRARY DESTINATION lib PUBLIC_HEADER DESTINATION include)
+ install(EXPORT alpm_octopi_utils_target DESTINATION lib/cmake/alpm_octopi_utils)
+ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/alpm_octopi_utils.h" DESTINATION include)
+@@ -35,6 +40,7 @@ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/config/alpm_octopi_utils-config.cmake
+ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/config/alpm_octopi_utils-config-version.cmake" DESTINATION lib/cmake/alpm_octopi_utils)
+ install(FILES "${FIND_FILE_GLIB_PATH}" DESTINATION lib/cmake/alpm_octopi_utils)
+ install(FILES "${FIND_FILE_GIO_PATH}" DESTINATION lib/cmake/alpm_octopi_utils)
++install(FILES "${FIND_FILE_GOBJECT_PATH}" DESTINATION lib/cmake/alpm_octopi_utils)
+ install(FILES "${FIND_FILE_ALPM_PATH}" DESTINATION lib/cmake/alpm_octopi_utils)
+ 
+ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/config/alpm_octopi_utils-config.cmake" 
+@@ -42,6 +48,7 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/config/alpm_octopi_utils-config.cmake"
+ include(CMakeFindDependencyMacro)
+ set(CMAKE_MODULE_PATH \"\${CMAKE_CURRENT_LIST_DIR};\${CMAKE_MODULE_PATH}\")
+ find_dependency(glib-2.0)
++find_dependency(gobject-2.0)
+ find_dependency(gio-2.0)
+ find_dependency(alpm)
+ include(\"\${CMAKE_CURRENT_LIST_DIR}/alpm_octopi_utils_target.cmake\")
