@@ -1,0 +1,32 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] There is no root to refuse on Windows
+
+geteuid() does not exist in mingw-w64, and this is the only thing in the
+header that needs it -- 65 of the 185 errors in an unpatched Windows build
+come from this one line reaching 65 translation units.
+
+false is not a stub, it is the answer. Every caller of isRootRunning() is a
+gate that turns the tool away when it is true ("cannot run as root", exit
+-4), and on MSYS2 nobody is root.
+
+Not for upstream: only correct where root does not exist.
+diff --git a/src/unixcommand.h b/src/unixcommand.h
+index c0c4569..6230a47 100644
+--- a/src/unixcommand.h
++++ b/src/unixcommand.h
+@@ -118,8 +118,15 @@ public:
+   static bool isOctoToolRunning(const QString &octoToolName);
+ 
+   static bool isRootRunning(){
++#ifdef Q_OS_WIN
++    // MSYS2 has no root. pacman writes to an installation the invoking user
++    // already owns, so there is nothing to escalate to and nothing to refuse:
++    // every caller of this is a gate that turns octopi away when it is true.
++    return false;
++#else
+     int uid = geteuid();
+     return (uid == 0); //Returns TRUE if root is running Octopi
++#endif
+   }
+ 
+   static bool isUserInWheelGroup();

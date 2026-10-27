@@ -1,0 +1,29 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Do not require libutil
+
+libutil is where glibc keeps forkpty(). Windows has no such library, and
+nothing in repoeditor calls it -- the terminal is qtermwidget's, with its own
+backend. find_library() leaving UTIL_LIBRARY as NOTFOUND then puts the
+literal string "UTIL_LIBRARY-NOTFOUND" on the link line, and CMake fails at
+generate time before a single object is compiled.
+
+Worth sending upstream: an unfound optional library should not be spliced
+into a link line on any platform.
+diff --git a/repoeditor/CMakeLists.txt b/repoeditor/CMakeLists.txt
+index 6c1dc2b..89d207e 100644
+--- a/repoeditor/CMakeLists.txt
++++ b/repoeditor/CMakeLists.txt
+@@ -5,7 +5,13 @@ else()
+ endif()
+ 
+ find_package(Threads REQUIRED)
++# libutil is where glibc keeps forkpty(). Windows has no such library and
++# nothing here calls it: the terminal is qtermwidget's, with its own backend.
++# Not finding it must therefore not be fatal.
+ find_library(UTIL_LIBRARY NAMES util)
++if(NOT UTIL_LIBRARY)
++  set(UTIL_LIBRARY "")
++endif()
+ 
+ set(CMAKE_AUTOMOC ON)
+ 

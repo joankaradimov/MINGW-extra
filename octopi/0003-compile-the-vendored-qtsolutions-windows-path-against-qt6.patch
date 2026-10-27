@@ -1,0 +1,57 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Compile the vendored QtSolutions Windows path against Qt6
+
+qtlocalpeer.cpp #includes qtlockedfile_win.cpp under Q_OS_WIN, so this code
+ships but has never been built: it is Qt4-era.
+
+QT_WA chose between the W and A entry points at runtime, for Windows 9x. It
+was removed in Qt5, so it is a parse error now and takes the rest of the
+translation unit with it -- hence the "rmutexes was not declared" cascade.
+Every supported Windows is Unicode, so the W branch is simply the code.
+
+QLibrary lib("kernel32") is the other one: this target defines
+QT_NO_CAST_FROM_ASCII, under which that constructor is deleted.
+
+Worth sending upstream -- it is dead code on Linux either way, but it is
+upstream's dead code and it is what a Windows build meets first.
+diff --git a/src/QtSolutions/qtlocalpeer.cpp b/src/QtSolutions/qtlocalpeer.cpp
+index 872b030..765fb7c 100644
+--- a/src/QtSolutions/qtlocalpeer.cpp
++++ b/src/QtSolutions/qtlocalpeer.cpp
+@@ -96,7 +96,9 @@ QtLocalPeer::QtLocalPeer(QObject* parent, const QString &appId)
+ 
+ #if defined(Q_OS_WIN)
+     if (!pProcessIdToSessionId) {
+-        QLibrary lib("kernel32");
++        // QT_NO_CAST_FROM_ASCII is on for this target, and this line has never
++        // been compiled with it before.
++        QLibrary lib(QStringLiteral("kernel32"));
+         pProcessIdToSessionId = (PProcessIdToSessionId)lib.resolve("ProcessIdToSessionId");
+     }
+     if (pProcessIdToSessionId) {
+diff --git a/src/QtSolutions/qtlockedfile_win.cpp b/src/QtSolutions/qtlockedfile_win.cpp
+index 4cd2003..31698fb 100644
+--- a/src/QtSolutions/qtlockedfile_win.cpp
++++ b/src/QtSolutions/qtlockedfile_win.cpp
+@@ -58,16 +58,17 @@ Qt::HANDLE QtLockedFile::getMutexHandle(int idx, bool doCreate)
+ 
+     Qt::HANDLE mutex;
+     if (doCreate) {
+-        QT_WA( { mutex = CreateMutexW(NULL, FALSE, (TCHAR*)mname.utf16()); },
+-               { mutex = CreateMutexA(NULL, FALSE, mname.toLocal8Bit().constData()); } );
++        // QT_WA picked between the W and A entry points at runtime for
++        // Windows 9x. It was removed in Qt5; every supported Windows is
++        // Unicode, so the W branch is simply the code now.
++        mutex = CreateMutexW(NULL, FALSE, (LPCWSTR)mname.utf16());
+         if (!mutex) {
+             qErrnoWarning("QtLockedFile::lock(): CreateMutex failed");
+             return 0;
+         }
+     }
+     else {
+-        QT_WA( { mutex = OpenMutexW(SYNCHRONIZE | MUTEX_MODIFY_STATE, FALSE, (TCHAR*)mname.utf16()); },
+-               { mutex = OpenMutexA(SYNCHRONIZE | MUTEX_MODIFY_STATE, FALSE, mname.toLocal8Bit().constData()); } );
++        mutex = OpenMutexW(SYNCHRONIZE | MUTEX_MODIFY_STATE, FALSE, (LPCWSTR)mname.utf16());
+         if (!mutex) {
+             if (GetLastError() != ERROR_FILE_NOT_FOUND)
+                 qErrnoWarning("QtLockedFile::lock(): OpenMutex failed");

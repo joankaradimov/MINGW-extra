@@ -1,0 +1,104 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Use Qt's portable environment API
+
+setenv() and unsetenv() are POSIX; the MS CRT has neither. qputenv() and
+qunsetenv() are Qt's own, have been there since Qt 4, and do the same thing
+on every platform Qt supports -- the compiler even suggests qunsetenv by
+name.
+
+Worth sending upstream: this is portability Qt already provides, not a
+Windows special case.
+diff --git a/cachecleaner/main.cpp b/cachecleaner/main.cpp
+index a647c18..61906b5 100644
+--- a/cachecleaner/main.cpp
++++ b/cachecleaner/main.cpp
+@@ -31,7 +31,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ 
+ int main( int argc, char *argv[] )
+ {
+-  unsetenv("TMPDIR");
++  qunsetenv("TMPDIR");
+   QtSingleApplication app( QStringLiteral("Cache Cleaner - Octopi"), argc, argv );
+ 
+   //If there is already an instance running...
+diff --git a/notifier/main.cpp b/notifier/main.cpp
+index e2d79ea..63c5ed6 100644
+--- a/notifier/main.cpp
++++ b/notifier/main.cpp
+@@ -108,15 +108,15 @@ int main(int argc, char *argv[])
+     return (-5);
+   }
+ 
+-  unsetenv("TMPDIR");
++  qunsetenv("TMPDIR");
+ 
+-  setenv("COLORTERM", "truecolor", 1);
+-  setenv("TERM", "xterm-256color", 1);
++  qputenv("COLORTERM", "truecolor");
++  qputenv("TERM", "xterm-256color");
+ 
+   QString buildDir=SettingsManager::getAURBuildDir();
+   if (!buildDir.isEmpty())
+   {
+-    setenv("BUILDDIR", buildDir.toLatin1().data(), 1);
++    qputenv("BUILDDIR", buildDir.toLatin1());
+   }
+ 
+   MainWindow w;
+diff --git a/repoeditor/main.cpp b/repoeditor/main.cpp
+index 7c6f98f..5be3840 100644
+--- a/repoeditor/main.cpp
++++ b/repoeditor/main.cpp
+@@ -33,7 +33,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ 
+ int main( int argc, char *argv[] )
+ {
+-  unsetenv("TMPDIR");
++  qunsetenv("TMPDIR");
+   QtSingleApplication app( QStringLiteral("Repository Editor - Octopi"), argc, argv );
+ 
+   //If there is already an instance running...
+diff --git a/src/main.cpp b/src/main.cpp
+index d814fdb..d9f140f 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -70,7 +70,7 @@ int main(int argc, char *argv[])
+     }
+   }
+ 
+-  unsetenv("TMPDIR");
++  qunsetenv("TMPDIR");
+ 
+   QtSingleApplication app( StrConstants::getApplicationName(), argc, argv );
+ 
+@@ -163,25 +163,25 @@ int main(int argc, char *argv[])
+     return (-4);
+   }
+ 
+-  setenv("COLORTERM", "truecolor", 1);
+-  setenv("TERM", "xterm-256color", 1);
++  qputenv("COLORTERM", "truecolor");
++  qputenv("TERM", "xterm-256color");
+ 
+   if (SettingsManager::getTerminalForceBashShell())
+   {
+     if (QFile::exists(ctn_BASH_SHELL))
+     {
+-      setenv("SHELL", ctn_BASH_SHELL.toLatin1().data(), 1);
++      qputenv("SHELL", ctn_BASH_SHELL.toLatin1());
+     }
+     else if (QFile::exists(ctn_BASH_SHELL2))
+     {
+-      setenv("SHELL", ctn_BASH_SHELL2.toLatin1().data(), 1);
++      qputenv("SHELL", ctn_BASH_SHELL2.toLatin1());
+     }
+   }
+ 
+   QString buildDir=SettingsManager::getAURBuildDir();
+   if (!buildDir.isEmpty())
+   {
+-    setenv("BUILDDIR", buildDir.toLatin1().data(), 1);
++    qputenv("BUILDDIR", buildDir.toLatin1());
+   }
+ 
+   MainWindow w;

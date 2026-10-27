@@ -1,0 +1,54 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Ask whether there is a database, not whether Arch's is there
+
+hasPacmanDatabase() looks for /var/lib/pacman/sync/core.db, or system.db on
+Artix. Naming a repository is a proxy for the question, and the proxy only
+holds on a distribution that has that repository. MSYS2's are msys, ucrt64,
+mingw64 and the rest, so core.db is never there, and octopi opens with
+"Pacman Database is missing!" over an empty package list.
+
+On Windows it asks the question instead: is there any .db in the sync
+directory. The path goes through msysPath() for the same reason as the rest.
+
+Not for upstream as-is, though the generic form would be the better check
+everywhere.
+diff --git a/src/package.cpp b/src/package.cpp
+index 95367af..7d4c12c 100644
+--- a/src/package.cpp
++++ b/src/package.cpp
+@@ -33,6 +33,7 @@
+ #include <QTextStream>
+ #include <QList>
+ #include <QFile>
++#include <QDir>
+ #include <QTemporaryFile>
+ #include <QRegularExpression>
+ #include <QEventLoop>
+@@ -2531,6 +2532,19 @@ bool Package::hasPacmanDatabase()
+ 
+   if (!done)
+   {
++#ifdef Q_OS_WIN
++    // Naming a repository is a proxy for the real question, and the proxy
++    // only holds on a distribution that has that repository. MSYS2's are
++    // msys, ucrt64, mingw64 and the rest, so core.db is never there and the
++    // answer would always be no. Ask the question itself instead.
++    {
++      QDir sync(UnixCommand::msysPath(ctn_PACMAN_DATABASE_DIR)
++                + QLatin1String("/sync"));
++      answer = !sync.entryList(QStringList() << QStringLiteral("*.db"),
++                               QDir::Files).isEmpty();
++      done = true;
++    }
++#else
+     if (UnixCommand::getLinuxDistro() == ectn_ARTIXLINUX)
+     {
+       QFile f(ctn_PACMAN_SYSTEM_DB_FILE);
+@@ -2543,6 +2557,7 @@ bool Package::hasPacmanDatabase()
+       answer = f.exists();
+       done = true;
+     }
++#endif
+   }
+ 
+   return answer;

@@ -1,0 +1,54 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Make isOctoToolRunning() answer which tool is running
+
+0006 made this return true unconditionally on Windows. That answered the
+only caller I had looked at -- main()'s "am I the installed octopi?", a gate
+that exists so the setuid-root helper can trust its parent and that has
+nothing left to protect once the helper is not built.
+
+It got the other caller wrong. isNotifierBusy() opens with
+
+    if (!UnixCommand::isOctoToolRunning("octopi-notifier")) return res;
+
+and is asking whether the *notifier* is the program running. On Linux that
+is always false when asked from inside octopi -- the test compares this
+executable's path against /usr/bin/octopi-notifier -- so the guard always
+fires and everything below it is dead code upstream. Returning true stopped
+the guard firing, and what is below it does not terminate: see 0012.
+
+Comparing the executable's own name answers both questions. octopi asking
+about octopi-notifier gets false; main() asking about octopi gets true.
+
+Not for upstream: it is the Windows branch of a check that means something
+else where / is /.
+diff --git a/src/unixcommand.cpp b/src/unixcommand.cpp
+index 8978971..7368357 100644
+--- a/src/unixcommand.cpp
++++ b/src/unixcommand.cpp
+@@ -1283,13 +1283,19 @@ bool UnixCommand::isAppRunning(const QString &appName, bool justOneInstance)
+ bool UnixCommand::isOctoToolRunning(const QString &octoToolName)
+ {
+ #ifdef Q_OS_WIN
+-  // This gate exists so that the setuid-root helper can trust the parent that
+-  // invoked it -- hence octphelper's own "Suspicious execution method". That
+-  // helper is not built here (see the top-level CMakeLists), so there is
+-  // nothing left for the gate to protect, and /usr/bin is not where a mingw
+-  // package installs anything.
+-  Q_UNUSED(octoToolName)
+-  return true;
++  // Two callers ask two different questions here. main() asks "am I the
++  // installed octopi?" -- a gate that exists so the setuid-root helper can
++  // trust its parent, and that has nothing to protect once the helper is not
++  // built. isNotifierBusy() asks "is the notifier the program running?", and
++  // that one must answer no when it is not, or it goes on to interrogate a
++  // notifier that was never there.
++  //
++  // Answering the first question with an unconditional true got the second
++  // one wrong and hung octopi on startup. Compare the name instead, which
++  // answers both: /usr/bin is not where a mingw package installs anything,
++  // but the executable is still named after the tool it is.
++  return QFileInfo(QCoreApplication::applicationFilePath()).baseName()
++         == octoToolName;
+ #else
+   // QCoreApplication answers this without /proc, and gives the same path
+   // readlink("/proc/self/exe") did.

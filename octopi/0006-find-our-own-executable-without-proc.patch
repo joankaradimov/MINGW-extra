@@ -1,0 +1,61 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Find our own executable without /proc
+
+isOctoToolRunning() read /proc/self/exe through readlink(). QCoreApplication
+::applicationFilePath() answers the same question, on every platform, and is
+what /proc/self/exe resolves to on Linux -- so the non-Windows path is
+unchanged in behaviour.
+
+The /usr/bin comparison itself is skipped on Windows. That gate exists so the
+setuid-root helper can trust the parent that invoked it -- hence octphelper's
+own "Suspicious execution method" -- and that helper is not built here. There
+is nothing left for it to protect, and /usr/bin is not where a mingw package
+installs anything.
+
+The readlink half is worth sending upstream. The gate half is not.
+diff --git a/src/unixcommand.cpp b/src/unixcommand.cpp
+index a696aad..caaf105 100644
+--- a/src/unixcommand.cpp
++++ b/src/unixcommand.cpp
+@@ -30,6 +30,7 @@
+ #include <QRegularExpression>
+ #include <QFile>
+ #include <QFileInfo>
++#include <QCoreApplication>
+ #include <QByteArray>
+ #include <QTextStream>
+ #include <QtNetwork>
+@@ -1222,19 +1223,22 @@ bool UnixCommand::isAppRunning(const QString &appName, bool justOneInstance)
+  * Checks if Octopi/Octopi-notifier, cache-cleaner, etc is being executed from /usr/bin
+  */
+ bool UnixCommand::isOctoToolRunning(const QString &octoToolName)
+-{  
+-  char exePath[PATH_MAX];
+-  ssize_t count = readlink("/proc/self/exe", exePath, sizeof(exePath));
+-  if (count == -1)
+-  {
+-    //perror("readlink");
+-    return false;
+-  }
+-
+-  QString path = QString::fromUtf8(exePath, count);
+-  QFileInfo fi(path);
++{
++#ifdef Q_OS_WIN
++  // This gate exists so that the setuid-root helper can trust the parent that
++  // invoked it -- hence octphelper's own "Suspicious execution method". That
++  // helper is not built here (see the top-level CMakeLists), so there is
++  // nothing left for the gate to protect, and /usr/bin is not where a mingw
++  // package installs anything.
++  Q_UNUSED(octoToolName)
++  return true;
++#else
++  // QCoreApplication answers this without /proc, and gives the same path
++  // readlink("/proc/self/exe") did.
++  QFileInfo fi(QCoreApplication::applicationFilePath());
+ 
+   return (fi.absoluteFilePath() == QLatin1String("/usr/bin/") + octoToolName);
++#endif
+ }
+ 
+ /*

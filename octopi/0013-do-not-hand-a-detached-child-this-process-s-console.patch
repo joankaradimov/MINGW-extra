@@ -1,0 +1,49 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Do not hand a detached child this process's console
+
+buildPackageList() ends by firing off
+
+    pacman --print-format "%n %v %s" -Spu
+
+through execCommandInAnotherThread(), and nothing ever reads the result --
+startDetached() returns immediately and the QProcess goes out of scope. But a
+detached child inherits the parent's stdout and stderr, so on a system with
+updates pending those lines are printed to whatever console octopi was
+started from, on every start. Here that is 94 lines.
+
+Two things were wrong. p.startDetached(cmd, params) is the *static* overload
+reached through an instance, so nothing configured on p applied; the member
+overload is the one that honours redirections. And nothing was redirected.
+Both are fixed by setting the program and arguments on p, pointing its output
+at the null device, and calling the member overload.
+
+Not Windows-specific: the same lines go to the terminal on Linux. They are
+just rarely seen there, because octopi is usually started from a desktop
+menu with no console attached.
+
+Worth sending upstream.
+diff --git a/src/globals.cpp b/src/globals.cpp
+index 0364694..1836d93 100644
+--- a/src/globals.cpp
++++ b/src/globals.cpp
+@@ -217,7 +217,19 @@ QByteArray execCommand(QString cmd)
+ void execCommandInAnotherThread(QString cmd, QStringList &params)
+ {
+   QProcess p;
+-  p.startDetached(cmd, params);
++  p.setProgram(cmd);
++  p.setArguments(params);
++  // A detached child is handed this process's own stdout and stderr, and
++  // nothing here ever reads them -- the call is fire-and-forget. So the 94
++  // lines of "pacman --print-format %n %v %s -Spu" land in whatever console
++  // octopi was started from, every time it starts.
++  //
++  // Note this was p.startDetached(cmd, params), which is the *static*
++  // overload reached through an instance: everything configured on p was
++  // being ignored. The member overload is what honours these.
++  p.setStandardOutputFile(QProcess::nullDevice());
++  p.setStandardErrorFile(QProcess::nullDevice());
++  p.startDetached();
+ }
+ 
+ /*

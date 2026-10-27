@@ -1,0 +1,243 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Run transactions as the user, since there is no other user
+
+0008 removed the qt-sudo gate from start-up, but every transaction has its
+own: isSUAvailable() puts up "There are no means to get administrator's
+credentials" and refuses to go on. Behind it a transaction is handed to
+octphelper through shared memory and invoked under qt-sudo, so the helper --
+root -- executes it.
+
+None of that has anything to do on MSYS2. There is no root, qt-sudo is an
+AUR package, and octphelper is not built (0001); pacman writes to an
+installation the invoking user already owns, which is why MSYS2 ships no
+sudo at all.
+
+The wrapper is dropped in one place rather than at each call site.
+startWithPrivilege() takes the program and its arguments and, on Unix, makes
+them arguments of qt-sudo; on Windows it starts the program. Three separate
+primitives applied that prefix -- execCommand(), executeCommand() and
+executeCommandWithoutShell() -- and nothing about any one of them says the
+others exist. Routing the transaction past one and not the rest is exactly
+the bug this replaces: octopi launched a process named "none", which is what
+getSUCommand() returns when there is no qt-sudo, and then waited forever for
+it to finish with every menu disabled behind it.
+
+With that in place the rest is short: isSUAvailable() is true because there
+is nothing to be unavailable; executeCommandWithSharedMemHelper() runs the
+command directly; runOctopiHelperInTerminalWithSharedMem() calls
+runCommandInTerminalAsNormalUser(), octopi's own unprivileged form of the
+same thing; cancelProcess() likewise; and WMHelper's edit-as-root path takes
+the first word of the command as the program.
+
+getShell() needed msysPath() with it. What runs in that shell are strings
+like "rm /var/lib/pacman/db.lck; pacman -Syu", full of MSYS2 paths, so it
+has to be MSYS2's bash -- and the existing QFile::exists("/usr/bin/bash")
+was looking on the current drive, falling through to $SHELL or to a literal
+that does not resolve.
+
+Also guards the NOMINMAX define 0007 added, which was warning where
+something upstream of it had already defined the macro.
+
+Not for upstream: correct only where the privileged path is not needed.
+diff --git a/src/mainwindow_transaction.cpp b/src/mainwindow_transaction.cpp
+index a4ebf79..97a4155 100644
+--- a/src/mainwindow_transaction.cpp
++++ b/src/mainwindow_transaction.cpp
+@@ -822,6 +822,12 @@ bool MainWindow::isInternetAvailable()
+  */
+ bool MainWindow::isSUAvailable()
+ {
++#ifdef Q_OS_WIN
++  // MSYS2 has no root. pacman writes to an installation the invoking user
++  // already owns, so there is no privileged path to be unavailable, and
++  // qt-sudo is an AUR package that neither exists here nor would help.
++  return true;
++#else
+   if (UnixCommand::hasTheExecutable(ctn_QTSUDO))
+     return true;
+   else
+@@ -831,6 +837,7 @@ bool MainWindow::isSUAvailable()
+                            QLatin1Char('\n') + StrConstants::getYoullNeedSuFrontend());
+     return false;
+   }
++#endif
+ }
+ 
+ /*
+diff --git a/src/unixcommand.cpp b/src/unixcommand.cpp
+index 7368357..32d5226 100644
+--- a/src/unixcommand.cpp
++++ b/src/unixcommand.cpp
+@@ -33,7 +33,9 @@
+ #include <QCoreApplication>
+ #ifdef Q_OS_WIN
+ #define WIN32_LEAN_AND_MEAN
++#ifndef NOMINMAX
+ #define NOMINMAX
++#endif
+ #include <windows.h>
+ #endif
+ #include <QByteArray>
+@@ -394,7 +396,11 @@ QByteArray UnixCommand::getAURPackageList(const QString &searchString)
+  */
+ QString UnixCommand::getShell()
+ {
+-  const QString BASH_SHELL = QStringLiteral("/usr/bin/bash");
++  // msysPath() because what runs in it are shell strings full of MSYS2
++  // paths -- "rm /var/lib/pacman/db.lck" and the like -- so it has to be
++  // MSYS2's own bash, and a native QFile::exists("/usr/bin/bash") looks on
++  // the current drive instead.
++  const QString BASH_SHELL = msysPath(QStringLiteral("/usr/bin/bash"));
+ 
+   if (QFile::exists(BASH_SHELL))
+     return BASH_SHELL;
+@@ -924,18 +930,40 @@ QByteArray UnixCommand::execCommandAsNormalUserExt(const QString &pCommand)
+   return res;
+ }
+ 
++/*
++ * Starts `program` with `args`, through the privilege wrapper where there is
++ * one to go through.
++ *
++ * On Unix that wrapper is qt-sudo, and the real program becomes one of its
++ * arguments. MSYS2 has no root to escalate to, so there is no wrapper --
++ * getSUCommand() answers with the literal string "none" -- and the program
++ * is started directly.
++ *
++ * One function rather than the same three lines at each call site, because
++ * three separate primitives applied that prefix and it is not obvious from
++ * any one of them that the others exist. Routing a caller past one of them
++ * and not the rest is what left a transaction waiting on a process named
++ * "none" that could never start, with every menu disabled behind it.
++ */
++static void startWithPrivilege(QProcess *proc, const QString &program,
++                               const QStringList &args)
++{
++#ifdef Q_OS_WIN
++  proc->start(program, args);
++#else
++  QStringList sl;
++  sl << ctn_QTSUDO_PARAMS << program << args;
++  proc->start(WMHelper::getSUCommand(), sl);
++#endif
++}
++
+ /*
+  * Runs a command with a QProcess blocking object!
+  */
+ void UnixCommand::execCommand(const QString &pCommand)
+ {
+   QProcess p;
+-  QStringList sl;
+-  sl << getShell();
+-  sl << QLatin1String("-c");
+-  sl << pCommand;
+-
+-  p.start(WMHelper::getSUCommand(), sl);
++  startWithPrivilege(&p, getShell(), QStringList() << QLatin1String("-c") << pCommand);
+   p.waitForFinished(-1);
+   p.close();
+ }
+@@ -1061,10 +1089,16 @@ void UnixCommand::runCommandInTerminalWithSudo(const QStringList& commandList){
+  */
+ void UnixCommand::runOctopiHelperInTerminalWithSharedMem(const QStringList &commandList, QSharedMemory *sharedMem)
+ {
++#ifdef Q_OS_WIN
++  // As above -- and octopi already has the unprivileged form of this.
++  Q_UNUSED(sharedMem)
++  m_terminal->runCommandInTerminalAsNormalUser(commandList);
++#else
+   //Checks if octopi-helper is running. If so, we exit!
+   if (isOctopiHelperRunning()) return;
+ 
+   m_terminal->runOctopiHelperInTerminalWithSharedMem(commandList, sharedMem);
++#endif
+ }
+ 
+ /*
+@@ -1085,13 +1119,8 @@ void UnixCommand::executeCommand(const QString &pCommand)
+   env.remove(QStringLiteral("COLUMNS"));
+   env.insert(QStringLiteral("COLUMNS"), QStringLiteral("132"));
+   m_process->setProcessEnvironment(env);
+-  QString suCommand = WMHelper::getSUCommand();
+-  QStringList sl;
+-  sl << ctn_QTSUDO_PARAMS;
+-  sl << getShell();
+-  sl << QLatin1String("-c");
+-  sl << pCommand;
+-  m_process->start(suCommand, sl);
++  startWithPrivilege(m_process, getShell(),
++                     QStringList() << QLatin1String("-c") << pCommand);
+ }
+ 
+ void UnixCommand::executeCommandWithoutShell(const QString &pCommand)
+@@ -1101,11 +1130,7 @@ void UnixCommand::executeCommandWithoutShell(const QString &pCommand)
+   env.remove(QStringLiteral("COLUMNS"));
+   env.insert(QStringLiteral("COLUMNS"), QStringLiteral("132"));
+   m_process->setProcessEnvironment(env);
+-  QString suCommand = WMHelper::getSUCommand();
+-  QStringList sl;
+-  sl << ctn_QTSUDO_PARAMS;
+-  sl << pCommand;
+-  m_process->start(suCommand, sl);
++  startWithPrivilege(m_process, pCommand, QStringList());
+ }
+ 
+ /*
+@@ -1129,12 +1154,22 @@ void UnixCommand::executeCommandWithSharedMemHelper(const QString &pCommand, QSh
+     UnixCommand::removeSharedMemFiles();
+   }*/
+ 
++#ifdef Q_OS_WIN
++  // The helper exists to run a transaction as root, out of a shared memory
++  // segment only root can be trusted with. Neither half applies here: there
++  // is no root, the helper is not built, and pacman writes to an
++  // installation the invoking user owns. So the command runs directly, in
++  // the shell, exactly as executeCommand() runs any other.
++  Q_UNUSED(sharedMem)
++  executeCommand(pCommand);
++#else
+   buildOctopiHelperCommandWithSharedMem(pCommand, sharedMem);
+ 
+   QStringList sl;
+   sl << ctn_QTSUDO_PARAMS;
+   sl << ctn_OCTOPI_HELPER_PATH << QStringLiteral("-ts");
+   m_process->start(WMHelper::getSUCommand(), sl);
++#endif
+ }
+ 
+ /*
+@@ -1243,11 +1278,16 @@ int UnixCommand::cancelProcess(QSharedMemory *sharedMem)
+   QProcess pacman;
+   QString pCommand = QLatin1String("killall pacman; rm ") + ctn_PACMAN_DATABASE_LOCK_FILE;
+ 
++#ifdef Q_OS_WIN
++  Q_UNUSED(sharedMem)
++  pacman.start(getShell(), QStringList() << QStringLiteral("-c") << pCommand);
++#else
+   buildOctopiHelperCommandWithSharedMem(pCommand, sharedMem);
+   QStringList sl;
+   sl << ctn_QTSUDO_PARAMS;
+   sl << ctn_OCTOPI_HELPER_PATH << QStringLiteral("-ts");
+   pacman.start(WMHelper::getSUCommand(), sl);
++#endif
+   pacman.waitForFinished(-1);
+   return pacman.exitCode();
+ }
+diff --git a/src/wmhelper.cpp b/src/wmhelper.cpp
+index b483dcd..c9069cc 100644
+--- a/src/wmhelper.cpp
++++ b/src/wmhelper.cpp
+@@ -451,7 +451,12 @@ void WMHelper::editFile(const QString& fileName, EditOptions opt)
+   else if (!p.isEmpty())
+   {
+     QStringList params = p.split(QStringLiteral(" "), Qt::SkipEmptyParts);
++#ifdef Q_OS_WIN
++    // No wrapper to go through; the first word is the program.
++    process->startDetached(params.at(0), params.mid(1));
++#else
+     process->startDetached(getSUCommand(), params);
++#endif
+   }
+ }
+ 

@@ -1,0 +1,100 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Do not build the setuid-root helper on Windows
+
+octphelper exists so that a privileged step can be split out of the GUI.
+Windows has no setuid, and MSYS2 has no root to escalate to -- pacman writes
+to an installation the invoking user already owns, which is why MSYS2 ships
+no sudo and its installer sets no special permissions on the install folder.
+
+Shimming it into compiling would produce a binary that is a fiction twice
+over: it refuses to do anything unless geteuid() == 0, which can never hold,
+and it locates processes by walking /proc, which does not exist here. So it
+is not built, and the three startup checks that abort when the binary is
+absent are skipped with it.
+
+Not for upstream as-is: the parts that replace the helper's job on Windows
+are still open.
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 4b0a450..4775a6f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -8,7 +8,15 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+ 
+ option(USE_QTERMWIDGET6 "Build with qtermwidget6 instead of qtermwidget5" ON)
+ 
+-add_subdirectory(helper)
++# octphelper is the setuid-root helper. Windows has no setuid, and MSYS2 has
++# no root to escalate to: pacman runs as the user who owns the installation.
++# The binary would also be a fiction -- it refuses to do anything unless
++# geteuid() == 0, and it finds processes by walking /proc, which does not
++# exist here. So it is not built rather than shimmed into something that
++# compiles and lies.
++if(NOT WIN32)
++  add_subdirectory(helper)
++endif()
+ add_subdirectory(notifier)
+ add_subdirectory(cachecleaner)
+ add_subdirectory(repoeditor)
+diff --git a/cachecleaner/main.cpp b/cachecleaner/main.cpp
+index 4b7079d..a647c18 100644
+--- a/cachecleaner/main.cpp
++++ b/cachecleaner/main.cpp
+@@ -64,11 +64,16 @@ int main( int argc, char *argv[] )
+     return (-3);
+   }
+ 
++#ifndef Q_OS_WIN
++  // Not built on Windows; see the top-level CMakeLists. Requiring it
++  // here would abort every start for the sake of a binary that has
++  // nothing to do.
+   if (!QFile::exists(ctn_OCTOPI_HELPER_PATH))
+   {
+     qDebug() << "Aborting cache-cleaner as 'octphelper' binary could not be found! [" << ctn_OCTOPI_HELPER_PATH << "]";
+     return (-4);
+   }
++#endif
+ 
+   if (UnixCommand::findExecutable(ctn_QTSUDO).isEmpty())
+   {
+diff --git a/notifier/main.cpp b/notifier/main.cpp
+index 075e202..e2d79ea 100644
+--- a/notifier/main.cpp
++++ b/notifier/main.cpp
+@@ -52,11 +52,16 @@ int main(int argc, char *argv[])
+     return (-2);
+   }
+ 
++#ifndef Q_OS_WIN
++  // Not built on Windows; see the top-level CMakeLists. Requiring it
++  // here would abort every start for the sake of a binary that has
++  // nothing to do.
+   if (!QFile::exists(ctn_OCTOPI_HELPER_PATH))
+   {
+     qDebug() << "Aborting notifier as 'octphelper' binary could not be found! [" << ctn_OCTOPI_HELPER_PATH << "]";
+     return (-3);
+   }
++#endif
+ 
+   if (UnixCommand::findExecutable(ctn_QTSUDO).isEmpty())
+   {
+diff --git a/src/main.cpp b/src/main.cpp
+index a1ba6dc..d814fdb 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -36,11 +36,16 @@ int main(int argc, char *argv[])
+     return (-1);
+   }
+ 
++#ifndef Q_OS_WIN
++  // Not built on Windows; see the top-level CMakeLists. Requiring it
++  // here would abort every start for the sake of a binary that has
++  // nothing to do.
+   if (!QFile::exists(ctn_OCTOPI_HELPER_PATH))
+   {
+     qDebug() << "Aborting octopi as 'octphelper' binary could not be found! [" << ctn_OCTOPI_HELPER_PATH << "]";
+     return (-2);
+   }
++#endif
+ 
+   if (UnixCommand::findExecutable(ctn_QTSUDO).isEmpty())
+   {

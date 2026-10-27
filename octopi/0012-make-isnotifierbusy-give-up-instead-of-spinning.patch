@@ -1,0 +1,48 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Make isNotifierBusy() give up instead of spinning
+
+Neither failure path in this function leaves it.
+
+    if (!socket.waitForConnected(5000)) { res=false; }   // falls through
+    do {
+      if (!socket.waitForReadyRead()) { res=false; }     // does not break
+      in.startTransaction();
+      in >> octopiResponse;
+    } while (!in.commitTransaction());
+
+With nothing listening on 127.0.0.1:12702, waitForReadyRead() returns false
+immediately, the stream stays empty, commitTransaction() fails, and the loop
+runs again -- forever, at full speed, on the GUI thread. octopi shows its
+window, finishes loading, then wedges: "Not Responding", one core pinned.
+
+Upstream never reaches this because the guard at the top of the function
+always fires there (see 0011), so the whole body is dead code on Linux.
+That makes it a real bug rather than a Windows one -- it would bite any
+platform where the guard passes and the notifier is not listening.
+
+Worth sending upstream.
+diff --git a/src/mainwindow.cpp b/src/mainwindow.cpp
+index fc84b31..24b3d70 100644
+--- a/src/mainwindow.cpp
++++ b/src/mainwindow.cpp
+@@ -169,7 +169,7 @@ bool MainWindow::isNotifierBusy()
+ 
+   if (!socket.waitForConnected(5000))
+   {
+-    res=false;
++    return false;
+   }
+ 
+   QDataStream in(&socket);
+@@ -180,7 +180,10 @@ bool MainWindow::isNotifierBusy()
+   {
+     if (!socket.waitForReadyRead())
+     {
+-      res=false;
++      // Not breaking here is what made this loop unable to end: nothing was
++      // read, commitTransaction() fails on the empty stream, and waitForReadyRead()
++      // returns false again at once. A dead socket spun the CPU for good.
++      return false;
+     }
+ 
+     in.startTransaction();

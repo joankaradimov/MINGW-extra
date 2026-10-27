@@ -1,0 +1,127 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=octopi
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=0.19.0
+pkgrel=1
+pkgdesc="A Qt frontend for pacman, driving MSYS2's libalpm from a native process (mingw-w64)"
+arch=('any')
+# ucrt64 only: qtermwidget is packaged for ucrt64 alone, and so is
+# alpm_octopi_utils. Nothing here is environment-specific beyond that.
+mingw_arch=('ucrt64')
+url='https://github.com/aarnt/octopi'
+license=('spdx:GPL-2.0-or-later')
+msys2_repository_url='https://github.com/aarnt/octopi'
+msys2_references=(
+  'aur: octopi'
+)
+depends=("${MINGW_PACKAGE_PREFIX}-alpm_octopi_utils"
+         "${MINGW_PACKAGE_PREFIX}-cc-libs"
+         "${MINGW_PACKAGE_PREFIX}-qt6-base"
+         "${MINGW_PACKAGE_PREFIX}-qt6-multimedia"
+         # Not in any import table: it is the SVG image-format plugin, which
+         # Qt6Gui loads at runtime to draw the tray icon.
+         "${MINGW_PACKAGE_PREFIX}-qt6-svg"
+         "${MINGW_PACKAGE_PREFIX}-qtermwidget"
+         # MSYS packages, and deliberately so: what this drives is the MSYS2
+         # installation it is inside. checkupdates and paccache are looked for
+         # by name, in MSYS2's /usr/bin, by patch 0007.
+         'pacman'
+         'pacman-contrib')
+# qt6-5compat is a build dependency only: CMake requires the Core5Compat
+# component, but nothing links Qt6Core5Compat.dll in the end -- checked.
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-qt6-5compat"
+             "${MINGW_PACKAGE_PREFIX}-cmake"
+             "${MINGW_PACKAGE_PREFIX}-ninja"
+             "${MINGW_PACKAGE_PREFIX}-qt6-tools")
+source=("${_realname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz"
+        "0001-do-not-build-the-setuid-root-helper-on-windows.patch"
+        "0002-there-is-no-root-to-refuse-on-windows.patch"
+        "0003-compile-the-vendored-qtsolutions-windows-path-against-qt6.patch"
+        "0004-do-not-require-libutil.patch"
+        "0005-use-qt-s-portable-environment-api.patch"
+        "0006-find-our-own-executable-without-proc.patch"
+        "0007-resolve-msys2-paths-against-the-installed-root.patch"
+        "0008-do-not-require-qt-sudo-on-windows.patch"
+        "0009-ask-whether-there-is-a-database.patch"
+        "0010-hand-alpm-octopi-utils-a-pacman-conf-it-can-open.patch"
+        "0011-make-isoctotoolrunning-answer-which-tool-is-running.patch"
+        "0012-make-isnotifierbusy-give-up-instead-of-spinning.patch"
+        "0013-do-not-hand-a-detached-child-this-process-s-console.patch"
+        "0014-default-the-terminal-font-to-the-system-fixed-pitch-one.patch"
+        "0015-run-transactions-as-the-user.patch"
+        "0016-there-is-no-aur-on-msys2.patch")
+sha256sums=('bf2f6e2ab6208a020fd34fa6d88eaad5268132c4e38369818fd74267c0c54525'
+            '39c8e67fdb0965f603c36bd2b7e90a3f20f68c4146c9761462d51027aa73b40a'
+            '8ec1f793d5040251886d09048b09ecc7e247dc27148d8cb0b2d820ca630ed400'
+            '6678f388313d0fd4f07bb83bb15eeb6e2f10d639ef4b9325684bf8e53df129f2'
+            '70d4f9e66d9252517c8d8e56f2dcf93217fe219052a50f1d285b2eef3290ca38'
+            'e98ea6e4dd5017482cb1c0a5c07e91d18c9ed2cb6c9a94a05505dc086786be14'
+            'a24a8d7c5dfad75c8de0a80fc6c1d30480295d64119cb11f9fa68b0efda96f4e'
+            '4dc4efe2e62a6f49252dff707a00dba48daf4167dee87e396e323116b940e1d1'
+            '696fa8ffcad4bd8b6951807d93cdd07448d573b4c1dce92332c2e593c36ad172'
+            '71902e5d8836198b2b702eca870c597e7810cbf5c33702ff7b52b9eb2183e2e4'
+            '76dac8bce71065e2f65f955ddea6e67f5f6008b6a5b36b18a04ddf0c95e09abb'
+            '36fcef90ceb30b5096f1dfdfa5c868a556e313ec7a99931e6f9ff65bf351a1ed'
+            '59e796ff39bc9f518f883b3c4e49982e7adcfe60786d0c09a5e77a252faa89dc'
+            'f3461af7341b8f2370bae1f2933af73fa96f5e1672fff346f9df4c38708aefb2'
+            '970c4ae27c6344d61cbb96c2646ed9fd0a2f0a62c3922b618f81a77a60fb1b99'
+            'adf6d2c410652ed6a36b965bdef623adf2f0483a629671b2dd9f06dbb7f7acda'
+            'd25826a8d77b603315f53abd829d7607b0720cfc70ef46e9b0ac68378f738e48')
+
+prepare() {
+  cd "${_realname}-${pkgver}"
+
+  # 0001-0002 delete the privileged half: octphelper is setuid-root, and MSYS2
+  # has no root. 0003-0006 are portability, and four of them are upstream bugs
+  # rather than Windows special cases. 0007-0008 are the MSYS2 ones: where the
+  # paths octopi opens itself live, and that qt-sudo is not among them.
+  local _p
+  for _p in "${source[@]}"; do
+    case "${_p}" in
+      *.patch) patch -Np1 -i "${srcdir}/${_p}" ;;
+    esac
+  done
+}
+
+build() {
+  declare -a extra_config
+  if check_option "debug" "n"; then
+    extra_config+=("-DCMAKE_BUILD_TYPE=Release")
+  else
+    extra_config+=("-DCMAKE_BUILD_TYPE=Debug")
+  fi
+
+  # USE_KF6NOTIFICATIONS is off: it would add a KDE Frameworks dependency for
+  # desktop notifications the notifier can raise through Qt anyway.
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
+    "${MINGW_PREFIX}"/bin/cmake.exe \
+      -B "build-${MSYSTEM}" \
+      -S "${srcdir}/${_realname}-${pkgver}" \
+      -G Ninja \
+      -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
+      -DUSE_QTERMWIDGET6=ON \
+      -DUSE_KF6NOTIFICATIONS=OFF \
+      "${extra_config[@]}"
+
+  "${MINGW_PREFIX}"/bin/cmake.exe --build "build-${MSYSTEM}"
+}
+
+check() {
+  # octopi takes the MSYS2 root to be two directories above its executable and
+  # will not start without <root>/usr/bin/checkupdates, so run it from a root
+  # laid out that way.
+  local _root="${srcdir}/check-root"
+  install -Dm755 "build-${MSYSTEM}/octopi.exe" "${_root}${MINGW_PREFIX}/bin/octopi.exe"
+  install -Dm755 /usr/bin/checkupdates "${_root}/usr/bin/checkupdates"
+  QT_QPA_PLATFORM=offscreen "${_root}${MINGW_PREFIX}/bin/octopi.exe" -version \
+    | tr -d '\r' | grep -x "Octopi ${pkgver}"
+}
+
+package() {
+  # Upstream installs LICENSE to share/licenses/octopi itself, which is
+  # already the path MSYS2 wants, so nothing is installed by hand here.
+  DESTDIR="${pkgdir}" "${MINGW_PREFIX}"/bin/cmake.exe --install "build-${MSYSTEM}"
+}

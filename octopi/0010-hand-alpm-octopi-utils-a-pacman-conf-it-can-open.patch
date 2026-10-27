@@ -1,0 +1,99 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Hand alpm_octopi_utils a pacman.conf it can open
+
+The seven alpm_utils_new("/etc/pacman.conf") calls name a file that
+alpm_octopi_utils opens itself, with GLib, in this native process -- so
+unlike everything *inside* the file, which is handed to libalpm and stays
+POSIX, the name of the file has to be one this process can open.
+
+alpmrpc's client converts what crosses to libalpm; this is the other half,
+which never goes near it.
+
+Not for upstream: meaningless where / is /.
+diff --git a/src/alpmbackend.cpp b/src/alpmbackend.cpp
+index 3c201b3..9feeffe 100644
+--- a/src/alpmbackend.cpp
++++ b/src/alpmbackend.cpp
+@@ -24,6 +24,19 @@
+ #include <alpm.h>
+ #include <alpm_list.h>
+ #include <alpm_octopi_utils.h>
++#include "unixcommand.h"
++
++/*
++ * pacman.conf is read by alpm_octopi_utils itself, with GLib, in this native
++ * process -- so unlike everything inside the file, which is handed to libalpm
++ * and stays POSIX, the name of the file has to be one this process can open.
++ */
++static const char *pacmanConfPath()
++{
++  static QByteArray path =
++      UnixCommand::msysPath(QStringLiteral("/etc/pacman.conf")).toUtf8();
++  return path.constData();
++}
+ 
+ /*
+  * This class encapsulates ALPM methods to retrieve package information
+@@ -55,7 +68,7 @@ QStringList AlpmBackend::getPackageList()
+   QStringList res;
+ 
+   // create AlpmUtils instance
+-  AlpmUtils* alpm_utils = alpm_utils_new ("/etc/pacman.conf");
++  AlpmUtils* alpm_utils = alpm_utils_new (pacmanConfPath());
+   // return a alpm_list of alpm_pkg, see alpm.h and alpm_list.h
+   alpm_list_t* founds = alpm_utils_search_all_dbs (alpm_utils, "\\S");
+ 
+@@ -173,7 +186,7 @@ QStringList AlpmBackend::getUnrequiredList()
+   QStringList res;
+ 
+   // create AlpmUtils instance
+-  AlpmUtils* alpm_utils = alpm_utils_new ("/etc/pacman.conf");
++  AlpmUtils* alpm_utils = alpm_utils_new (pacmanConfPath());
+ 
+   // return a alpm_list of alpm_pkg, see alpm.h and alpm_list.h
+   alpm_list_t* founds = alpm_utils_get_unrequired(alpm_utils);
+@@ -204,7 +217,7 @@ QStringList AlpmBackend::getForeignList()
+   QStringList res;
+ 
+   // create AlpmUtils instance
+-  AlpmUtils* alpm_utils = alpm_utils_new ("/etc/pacman.conf");
++  AlpmUtils* alpm_utils = alpm_utils_new (pacmanConfPath());
+ 
+   // return a alpm_list of alpm_pkg, see alpm.h and alpm_list.h
+   alpm_list_t* founds = alpm_utils_get_foreign_pkgs(alpm_utils);
+@@ -275,7 +288,7 @@ QStringList AlpmBackend::getOutdatedList()
+   QStringList res;
+ 
+   // create AlpmUtils instance
+-  AlpmUtils* alpm_utils = alpm_utils_new ("/etc/pacman.conf");
++  AlpmUtils* alpm_utils = alpm_utils_new (pacmanConfPath());
+ 
+   // return a alpm_list of alpm_pkg, see alpm.h and alpm_list.h
+   alpm_list_t* founds = alpm_utils_get_updates(alpm_utils);
+@@ -304,7 +317,7 @@ QStringList AlpmBackend::getOutdatedList()
+ double AlpmBackend::getPackageSize(const QString &pkgName)
+ {
+   // create AlpmUtils instance
+-  AlpmUtils* alpm_utils = alpm_utils_new ("/etc/pacman.conf");
++  AlpmUtils* alpm_utils = alpm_utils_new (pacmanConfPath());
+   alpm_list_t* i;
+   off_t pkgSize=0;
+ 
+@@ -338,7 +351,7 @@ double AlpmBackend::getPackageSize(const QString &pkgName)
+ QString AlpmBackend::getPackageVersion(const QString &pkgName, bool isForeign)
+ {
+   // create AlpmUtils instance
+-  AlpmUtils* alpm_utils = alpm_utils_new ("/etc/pacman.conf");
++  AlpmUtils* alpm_utils = alpm_utils_new (pacmanConfPath());
+   alpm_list_t* i;
+   QString pkgVersion;
+ 
+@@ -378,7 +391,7 @@ QString AlpmBackend::getPackageVersion(const QString &pkgName, bool isForeign)
+ {
+   PackageInfoData info;
+   // create AlpmUtils instance
+-  AlpmUtils* alpm_utils = alpm_utils_new ("/etc/pacman.conf");
++  AlpmUtils* alpm_utils = alpm_utils_new (pacmanConfPath());
+ 
+   alpm_list_t *i, *j;
+   char size[20];

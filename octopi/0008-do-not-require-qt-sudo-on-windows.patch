@@ -1,0 +1,95 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Do not require qt-sudo on Windows
+
+Each of the four tools refuses to start unless it can find qt-sudo, which
+escalates a GUI to root. MSYS2 has no root: pacman writes to an installation
+the invoking user already owns, which is why MSYS2 ships no sudo and its
+installer sets no special permissions on the install folder. So there is
+nothing to escalate to, and qt-sudo is an AUR package that does not and
+should not exist here.
+
+Not for upstream: correct only where the privileged path is not needed.
+diff --git a/cachecleaner/main.cpp b/cachecleaner/main.cpp
+index 61906b5..6af0f80 100644
+--- a/cachecleaner/main.cpp
++++ b/cachecleaner/main.cpp
+@@ -75,11 +75,16 @@ int main( int argc, char *argv[] )
+   }
+ #endif
+ 
++#ifndef Q_OS_WIN
++  // qt-sudo escalates a GUI to root. MSYS2 has no root -- pacman writes to an
++  // installation the invoking user owns -- so there is nothing to escalate to
++  // and no such program to find.
+   if (UnixCommand::findExecutable(ctn_QTSUDO).isEmpty())
+   {
+     qDebug() << "Aborting cache-cleaner as 'qt-sudo' binary could not be found! [" << ctn_QTSUDO << "]";
+     return (-5);
+   }
++#endif
+ 
+   if (!UnixCommand::isOctoToolRunning(QStringLiteral("octopi-cachecleaner")))
+   {
+diff --git a/notifier/main.cpp b/notifier/main.cpp
+index 61e08cb..a1c432d 100644
+--- a/notifier/main.cpp
++++ b/notifier/main.cpp
+@@ -63,11 +63,16 @@ int main(int argc, char *argv[])
+   }
+ #endif
+ 
++#ifndef Q_OS_WIN
++  // qt-sudo escalates a GUI to root. MSYS2 has no root -- pacman writes to an
++  // installation the invoking user owns -- so there is nothing to escalate to
++  // and no such program to find.
+   if (UnixCommand::findExecutable(ctn_QTSUDO).isEmpty())
+   {
+     qDebug() << "Aborting notifier as 'qt-sudo' binary could not be found! [" << ctn_QTSUDO << "]";
+     return (-4);
+   }
++#endif
+ 
+   //QApplication a(argc, argv);
+   QtSingleApplication a(QLatin1String("NotifierOcto"), argc, argv);
+diff --git a/repoeditor/main.cpp b/repoeditor/main.cpp
+index 5be3840..6c0765b 100644
+--- a/repoeditor/main.cpp
++++ b/repoeditor/main.cpp
+@@ -62,11 +62,16 @@ int main( int argc, char *argv[] )
+     return (-2);
+   }
+ 
++#ifndef Q_OS_WIN
++  // qt-sudo escalates a GUI to root. MSYS2 has no root -- pacman writes to an
++  // installation the invoking user owns -- so there is nothing to escalate to
++  // and no such program to find.
+   if (UnixCommand::findExecutable(ctn_QTSUDO).isEmpty())
+   {
+     qDebug() << "Aborting Repository Editor as 'qt-sudo' binary could not be found! [" << ctn_QTSUDO << "]";
+     return (-3);
+   }
++#endif
+ 
+   if (!UnixCommand::isOctoToolRunning(QStringLiteral("octopi-repoeditor")))
+   {
+diff --git a/src/main.cpp b/src/main.cpp
+index b1f5376..fec3ff3 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -47,11 +47,16 @@ int main(int argc, char *argv[])
+   }
+ #endif
+ 
++#ifndef Q_OS_WIN
++  // qt-sudo escalates a GUI to root. MSYS2 has no root -- pacman writes to an
++  // installation the invoking user owns -- so there is nothing to escalate to
++  // and no such program to find.
+   if (UnixCommand::findExecutable(ctn_QTSUDO).isEmpty())
+   {
+     qDebug() << "Aborting octopi as 'qt-sudo' binary could not be found! [" << ctn_QTSUDO << "]";
+     return (-3);
+   }
++#endif
+ 
+ #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+   QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);

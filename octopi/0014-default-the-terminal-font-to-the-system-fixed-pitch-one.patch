@@ -1,0 +1,50 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Default the terminal font to the system's fixed-pitch one
+
+The default terminal font family is the string "Monospace", which is a
+fontconfig alias. Windows has no fontconfig, so Qt matches nothing, falls
+back to a proportional face, and qtermwidget prints on every start:
+
+    Using a variable-width font in the terminal.  This may cause performance
+    degradation and display/alignment errors.
+
+It is not only noise -- the terminal really is rendering in a variable-width
+font, which is what the message is about. The default cannot be right here,
+because the name it uses does not exist on this platform.
+
+QFontDatabase::systemFont(QFontDatabase::FixedFont) is Qt asking the platform
+the same question the alias asks fontconfig. Only the default changes; an
+explicit choice in Options is untouched.
+
+Guarded on Windows: "Monospace" resolves correctly where fontconfig exists,
+and changing a visible default is not this patch's business there.
+diff --git a/src/settingsmanager.cpp b/src/settingsmanager.cpp
+index 55e661a..a1fe763 100644
+--- a/src/settingsmanager.cpp
++++ b/src/settingsmanager.cpp
+@@ -31,6 +31,7 @@
+ #include <QStringList>
+ #include <QVariant>
+ #include <QSettings>
++#include <QFontDatabase>
+ #include <QDir>
+ #include <QCryptographicHash>
+ 
+@@ -742,7 +743,17 @@ QString SettingsManager::getTerminalColorScheme()
+ 
+ QString SettingsManager::getTerminalFontFamily()
+ {
++#ifdef Q_OS_WIN
++  // "Monospace" is a fontconfig alias. Windows has no fontconfig, so Qt
++  // substitutes a proportional face and qtermwidget says so on every start:
++  // "Using a variable-width font in the terminal." Ask Qt for the system's
++  // fixed-pitch font instead, which is what the alias means anywhere.
++  static const QString fixedFamily =
++      QFontDatabase::systemFont(QFontDatabase::FixedFont).family();
++  return (instance()->getSYSsettings()->value(ctn_KEY_TERMINAL_FONT_FAMILY, fixedFamily)).toString();
++#else
+   return (instance()->getSYSsettings()->value(ctn_KEY_TERMINAL_FONT_FAMILY, QStringLiteral("Monospace"))).toString();
++#endif
+ }
+ 
+ qreal SettingsManager::getTerminalFontPointSize()

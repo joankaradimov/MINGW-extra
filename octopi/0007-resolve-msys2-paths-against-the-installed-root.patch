@@ -1,0 +1,170 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Resolve MSYS2 paths against the root this tool is installed in
+
+octopi is a native program managing an MSYS2 installation, so the paths it
+shares with libalpm are not paths it can open itself: MSYS2's / is a
+directory on a Windows drive. libalpm's side of this is handled -- alpmrpc's
+client takes and returns Win32 paths, converted on the server -- but the
+files octopi reads on its own account never go near libalpm, and those are
+what this is for: /usr/bin/checkupdates, /etc/pacman.conf, and the MSYS2
+programs it runs.
+
+The root is found the way alpmrpc's client finds its server: positionally,
+from where this executable is, since the tool is installed at
+<root>/<env>/bin. GetModuleFileNameW rather than QCoreApplication, because
+the startup checks that need it run before the QApplication object exists.
+
+msysPath() is deliberately not a general translator, and the comment on it
+says so: /bin is a mount alias for /usr/bin and /c is C:, and neither
+survives being prefixed. Converting those needs Cygwin's mount table, which
+lives in msys-2.0.dll -- the one library this process must never load.
+Nothing octopi opens itself is one of those.
+
+Note what is left alone: the four other mentions of /etc/pacman.conf in
+package.cpp sit inside a shell command string, run by a shell that wants
+POSIX, so translating them would break them.
+
+Not for upstream: meaningless where / is /.
+diff --git a/notifier/main.cpp b/notifier/main.cpp
+index 63c5ed6..61e08cb 100644
+--- a/notifier/main.cpp
++++ b/notifier/main.cpp
+@@ -46,7 +46,7 @@ int main(int argc, char *argv[])
+     qDebug() << QLatin1String("Octopi Notifier - ") + ctn_APPLICATION_VERSION +
+                   QLatin1String(" (") + StrConstants::getQtVersion() + QLatin1String(")");
+ 
+-  if (!QFile::exists(ctn_CHECKUPDATES_BINARY))
++  if (!QFile::exists(UnixCommand::msysPath(ctn_CHECKUPDATES_BINARY)))
+   {
+     qDebug() << "Aborting notifier as 'checkupdates' binary could not be found! [" << ctn_CHECKUPDATES_BINARY << "]";
+     return (-2);
+diff --git a/src/main.cpp b/src/main.cpp
+index d9f140f..b1f5376 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -30,7 +30,7 @@
+ 
+ int main(int argc, char *argv[])
+ {
+-  if (!QFile::exists(ctn_CHECKUPDATES_BINARY))
++  if (!QFile::exists(UnixCommand::msysPath(ctn_CHECKUPDATES_BINARY)))
+   {
+     qDebug() << "Aborting octopi as 'checkupdates' binary could not be found! [" << ctn_CHECKUPDATES_BINARY << "]";
+     return (-1);
+diff --git a/src/package.cpp b/src/package.cpp
+index f4d4988..95367af 100644
+--- a/src/package.cpp
++++ b/src/package.cpp
+@@ -47,7 +47,7 @@
+  */
+ QSet<QString> *Package::extractIgnorePkgList() {
+   QSet<QString> *pkgList = new QSet<QString>;
+-  QFile file(QStringLiteral("/etc/pacman.conf"));
++  QFile file(UnixCommand::msysPath(QStringLiteral("/etc/pacman.conf")));
+ 
+   if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+     //qWarning() << "Error opening file";
+@@ -89,7 +89,7 @@ bool Package::updateIgnorePkgSection(const QSet<QString> *ignoredPackages)
+ {
+   QStringList ignored = ignoredPackages->values();
+   ignored.sort();
+-  QFile file(QStringLiteral("/etc/pacman.conf"));
++  QFile file(UnixCommand::msysPath(QStringLiteral("/etc/pacman.conf")));
+   QTemporaryFile fileAux;
+ 
+   if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+diff --git a/src/unixcommand.cpp b/src/unixcommand.cpp
+index caaf105..8978971 100644
+--- a/src/unixcommand.cpp
++++ b/src/unixcommand.cpp
+@@ -31,6 +31,11 @@
+ #include <QFile>
+ #include <QFileInfo>
+ #include <QCoreApplication>
++#ifdef Q_OS_WIN
++#define WIN32_LEAN_AND_MEAN
++#define NOMINMAX
++#include <windows.h>
++#endif
+ #include <QByteArray>
+ #include <QTextStream>
+ #include <QtNetwork>
+@@ -724,9 +729,62 @@ bool UnixCommand::doInternetPingTest()
+ /*
+  * Use standard Qt method to retrieve a binary path
+  */
++/*
++ * MSYS2's / is a directory on a Windows drive, and octopi is a native program,
++ * so a path libalpm would accept is not one QFile can open. The tool is
++ * installed at <root>/<env>/bin, so the root is two directories above the
++ * executable's -- the same reasoning, from the same layout, that alpmrpc's
++ * client uses to find its server.
++ *
++ * This is only for paths under that root: /etc, /usr, /var. It is not a
++ * general translator and must not become one. /bin is a mount alias for
++ * /usr/bin and /c is C:, and neither survives being prefixed; converting
++ * those needs the mount table, which lives in msys-2.0.dll and is therefore
++ * out of reach from here. Nothing octopi opens itself is one of them.
++ */
++QString UnixCommand::msysRoot()
++{
++#ifdef Q_OS_WIN
++  // Not QCoreApplication::applicationDirPath(): the startup checks that need
++  // this run before the QApplication object exists.
++  static QString root;
++  if (root.isEmpty())
++  {
++    wchar_t buf[MAX_PATH];
++    DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
++    QDir dir(QFileInfo(QString::fromWCharArray(buf, int(n))).absolutePath());
++    dir.cdUp();
++    dir.cdUp();
++    root = dir.absolutePath();
++  }
++  return root;
++#else
++  return QLatin1String("/");
++#endif
++}
++
++QString UnixCommand::msysPath(const QString& path)
++{
++#ifdef Q_OS_WIN
++  if (!path.startsWith(QLatin1Char('/')))
++    return path;
++  return QDir::cleanPath(msysRoot() + path);
++#else
++  return path;
++#endif
++}
++
+ QString UnixCommand::findExecutable(const QString& exeName)
+ {
+-  return QStandardPaths::findExecutable(exeName);
++  QString path = QStandardPaths::findExecutable(exeName);
++#ifdef Q_OS_WIN
++  // pacman, paccache and the rest live in MSYS2, which is not on the PATH
++  // of a native process.
++  if (path.isEmpty())
++    path = QStandardPaths::findExecutable(
++             exeName, QStringList() << msysPath(QLatin1String("/usr/bin")));
++#endif
++  return path;
+ }
+ 
+ /*
+diff --git a/src/unixcommand.h b/src/unixcommand.h
+index 6230a47..9c6ef7e 100644
+--- a/src/unixcommand.h
++++ b/src/unixcommand.h
+@@ -113,6 +113,10 @@ public:
+ 
+   static QString findExecutable( const QString& exeName );
+   static bool hasTheExecutable( const QString& exeName );
++
++  // An MSYS2-absolute path, as a path this native program can open.
++  static QString msysRoot();
++  static QString msysPath( const QString& path );
+   static bool isAppRunning(const QString &appName, bool justOneInstance = false);
+ 
+   static bool isOctoToolRunning(const QString &octoToolName);

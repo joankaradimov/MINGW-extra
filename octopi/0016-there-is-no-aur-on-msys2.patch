@@ -1,0 +1,103 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] There is no AUR on MSYS2
+
+The AUR is Arch Linux's user repository: its recipes are arch=('x86_64')
+Linux, built by Arch's makepkg against glibc and installed by Arch's pacman.
+MSYS2 has no equivalent -- the extra packages here come from sync repositories
+libalpm already reads -- and no AUR helper runs on it. So the AUR button on
+the toolbar, between Cancel and the search bar, has nothing to offer.
+
+It is only there by accident. The configured AUR tool defaults to the
+DO_NOT_USE_AUR sentinel, so m_hasForeignTool starts false and initToolBar()
+leaves the button out; then refreshToolBar() reads "no helper on a system that
+is neither KaOS nor Parabola" as a user who uninstalled theirs and puts the
+button back. getLinuxDistro() cannot say otherwise: it looks for
+/etc/os-release, which patch 0007 deliberately does not translate, finds
+nothing, and returns its uninitialised static -- ectn_ARCHBANGLINUX.
+
+Clicking it reaches the one branch of AURToolSelected() that is live while
+getAvailableAURTools() holds nothing but the sentinel: an offer to curl the
+latest yay release from GitHub into ~/.config/octopi, untar it, symlink it and
+run it. That is a Linux ELF binary, and the commands around it are
+untranslated POSIX paths, so nothing comes of it -- a dead button promising
+something that would be harmful if it worked.
+
+The Options page goes with it: a helper to pick, an AUR build directory, and
+an aur.archlinux.org login to vote with. The distros that have no AUR already
+hide that page, so this hides it the same way -- and leaves its widgets
+unloaded, which is why accept() must stop saving them. Every one of them would
+otherwise compare unequal to its stored setting and write an empty value back,
+clearing an AUR build directory and warning about a restart on each OK.
+
+What stays: foreign packages are what pacman -Qm reports, not what an AUR
+helper installed, so they are still listed and marked. Only the
+foreign-outdated variant of that mark goes with the flag.
+
+Not for upstream: meaningless where there is an AUR to reach.
+diff --git a/src/mainwindow_refresh.cpp b/src/mainwindow_refresh.cpp
+index db8986b..0bd1eeb 100644
+--- a/src/mainwindow_refresh.cpp
++++ b/src/mainwindow_refresh.cpp
+@@ -1327,6 +1327,14 @@
+   m_hasForeignTool =
+       UnixCommand::hasTheExecutable(Package::getForeignRepositoryToolName());
+
++  // MSYS2 has no AUR. The fallback below reads "an Arch-based system with no
++  // helper installed" as a user who lost theirs and puts the AUR button back
++  // on the toolbar, and all that button can then do is offer to download yay
++  // -- a Linux binary that builds Arch packages. Leaving m_hasForeignTool
++  // false keeps it off, and with it Ctrl+Shift+Y, Ctrl+Shift+O, the
++  // help-usage line and the AUR context-menu actions, which are gated on the
++  // same flag.
++#ifndef Q_OS_WIN
+   //If there's no AUR helper installed let's check if we are running an ARCH based OS
+   if (!m_hasForeignTool)
+   {
+@@ -1340,6 +1348,7 @@
+       SettingsManager::setAURTool(ctn_NO_AUR_TOOL);
+     }
+   }
++#endif
+
+   if (m_hasForeignTool)
+   {
+diff --git a/src/optionsdialog.cpp b/src/optionsdialog.cpp
+index 1ba906c..3873764 100644
+--- a/src/optionsdialog.cpp
++++ b/src/optionsdialog.cpp
+@@ -317,6 +317,15 @@
+  */
+ void OptionsDialog::initAURTab()
+ {
++#ifdef Q_OS_WIN
++  // The page picks an AUR helper, an AUR build directory and an
++  // aur.archlinux.org login, none of which mean anything here. Hidden the way
++  // the distros without an AUR hide it below, and left unloaded, which is why
++  // accept() must not save it either.
++  removeTabByName(QStringLiteral("AUR"));
++  return;
++#endif
++
+   cbSearchOutdatedAURPackages->setChecked(SettingsManager::getSearchOutdatedAURPackages());
+
+   gbAURVoting->setStyleSheet(QStringLiteral("border:none"));
+@@ -700,6 +709,11 @@
+     ColumnsChanged = true;
+   }
+
++  // Nothing to save: initAURTab() never loaded these widgets on Windows, so
++  // every one of them would compare unequal to the stored setting and write
++  // an empty value back -- clearing a build directory, and warning about a
++  // restart on each OK.
++#ifndef Q_OS_WIN
+   //Set AUR Tool...
+   if (UnixCommand::getLinuxDistro() != ectn_KAOS ||
+       UnixCommand::getLinuxDistro() != ectn_PARABOLA)
+@@ -844,6 +858,7 @@
+       QMessageBox::warning(this, StrConstants::getWarning(), StrConstants::getWarnNeedsAppRestart());
+     }
+   }
++#endif
+
+   //Set icon...
+   if (!cbUseDefaultIcons->isChecked())
