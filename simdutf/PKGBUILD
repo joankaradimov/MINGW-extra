@@ -1,0 +1,71 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=simdutf
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=9.1.1
+pkgrel=1
+pkgdesc="Unicode validation and transcoding (UTF-8, UTF-16, UTF-32) and base64 at SIMD speed (mingw-w64)"
+arch=('any')
+# mingw32 is deliberately absent even though it builds cleanly and passes 92/92:
+# on i686 simdutf selects the scalar 'fallback' kernel rather than 'haswell',
+# because upstream ships no 32-bit SIMD kernels ("Our fast kernels require
+# 64-bit systems", include/simdutf/portability.h). A SIMD library reduced to its
+# portable path is not worth carrying in a phase-out environment. Re-add it only
+# if something downstream actually needs 32-bit.
+mingw_arch=('ucrt64' 'clang64')
+url='https://simdutf.github.io/simdutf/'
+license=('spdx:Apache-2.0 OR MIT')
+msys2_repository_url='https://github.com/simdutf/simdutf'
+msys2_references=(
+  'archlinux: simdutf'
+)
+depends=("${MINGW_PACKAGE_PREFIX}-cc-libs")
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-cmake"
+             "${MINGW_PACKAGE_PREFIX}-ninja")
+source=("${_realname}-${pkgver}.tar.gz::https://github.com/simdutf/simdutf/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('ec707f17e5083999efbdaf8a9a08d35e71e955b35dbf4b8307d14a7d31e9697f')
+
+build() {
+  declare -a extra_config
+  if check_option "debug" "n"; then
+    extra_config+=("-DCMAKE_BUILD_TYPE=Release")
+  else
+    extra_config+=("-DCMAKE_BUILD_TYPE=Debug")
+  fi
+
+  # SIMDUTF_TOOLS builds sutf and fastbase64, two demonstration CLIs. They are
+  # left out deliberately. This package exists so that consumers which currently
+  # vendor simdutf -- V8 and Chromium among them -- can link a system copy, and
+  # the tools contribute nothing to that while costing a libiconv runtime
+  # dependency (sutf links it when Iconv is found), two very generic names on
+  # PATH, and a bin/fastbase64.coreutils that upstream installs with no .exe
+  # suffix on Windows.
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
+    "${MINGW_PREFIX}"/bin/cmake.exe \
+      -B "build-${MSYSTEM}" \
+      -S "${srcdir}/${_realname}-${pkgver}" \
+      -G Ninja \
+      -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
+      -DCMAKE_INSTALL_LIBDIR=lib \
+      -DBUILD_SHARED_LIBS=ON \
+      -DSIMDUTF_TOOLS=OFF \
+      -DSIMDUTF_TESTS=ON \
+      "${extra_config[@]}"
+
+  "${MINGW_PREFIX}"/bin/cmake.exe --build "build-${MSYSTEM}"
+}
+
+check() {
+  "${MINGW_PREFIX}"/bin/ctest.exe --test-dir "build-${MSYSTEM}" --output-on-failure
+}
+
+package() {
+  DESTDIR="${pkgdir}" "${MINGW_PREFIX}"/bin/cmake.exe --install "build-${MSYSTEM}"
+
+  install -Dm644 "${srcdir}/${_realname}-${pkgver}/LICENSE-APACHE" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/LICENSE-APACHE"
+  install -Dm644 "${srcdir}/${_realname}-${pkgver}/LICENSE-MIT" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/LICENSE-MIT"
+}
