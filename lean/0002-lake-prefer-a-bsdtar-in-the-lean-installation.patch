@@ -1,0 +1,211 @@
+Lake: prefer a bsdtar in the Lean installation over the system tar.
+
+Lake runs a plain `tar` to pack and unpack build archives (`lake pack`,
+`lake unpack`, `lake upload` and fetched GitHub releases), passing Windows
+paths such as `-f C:\...\x.tar.gz`. In an MSYS2 shell the first `tar` on
+PATH is MSYS's GNU tar, which reads `C:` as the name of a remote host and
+fails ("Cannot connect to C: resolve failed"). Lean happens to start
+programs with CreateProcess, which looks in System32 before PATH, so today
+Lake gets Windows' own tar.exe. That works, but it leaves the archiver
+outside the package manager's view.
+
+Resolve tar like ar: `LEAN_TAR` if set, otherwise a `bsdtar` in the
+installation's bin/ (libarchive's, which takes Windows paths), otherwise
+`tar` as before. The new LeanInstall.tar field reaches untar/tar through
+getLeanTar, and through the workspace's Lean install for the pack, unpack
+and upload commands. Installations without a bsdtar, such as upstream's
+releases, behave as before.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/src/lake/Lake/Config/InstallPath.lean
++++ b/src/lake/Lake/Config/InstallPath.lean
+@@ -74,6 +74,10 @@
+ public def leanArExe (sysroot : FilePath) :=
+   sysroot / "bin" / "llvm-ar" |>.addExtension FilePath.exeExtension
+ 
++/-- Path of `bsdtar` in a Lean installation that provides one. -/
++public def leanTarExe (sysroot : FilePath) :=
++  sysroot / "bin" / "bsdtar" |>.addExtension FilePath.exeExtension
++
+ /-- Standard path of `clang` in a Lean installation. -/
+ public def leanCcExe (sysroot : FilePath) :=
+   sysroot / "bin" / "clang" |>.addExtension FilePath.exeExtension
+@@ -136,6 +140,7 @@
+   sharedDynlibs := leanSharedDynlibs sysroot
+   sharedDynlib := leanSharedDynlib sysroot
+   ar : FilePath := "ar"
++  tar : FilePath := "tar"
+   cc : FilePath := "cc"
+   customCc : Bool := true
+   cFlags := getCFlags'.push "-Wno-unused-command-line-argument"
+@@ -245,18 +250,18 @@
+ 
+ Does the following:
+ 1. Find `lean`'s githash.
+-2. Finds the  `ar` and `cc` to use with Lean.
++2. Finds the  `ar`, `tar` and `cc` to use with Lean.
+ 3. Computes the sub-paths of the Lean install.
+ 
+ For (1), If `lake` is not-collocated with `lean`, invoke `lean --githash`;
+ otherwise, use Lake's `Lean.githash`. If the invocation fails, `githash` is
+ set to the empty string.
+ 
+-For (2), if `LEAN_AR` or `LEAN_CC` are defined, it uses those paths.
+-Otherwise, if Lean is packaged with an `llvm-ar` and/or `clang`, use them.
++For (2), if `LEAN_AR`, `LEAN_TAR` or `LEAN_CC` are defined, it uses those paths.
++Otherwise, if Lean is packaged with an `llvm-ar`, `bsdtar` and/or `clang`, use them.
+ If not, use the `ar` and/or `cc` from the `AR` / `CC` environment variables
+-or the system's `PATH`. This last step is needed because internal builds of
+-Lean do not bundle these tools (unlike user-facing releases).
++or the system's `PATH`, and the system's `tar`. This last step is needed because
++internal builds of Lean do not bundle these tools (unlike user-facing releases).
+ 
+ We also track whether `LEAN_CC` was set to determine whether it should
+ be set in the future for `lake env`. This is because if `LEAN_CC` was not set,
+@@ -277,7 +282,8 @@
+       -- Remark: This is expensive (at least on Windows), so try to avoid it.
+       getGithash
+   let ar ← findAr
+-  setCc {sysroot, githash, ar}
++  let tar ← findTar
++  setCc {sysroot, githash, ar, tar}
+ where
+   getGithash := do
+     EIO.catchExceptions (h := fun _ => pure "") do
+@@ -297,6 +303,15 @@
+         return ar
+       else
+         return "ar"
++  findTar := do
++    if let some tar ← IO.getEnv "LEAN_TAR" then
++      return FilePath.mk tar
++    else
++      let tar := leanTarExe sysroot
++      if (← tar.pathExists) then
++        return tar
++      else
++        return "tar"
+   setCc i := do
+     if let some cc ← IO.getEnv "LEAN_CC" then
+       return withCustomCc i cc
+--- a/src/lake/Lake/Config/Monad.lean
++++ b/src/lake/Lake/Config/Monad.lean
+@@ -330,6 +330,10 @@
+ @[inline] public def getLeanAr : m FilePath :=
+   (·.ar) <$> getLeanInstall
+ 
++/-- Get the path of the {lit}`tar` binary in the detected Lean installation. -/
++@[inline] public def getLeanTar : m FilePath :=
++  (·.tar) <$> getLeanInstall
++
+ /-- Get the path of C compiler in the detected Lean installation. -/
+ @[inline] public def getLeanCc : m FilePath :=
+   (·.cc) <$> getLeanInstall
+--- a/src/lake/Lake/Build/Actions.lean
++++ b/src/lake/Lake/Build/Actions.lean
+@@ -183,20 +183,22 @@
+   proc (quiet := true) {cmd := ← Internal.getCurl, args}
+ 
+ /-- Unpack an archive `file` using `tar` into the directory `dir`. -/
+-public def untar (file : FilePath) (dir : FilePath) (gzip := true) : LogIO PUnit := do
++public def untar
++  (file : FilePath) (dir : FilePath) (gzip := true) (tar : FilePath := "tar")
++: LogIO PUnit := do
+   IO.FS.createDirAll dir
+   let mut opts := "-xvv"
+   if gzip then
+     opts := opts.push 'z'
+   proc (quiet := true) {
+-    cmd := "tar",
++    cmd := tar.toString,
+     args := #[opts, "-f", file.toString, "-C", dir.toString]
+   }
+ 
+ /-- Pack a directory `dir` using `tar` into the archive `file`. -/
+ public def tar
+   (dir : FilePath) (file : FilePath)
+-  (gzip := true) (excludePaths : Array FilePath := #[])
++  (gzip := true) (excludePaths : Array FilePath := #[]) (tar : FilePath := "tar")
+ : LogIO PUnit := do
+   createParentDirs file
+   let mut args := #["-cvv"]
+@@ -205,7 +207,7 @@
+   for path in excludePaths do
+     args := args.push s!"--exclude={path}"
+   proc (quiet := true) {
+-    cmd := "tar"
++    cmd := tar.toString
+     args := args ++ #["-f", file.toString, "-C", dir.toString, "."]
+     -- don't pack `._` files on MacOS
+     env := if Platform.isOSX then #[("COPYFILE_DISABLE", "true")] else #[]
+--- a/src/lake/Lake/Build/Package.lean
++++ b/src/lake/Lake/Build/Package.lean
+@@ -174,7 +174,7 @@
+     download url archiveFile headers
+   unless upToDate && (← self.buildDir.pathExists) do
+     updateAction .unpack
+-    untar archiveFile self.buildDir
++    untar archiveFile self.buildDir (tar := ← getLeanTar)
+ 
+ @[inline]
+ def Package.mkOptBuildArchiveFacetConfig
+--- a/src/lake/Lake/CLI/Actions.lean
++++ b/src/lake/Lake/CLI/Actions.lean
+@@ -30,21 +30,21 @@
+   env exeFile.toString args
+ 
+ public def Package.pack
+-  (pkg : Package) (file : FilePath := pkg.buildArchiveFile)
++  (pkg : Package) (file : FilePath := pkg.buildArchiveFile) (tar : FilePath := "tar")
+ : LogIO Unit := do
+   logInfo s!"packing {file}"
+-  tar pkg.buildDir file
++  Lake.tar pkg.buildDir file (tar := tar)
+ 
+ public def Package.unpack
+-  (pkg : Package) (file : FilePath := pkg.buildArchiveFile)
++  (pkg : Package) (file : FilePath := pkg.buildArchiveFile) (tar : FilePath := "tar")
+ : LogIO Unit := do
+   logInfo s!"unpacking {file}"
+-  untar file pkg.buildDir
++  untar file pkg.buildDir (tar := tar)
+ 
+ public def Package.uploadRelease
+-  (pkg : Package) (tag : String)
++  (pkg : Package) (tag : String) (tar : FilePath := "tar")
+ : LogIO Unit := do
+-  pkg.pack
++  pkg.pack (tar := tar)
+   logInfo s!"uploading {tag}:{pkg.buildArchive}"
+   let mut args :=
+     #["release", "upload", tag, pkg.buildArchiveFile.toString, "--clobber"]
+--- a/src/lake/Lake/CLI/Main.lean
++++ b/src/lake/Lake/CLI/Main.lean
+@@ -1041,7 +1041,7 @@
+   noArgsRem do
+   let ws ← loadWorkspace (← mkLoadConfig (← getThe LakeOptions))
+   let file := (FilePath.mk <$> file?).getD ws.root.buildArchiveFile
+-  ws.root.pack file
++  ws.root.pack file (tar := ws.lakeEnv.lean.tar)
+ 
+ protected def unpack : CliM PUnit := do
+   processOptions lakeOption
+@@ -1049,14 +1049,14 @@
+   noArgsRem do
+   let ws ← loadWorkspace (← mkLoadConfig (← getThe LakeOptions))
+   let file := (FilePath.mk <$> file?).getD ws.root.buildArchiveFile
+-  ws.root.unpack file
++  ws.root.unpack file (tar := ws.lakeEnv.lean.tar)
+ 
+ protected def upload : CliM PUnit := do
+   processOptions lakeOption
+   let tag ← takeArg "release tag"
+   noArgsRem do
+   let ws ← loadWorkspace (← mkLoadConfig (← getThe LakeOptions))
+-  ws.root.uploadRelease tag
++  ws.root.uploadRelease tag (tar := ws.lakeEnv.lean.tar)
+ 
+ protected def cache : CliM PUnit := do
+   if let some cmd ← takeArg? then

@@ -1,0 +1,99 @@
+Build against ICU's own headers and libraries on Windows.
+
+Lean's runtime reads time zones on Windows through ICU. It takes icu.h
+from an installed Windows SDK and links -licu, the import library for the
+icu.dll that ships with Windows 10 1903 and later. Find ICU with CMake's
+FindICU instead and include the two headers the runtime uses, so that it
+builds against an ICU package and needs no Windows SDK. With
+LEAN_STANDALONE the libraries are left to LEAN_EXTRA_LINKER_FLAGS, as
+for GMP, libuv and OpenSSL. The stage0 snapshot carries the same code.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -424,21 +424,14 @@
+   endif()
+ endif()
+ 
+-# Windows SDK (for ICU)
++# ICU (for time zones on Windows)
+ if(CMAKE_SYSTEM_NAME MATCHES "Windows")
+-  # Pass 'tools' to skip MSVC version check (as MSVC/Visual Studio is not necessarily installed)
+-  find_package(WindowsSDK REQUIRED COMPONENTS tools)
+-
+-  # This will give a semicolon-separated list of include directories
+-  get_windowssdk_include_dirs(${WINDOWSSDK_LATEST_DIR} WINDOWSSDK_INCLUDE_DIRS)
+-
+-  # To successfully build against Windows SDK headers, the Windows SDK headers must have lower
+-  # priority than other system headers, so use `-idirafter`. Unfortunately, CMake does not
+-  # support this using `include_directories`.
+-  string(REPLACE ";" "\" -idirafter \"" WINDOWSSDK_INCLUDE_DIRS "${WINDOWSSDK_INCLUDE_DIRS}")
+-  string(APPEND CMAKE_CXX_FLAGS " -idirafter \"${WINDOWSSDK_INCLUDE_DIRS}\"")
+-
+-  string(APPEND LEAN_EXTRA_LINKER_FLAGS " -licu")
++  find_package(ICU REQUIRED COMPONENTS i18n uc)
++  include_directories(${ICU_INCLUDE_DIRS})
++  if(NOT LEAN_STANDALONE)
++    string(JOIN " " ICU_LIBRARIES_STR ${ICU_LIBRARIES})
++    string(APPEND LEAN_EXTRA_LINKER_FLAGS " ${ICU_LIBRARIES_STR}")
++  endif()
+ endif()
+ 
+ # ccache
+--- a/src/runtime/io.cpp
++++ b/src/runtime/io.cpp
+@@ -5,7 +5,8 @@
+ Authors: Leonardo de Moura, Sebastian Ullrich
+ */
+ #if defined(LEAN_WINDOWS)
+-#include <icu.h>
++#include <unicode/ucal.h>
++#include <unicode/ustring.h>
+ #include <windows.h>
+ #include <io.h>
+ #define NOMINMAX // prevent ntdef.h from defining min/max macros
+--- a/stage0/src/CMakeLists.txt
++++ b/stage0/src/CMakeLists.txt
+@@ -424,21 +424,14 @@
+   endif()
+ endif()
+ 
+-# Windows SDK (for ICU)
++# ICU (for time zones on Windows)
+ if(CMAKE_SYSTEM_NAME MATCHES "Windows")
+-  # Pass 'tools' to skip MSVC version check (as MSVC/Visual Studio is not necessarily installed)
+-  find_package(WindowsSDK REQUIRED COMPONENTS tools)
+-
+-  # This will give a semicolon-separated list of include directories
+-  get_windowssdk_include_dirs(${WINDOWSSDK_LATEST_DIR} WINDOWSSDK_INCLUDE_DIRS)
+-
+-  # To successfully build against Windows SDK headers, the Windows SDK headers must have lower
+-  # priority than other system headers, so use `-idirafter`. Unfortunately, CMake does not
+-  # support this using `include_directories`.
+-  string(REPLACE ";" "\" -idirafter \"" WINDOWSSDK_INCLUDE_DIRS "${WINDOWSSDK_INCLUDE_DIRS}")
+-  string(APPEND CMAKE_CXX_FLAGS " -idirafter \"${WINDOWSSDK_INCLUDE_DIRS}\"")
+-
+-  string(APPEND LEAN_EXTRA_LINKER_FLAGS " -licu")
++  find_package(ICU REQUIRED COMPONENTS i18n uc)
++  include_directories(${ICU_INCLUDE_DIRS})
++  if(NOT LEAN_STANDALONE)
++    string(JOIN " " ICU_LIBRARIES_STR ${ICU_LIBRARIES})
++    string(APPEND LEAN_EXTRA_LINKER_FLAGS " ${ICU_LIBRARIES_STR}")
++  endif()
+ endif()
+ 
+ # ccache
+--- a/stage0/src/runtime/io.cpp
++++ b/stage0/src/runtime/io.cpp
+@@ -5,7 +5,8 @@
+ Authors: Leonardo de Moura, Sebastian Ullrich
+ */
+ #if defined(LEAN_WINDOWS)
+-#include <icu.h>
++#include <unicode/ucal.h>
++#include <unicode/ustring.h>
+ #include <windows.h>
+ #include <io.h>
+ #define NOMINMAX // prevent ntdef.h from defining min/max macros

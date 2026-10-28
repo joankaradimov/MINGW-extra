@@ -1,0 +1,170 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=lean
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=4.35.0
+pkgrel=1
+pkgdesc="Lean 4 programming language and theorem prover (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://lean-lang.org/'
+msys2_repository_url='https://github.com/leanprover/lean4'
+msys2_references=(
+  'aur: lean'
+)
+license=('spdx:Apache-2.0 AND MIT')
+# Lake runs curl, git and (with 0002) libarchive's bsdtar; it finds them next
+# to itself before it looks at PATH. leanc and Lake build user code with the
+# environment's compiler and llvm-ar, linking through lld (leanc, clang64) or
+# GNU ld (Lake on ucrt64).
+depends=("${MINGW_PACKAGE_PREFIX}-cc-libs"
+         "${MINGW_PACKAGE_PREFIX}-cadical"
+         "${MINGW_PACKAGE_PREFIX}-curl"
+         "${MINGW_PACKAGE_PREFIX}-git"
+         "${MINGW_PACKAGE_PREFIX}-gmp"
+         "${MINGW_PACKAGE_PREFIX}-icu"
+         "${MINGW_PACKAGE_PREFIX}-leangz"
+         "${MINGW_PACKAGE_PREFIX}-libarchive"
+         "${MINGW_PACKAGE_PREFIX}-libuv"
+         "${MINGW_PACKAGE_PREFIX}-openssl")
+if [[ ${MSYSTEM} == CLANG* ]]; then
+  depends+=("${MINGW_PACKAGE_PREFIX}-clang"
+            "${MINGW_PACKAGE_PREFIX}-lld")
+else
+  depends+=("${MINGW_PACKAGE_PREFIX}-binutils"
+            "${MINGW_PACKAGE_PREFIX}-gcc"
+            "${MINGW_PACKAGE_PREFIX}-lld"
+            "${MINGW_PACKAGE_PREFIX}-llvm-tools")
+fi
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-cmake"
+             "${MINGW_PACKAGE_PREFIX}-pkgconf"
+             'make')
+checkdepends=('diffutils'
+              'perl'
+              'python')
+# Lean's runtime #includes mimalloc's static.c into its own allocator, so it
+# needs this exact source tree (the release its CMakeLists.txt pins), not the
+# MinGW mimalloc DLL.
+_mimalloc_ver=3.4.5
+source=("lean4-${pkgver}.tar.gz::https://github.com/leanprover/lean4/archive/refs/tags/v${pkgver}.tar.gz"
+        "mimalloc-${_mimalloc_ver}.tar.gz::https://github.com/microsoft/mimalloc/archive/refs/tags/v${_mimalloc_ver}.tar.gz"
+        '0001-keep-cadical-and-leantar-in-the-build-tree.patch'
+        '0002-lake-prefer-a-bsdtar-in-the-lean-installation.patch'
+        '0003-pass-mno-incremental-linker-compatible-only-to-clang.patch'
+        '0004-define-the-free-sized-fallback-normally-on-windows.patch'
+        '0005-split-the-shared-library-archive-with-the-configured-archiver.patch'
+        '0006-build-against-icu-headers-and-libraries-on-windows.patch')
+sha256sums=('6747b099d03d3675f2716e7cf5924a16bfbf75822b13a3d36f51f933ffcc307b'
+            '19a43af0645c57d348e729d5b31e23e912582911bb1047f795790834d3416221'
+            'db3b074c0d586065647a42ae3cc517cc94b2bdec2fe8b85d8fac233ba72bfcf1'
+            'dae7552316e51a3598793208bf0a5bbd0a64c321261971fa7fd531ae2e433ade'
+            '08591cdcbccb1ea70e472289c2856ab2388a40ab3b7a91e17f59e3fc54f3cef5'
+            '4520f6d70ce2f0b10d84a439e432005ad18839f259f72a98cd54d153983f1cea'
+            '638374861abe1476b5b012b8d9c6cdda4515ac7b5a5c16bda2e42fe7687cd7bf'
+            'dd7b81356b3b084ace79f43f616f40119c8c215c09a9a2114a74de0076d58f6f')
+noextract=("lean4-${pkgver}.tar.gz")
+
+prepare() {
+  # A symlink in the tarball comes before its target, which MSYS2 cannot
+  # link to yet; the second pass creates it.
+  bsdtar -xf "lean4-${pkgver}.tar.gz" 2>/dev/null ||
+    bsdtar -xf "lean4-${pkgver}.tar.gz"
+
+  cd "lean4-${pkgver}"
+  patch -Np1 -i "${srcdir}/0001-keep-cadical-and-leantar-in-the-build-tree.patch"
+  patch -Np1 -i "${srcdir}/0002-lake-prefer-a-bsdtar-in-the-lean-installation.patch"
+  patch -Np1 -i "${srcdir}/0003-pass-mno-incremental-linker-compatible-only-to-clang.patch"
+  patch -Np1 -i "${srcdir}/0004-define-the-free-sized-fallback-normally-on-windows.patch"
+  patch -Np1 -i "${srcdir}/0005-split-the-shared-library-archive-with-the-configured-archiver.patch"
+  patch -Np1 -i "${srcdir}/0006-build-against-icu-headers-and-libraries-on-windows.patch"
+}
+
+build() {
+  declare -a extra_config
+  if check_option "debug" "n"; then
+    extra_config+=("-DCMAKE_BUILD_TYPE=Release")
+  else
+    extra_config+=("-DCMAKE_BUILD_TYPE=Debug")
+  fi
+
+  # Lean's own links need lld: it splits its core over three DLLs to stay
+  # under the 65535 exports of a PE file, and finds the split in lld's map
+  # file. On ucrt64 lld reaches only the build and leanc, through the internal
+  # flags. Lake links user code there by handing gcc a response file, which
+  # gcc rewrites with GNU quoting for the linker; lld reads it with Windows
+  # quoting and splits paths with spaces, GNU ld reads it right.
+  local _cc=gcc _ld= _ld_internal=-fuse-ld=lld
+  if [[ ${MSYSTEM} == CLANG* ]]; then
+    _cc=clang _ld=-fuse-ld=lld _ld_internal=
+  fi
+
+  # Where the superbuild's FetchContent would have put it; the runtime's
+  # CMakeLists.txt reads mimalloc from that path.
+  rm -rf "build-${MSYSTEM}/mimalloc"
+  mkdir -p "build-${MSYSTEM}/mimalloc/src"
+  cp -rp "mimalloc-${_mimalloc_ver}" "build-${MSYSTEM}/mimalloc/src/mimalloc"
+
+  # make configures stage0 and stage1 during the build, so the prefix needs
+  # protecting there as well.
+  export MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX="
+
+  # USE_GITHASH: git would find this repository around src/ and report its
+  # commit. LEAN_STANDALONE, LEANC_CC and CMAKE_AR: otherwise the absolute
+  # paths of the compiler, archiver, gmp, libuv, ICU and OpenSSL found here
+  # go into the flags that leanc and Lake link user programs with, and into
+  # lean.mk. INSTALL_LICENSE would put LICENSE at the root of the prefix.
+  # LEAN_PLATFORM_TARGET: CMake asks the compiler with --print-target-triple,
+  # which gcc lacks, and Lake names build archives after it.
+  # llvm-ar everywhere: GNU ar on Windows stores a thin archive's members
+  # relative to the working directory instead of the archive, and Lake makes
+  # thin archives. stage0 gets llvm-ar and lld too.
+  cmake \
+    -G "Unix Makefiles" \
+    -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
+    -DCMAKE_AR=llvm-ar \
+    -DSTAGE0_CMAKE_AR=llvm-ar \
+    -DSTAGE0_LEAN_EXTRA_LINKER_FLAGS=-fuse-ld=lld \
+    "${extra_config[@]}" \
+    -DUSE_GITHASH=OFF \
+    -DINSTALL_LICENSE=OFF \
+    -DLEAN_PLATFORM_TARGET="${MINGW_CHOST%-*}-windows-gnu" \
+    -DCCACHE=OFF \
+    -DFETCHCONTENT_SOURCE_DIR_MIMALLOC="${srcdir}/build-${MSYSTEM}/mimalloc/src/mimalloc" \
+    -DCADICAL="${MINGW_PREFIX}/bin/cadical.exe" \
+    -DINSTALL_CADICAL=OFF \
+    -DLEANTAR="${MINGW_PREFIX}/bin/leantar.exe" \
+    -DINSTALL_LEANTAR=OFF \
+    -DLEAN_STANDALONE=ON \
+    -DLEANC_CC="${_cc}" \
+    -DLEANC_INTERNAL_LINKER_FLAGS="${_ld_internal}" \
+    -DLEAN_EXTRA_LINKER_FLAGS="${_ld} -lgmp $(pkg-config --libs-only-l libuv icu-i18n) -lssl -lcrypto" \
+    -S "lean4-${pkgver}" \
+    -B "build-${MSYSTEM}"
+
+  cmake --build "build-${MSYSTEM}"
+}
+
+check() {
+  # This prefix can hold native diff, cmp and perl. They cannot open the
+  # /dev/fd paths of the test scripts' process substitutions, and they get
+  # non-ASCII file names in the ANSI code page; the scripts expect MSYS's.
+  local _bin="${srcdir}/msys-bin" _tool
+  mkdir -p "${_bin}"
+  for _tool in diff cmp perl; do
+    printf '#!/bin/sh\nexec /usr/bin/%s "$@"\n' "${_tool}" > "${_bin}/${_tool}"
+  done
+
+  PATH="${_bin}:${PATH}" \
+    ctest --test-dir "build-${MSYSTEM}/stage1" -j"$(nproc)" --output-on-failure
+}
+
+package() {
+  DESTDIR="${pkgdir}" cmake --install "build-${MSYSTEM}/stage1"
+
+  install -Dm644 "lean4-${pkgver}/LICENSE" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/LICENSE"
+  install -Dm644 "mimalloc-${_mimalloc_ver}/LICENSE" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/mimalloc-LICENSE"
+}

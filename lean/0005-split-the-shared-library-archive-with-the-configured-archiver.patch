@@ -1,0 +1,58 @@
+Split the shared library's archive with the configured archiver.
+
+On Windows Lean spreads its core over three DLLs. It links
+libleanshared_1.dll with a map file, reads the archive members it used
+from the map, and deletes them from a copy of libLean.a.export with
+`ar dP` before linking the next DLL. Plain `ar` is llvm-ar on CLANG64 but
+GNU ar on UCRT64, and in stage1 the map names the members by absolute
+Windows paths while the llvm-ar thin archive stores them relative to
+itself. GNU ar matches neither, deletes nothing, and libleanshared.dll
+ends up with every symbol again: "too many exported symbols (got 114966,
+max 65535)". Use ${CMAKE_AR}, as the commented-out listing next to it
+already does. The stage0 snapshot carries the same rule.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/src/stdlib.make.in
++++ b/src/stdlib.make.in
+@@ -141,7 +141,8 @@
+ 	cp ${LIB}/lean/libLean.a.export ${LIB}/lean/diff.a
+ 	sed -En 's/.*\s(\S*\.o\.export):.*/\1/p' ${LIB}/temp/libleanshared_1.map > ${LIB}/temp/diff.a.in
+ # can't use bundled llvm-ar before LLVM 16, https://github.com/llvm/llvm-project/issues/55023
+-	ar dP ${LIB}/lean/diff.a @${LIB}/temp/diff.a.in
++# GNU ar does not match the thin archive's members to the paths in the map
++	"${CMAKE_AR}" dP ${LIB}/lean/diff.a @${LIB}/temp/diff.a.in
+ 	#"${CMAKE_AR}" tP ${LIB}/lean/diff.a
+ # now again up to `Lean.Meta`
+ 	$(LEANC_SH) -shared -o $(OUTLIB)/libleanshared_2$(SO) \
+@@ -149,7 +150,7 @@
+ 	echo -n "$(OUTLIB)/libleanshared_2$(SO) symbols: "
+ 	nm $(OUTLIB)/libleanshared_2$(SO) --extern-only | wc -l
+ 	sed -En 's/.*\s(\S*\.o\.export):.*/\1/p' ${LIB}/temp/libleanshared_2.map > ${LIB}/temp/diff.a.in
+-	ar dP ${LIB}/lean/diff.a @${LIB}/temp/diff.a.in
++	"${CMAKE_AR}" dP ${LIB}/lean/diff.a @${LIB}/temp/diff.a.in
+ 	#"${CMAKE_AR}" tP ${LIB}/lean/diff.a
+ # now include `Lean` and the diff library in `leanshared`
+ 	$(LEANC_SH) -shared -o $@ \
+--- a/stage0/src/stdlib.make.in
++++ b/stage0/src/stdlib.make.in
+@@ -141,7 +141,8 @@
+ 	cp ${LIB}/lean/libLean.a.export ${LIB}/lean/diff.a
+ 	sed -En 's/.*\s(\S*\.o\.export):.*/\1/p' ${LIB}/temp/libleanshared_1.map > ${LIB}/temp/diff.a.in
+ # can't use bundled llvm-ar before LLVM 16, https://github.com/llvm/llvm-project/issues/55023
+-	ar dP ${LIB}/lean/diff.a @${LIB}/temp/diff.a.in
++# GNU ar does not match the thin archive's members to the paths in the map
++	"${CMAKE_AR}" dP ${LIB}/lean/diff.a @${LIB}/temp/diff.a.in
+ 	#"${CMAKE_AR}" tP ${LIB}/lean/diff.a
+ # now again up to `Lean.Meta`
+ 	$(LEANC_SH) -shared -o $(OUTLIB)/libleanshared_2$(SO) \
+@@ -149,7 +150,7 @@
+ 	echo -n "$(OUTLIB)/libleanshared_2$(SO) symbols: "
+ 	nm $(OUTLIB)/libleanshared_2$(SO) --extern-only | wc -l
+ 	sed -En 's/.*\s(\S*\.o\.export):.*/\1/p' ${LIB}/temp/libleanshared_2.map > ${LIB}/temp/diff.a.in
+-	ar dP ${LIB}/lean/diff.a @${LIB}/temp/diff.a.in
++	"${CMAKE_AR}" dP ${LIB}/lean/diff.a @${LIB}/temp/diff.a.in
+ 	#"${CMAKE_AR}" tP ${LIB}/lean/diff.a
+ # now include `Lean` and the diff library in `leanshared`
+ 	$(LEANC_SH) -shared -o $@ \

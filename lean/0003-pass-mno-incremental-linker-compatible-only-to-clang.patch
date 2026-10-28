@@ -1,0 +1,37 @@
+Pass -mno-incremental-linker-compatible only to Clang.
+
+Lean adds the option on Windows so that Clang leaves out COFF timestamps.
+GCC does not know it and stops with "unrecognized command-line option",
+and the flags go to the compiler of every C file Lean builds, starting
+with stage0's own library. Add it only when CMake's C compiler is Clang.
+The stage0 snapshot carries the same rule, so it gets the same change.
+
+Upstream: not submitted
+Applies-to: all environments; changes nothing on CLANG64
+
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -216,8 +216,8 @@
+ string(APPEND LEAN_EXTRA_CXX_FLAGS " -ffp-contract=off")
+ 
+ # On Windows we want to disable writing COFF object file time stamps.
+-# LLVM 23 seems to have a regression in this regard.
+-if(CMAKE_SYSTEM_NAME MATCHES "Windows")
++# LLVM 23 seems to have a regression in this regard. GCC has no such option.
++if(CMAKE_SYSTEM_NAME MATCHES "Windows" AND CMAKE_C_COMPILER_ID MATCHES "Clang")
+   string(APPEND LEANC_EXTRA_CC_FLAGS " -mno-incremental-linker-compatible")
+ endif()
+ 
+--- a/stage0/src/CMakeLists.txt
++++ b/stage0/src/CMakeLists.txt
+@@ -216,8 +216,8 @@
+ string(APPEND LEAN_EXTRA_CXX_FLAGS " -ffp-contract=off")
+ 
+ # On Windows we want to disable writing COFF object file time stamps.
+-# LLVM 23 seems to have a regression in this regard.
+-if(CMAKE_SYSTEM_NAME MATCHES "Windows")
++# LLVM 23 seems to have a regression in this regard. GCC has no such option.
++if(CMAKE_SYSTEM_NAME MATCHES "Windows" AND CMAKE_C_COMPILER_ID MATCHES "Clang")
+   string(APPEND LEANC_EXTRA_CC_FLAGS " -mno-incremental-linker-compatible")
+ endif()
+ 

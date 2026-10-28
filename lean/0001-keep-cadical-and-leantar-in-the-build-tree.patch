@@ -1,0 +1,53 @@
+Keep cadical and leantar in the build tree without installing them.
+
+bv_decide looks for cadical next to lean, and Lake runs only the leantar
+next to it. With INSTALL_CADICAL or INSTALL_LEANTAR off, a stage's bin/
+did not get its copy either, so the build tree's Lake cannot pack or
+unpack .ltar archives, and its cache, cacheTransfer, ltar and ltarStable
+tests fail with "failed to execute '.../stage1/bin/leantar.exe'". Always
+copy both into the build tree, keep them out of the bin/ directory
+install, and leave installing them to the install(PROGRAMS) rules that
+INSTALL_CADICAL and INSTALL_LEANTAR already guard. With both options on,
+the result is unchanged, except that each tool is installed once instead
+of twice.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -877,7 +877,7 @@
+   set_target_properties(leancpp PROPERTIES OUTPUT_NAME leancpp)
+ endif()
+ 
+-if(STAGE GREATER 0 AND CADICAL AND INSTALL_CADICAL)
++if(STAGE GREATER 0 AND CADICAL)
+   add_custom_target(
+     copy-cadical
+     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CADICAL}" "${CMAKE_BINARY_DIR}/bin/cadical${CMAKE_EXECUTABLE_SUFFIX}"
+@@ -885,7 +885,7 @@
+   add_dependencies(leancpp copy-cadical)
+ endif()
+ 
+-if(LEANTAR AND INSTALL_LEANTAR)
++if(LEANTAR)
+   add_custom_target(
+     copy-leantar
+     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${LEANTAR}" "${CMAKE_BINARY_DIR}/bin/leantar${CMAKE_EXECUTABLE_SUFFIX}"
+@@ -1154,7 +1154,15 @@
+ 
+ file(COPY ${LEAN_SOURCE_DIR}/bin/leanmake DESTINATION ${CMAKE_BINARY_DIR}/bin)
+ 
+-install(DIRECTORY "${CMAKE_BINARY_DIR}/bin/" USE_SOURCE_PERMISSIONS DESTINATION bin)
++# The copies of cadical and leantar are for the build tree, where Lean and Lake look for them next to
++# `lean`; whether to install them is up to INSTALL_CADICAL and INSTALL_LEANTAR below.
++install(
++  DIRECTORY "${CMAKE_BINARY_DIR}/bin/"
++  USE_SOURCE_PERMISSIONS
++  DESTINATION bin
++  PATTERN "cadical${CMAKE_EXECUTABLE_SUFFIX}" EXCLUDE
++  PATTERN "leantar${CMAKE_EXECUTABLE_SUFFIX}" EXCLUDE
++)
+ 
+ if(STAGE GREATER 0 AND CADICAL AND INSTALL_CADICAL)
+   install(PROGRAMS "${CADICAL}" DESTINATION bin)

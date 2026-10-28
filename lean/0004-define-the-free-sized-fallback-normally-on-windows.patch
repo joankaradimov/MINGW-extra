@@ -1,0 +1,41 @@
+Define the free_sized fallback normally on Windows.
+
+The runtime provides free_sized for C libraries that predate C23, and
+makes it weak so that a real one wins. With GCC on Windows a weak
+definition becomes a weak external aliased to the code, and GNU ld cannot
+export that from a DLL: linking libInit_shared.dll stops with "cannot
+export free_sized: symbol wrong type (2 vs 3)". lld accepts it. Windows'
+C runtime has no free_sized for the fallback to give way to, so drop the
+weak attribute there. The stage0 snapshot carries the same definition.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/src/runtime/object.cpp
++++ b/src/runtime/object.cpp
+@@ -62,7 +62,10 @@
+ // `__attribute__((nothrow))` to be present or `noexcept`.
+ __attribute__((nothrow))
+ #endif
+-__attribute__((weak)) void free_sized(void *ptr, size_t) {
++#ifndef LEAN_WINDOWS
++__attribute__((weak))
++#endif
++void free_sized(void *ptr, size_t) {
+     free(ptr);
+ }
+ #endif
+--- a/stage0/src/runtime/object.cpp
++++ b/stage0/src/runtime/object.cpp
+@@ -62,7 +62,10 @@
+ // `__attribute__((nothrow))` to be present or `noexcept`.
+ __attribute__((nothrow))
+ #endif
+-__attribute__((weak)) void free_sized(void *ptr, size_t) {
++#ifndef LEAN_WINDOWS
++__attribute__((weak))
++#endif
++void free_sized(void *ptr, size_t) {
+     free(ptr);
+ }
+ #endif
