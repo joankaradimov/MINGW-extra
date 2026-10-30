@@ -1,0 +1,22 @@
+Hash type pointers through intptr_t.
+
+JPMethodMatch hashes the argument types, so that a repeated call skips
+overload resolution, by adding each type's address cast straight to
+long. On 64-bit Windows long is 32 bits, and GCC and Clang reject the
+cast as losing precision. Going through intptr_t keeps the low 32 bits,
+which is all a long held there anyway.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/native/common/jp_classhints.cpp
++++ b/native/common/jp_classhints.cpp
+@@ -64,7 +64,7 @@
+ 		// is only a speed cost if there is a collision, so we don't need to
+ 		// prove this is a perfect hash function.
+ 		m_Hash *= 0x10523C01;
+-		m_Hash += (long) (Py_TYPE(arg));
++		m_Hash += (long) (intptr_t) (Py_TYPE(arg));
+ 	}
+ }
+ 

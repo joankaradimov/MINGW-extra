@@ -1,0 +1,24 @@
+Build against the JDK's JNI headers when there are no JVM libraries.
+
+JPype only needs <jni.h>: _jpype loads the JVM itself at run time. A
+bare find_package(JNI) also requires the AWT and JVM link libraries,
+which the MinGW-w64 build of OpenJDK does not ship, and the build falls
+back to the copy of Android's jni.h in native/jni_include. Naming the
+JVM component as optional makes the headers enough.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -12,7 +12,9 @@
+ find_package(Python3 COMPONENTS Interpreter Development.Module REQUIRED)
+ find_package(Python3 COMPONENTS Development.Embed)
+ find_package(Java REQUIRED COMPONENTS Development)
+-find_package(JNI)
++# Only the headers are needed: _jpype loads the JVM at run time. Naming a
++# component keeps FindJNI from requiring the AWT and JVM libraries.
++find_package(JNI OPTIONAL_COMPONENTS JVM)
+ 
+ if(JNI_FOUND)
+     message(STATUS "System JNI found successfully.")

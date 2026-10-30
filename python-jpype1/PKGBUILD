@@ -1,0 +1,95 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=jpype1
+pkgbase=mingw-w64-python-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-python-${_realname}")
+pkgver=1.7.1
+pkgrel=1
+# The JDBC drivers JPype's ivy.xml pins for its SQL tests
+_h2ver=1.4.200
+_hsqldbver=2.5.0
+pkgdesc="Python to Java bridge (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://jpype.readthedocs.io/'
+msys2_repository_url='https://github.com/jpype-project/jpype'
+msys2_references=(
+  'aur: python-jpype1'
+  'purl: pkg:pypi/jpype1'
+)
+license=('spdx:Apache-2.0')
+depends=("${MINGW_PACKAGE_PREFIX}-cc-libs"
+         "${MINGW_PACKAGE_PREFIX}-python"
+         "${MINGW_PACKAGE_PREFIX}-python-packaging")
+# JPype starts the JVM that JAVA_HOME names.
+optdepends=("${MINGW_PACKAGE_PREFIX}-openjdk: a JVM to start")
+# The sdist has no org.jpype.jar; Ant and javac build it.
+makedepends=("${MINGW_PACKAGE_PREFIX}-ant"
+             "${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-cmake"
+             "${MINGW_PACKAGE_PREFIX}-ninja"
+             "${MINGW_PACKAGE_PREFIX}-openjdk"
+             "${MINGW_PACKAGE_PREFIX}-python-build"
+             "${MINGW_PACKAGE_PREFIX}-python-installer"
+             "${MINGW_PACKAGE_PREFIX}-python-scikit-build-core")
+checkdepends=("${MINGW_PACKAGE_PREFIX}-python-jedi"
+              "${MINGW_PACKAGE_PREFIX}-python-numpy"
+              "${MINGW_PACKAGE_PREFIX}-python-pytest")
+options=('!strip')
+source=("https://pypi.org/packages/source/${_realname::1}/${_realname}/${_realname}-${pkgver}.tar.gz"
+        '0001-pass-msvc-options-to-msvc-only.patch'
+        '0002-hash-type-pointers-through-intptr-t.patch'
+        '0003-build-against-the-jdk-jni-headers.patch'
+        "https://repo1.maven.org/maven2/com/h2database/h2/${_h2ver}/h2-${_h2ver}.jar"
+        "https://repo1.maven.org/maven2/org/hsqldb/hsqldb/${_hsqldbver}/hsqldb-${_hsqldbver}.jar")
+noextract=("h2-${_h2ver}.jar"
+           "hsqldb-${_hsqldbver}.jar")
+sha256sums=('3cd88838dc3d2d546f7eaeadaaff864e590010c15f2b6a44b6f37e60796a14b2'
+            '0b598eb34d7314fb6aec0ff398c95ae8ca8d36a772690041248846eaa08dccae'
+            '0be634abec7b9ac40d7e3ad59a5fa8f930cae791902f4cbb168442770fea3bf3'
+            '0306b801353b90c40cdf72559105bc04c283b0fb7df24ec6757d4a92d223537c'
+            '3ad9ac4b6aae9cd9d3ac1c447465e1ed06019b851b893dd6a8d76ddb6d85bca6'
+            'acda459cc9d6a07b39b284364e93b5f29e11877d687e9544b91778d3554d2b38')
+
+prepare() {
+  cd "${_realname}-${pkgver}"
+  patch -Np1 -i "${srcdir}/0001-pass-msvc-options-to-msvc-only.patch"
+  patch -Np1 -i "${srcdir}/0002-hash-type-pointers-through-intptr-t.patch"
+  patch -Np1 -i "${srcdir}/0003-build-against-the-jdk-jni-headers.patch"
+}
+
+_java_home() {
+  local _jdk=("${MINGW_PREFIX}"/lib/jvm/java-*-openjdk)
+  echo "${_jdk[0]}"
+}
+
+build() {
+  rm -rf "python-build-${MSYSTEM}"
+  cp -r "${_realname}-${pkgver}" "python-build-${MSYSTEM}" && cd "python-build-${MSYSTEM}"
+  JAVA_HOME="$(_java_home)" \
+    "${MINGW_PREFIX}/bin/python" -m build --wheel --skip-dependency-check --no-isolation
+}
+
+check() {
+  cd "${srcdir}/python-build-${MSYSTEM}"
+  rm -rf _install
+  "${MINGW_PREFIX}/bin/python" -m installer --prefix= --destdir=_install dist/*.whl
+  # The suite puts lib/*.jar, where upstream's Ivy step puts the drivers, on
+  # the class path. sqlite-jdbc runs a prebuilt SQLite from inside its jar,
+  # so test_sql_sqlite.py stays out.
+  install -Dm644 "${srcdir}"/{h2-${_h2ver},hsqldb-${_hsqldbver}}.jar -t lib
+  local _tests="${PWD}/test/jpypetest"
+  # Away from the source tree's jpype/, for the suite's child interpreters
+  # too. The suite takes its Java test classes from the build tree.
+  cd _install/lib/python*/site-packages
+  JAVA_HOME="$(_java_home)" PYTHONPATH=. \
+    "${MINGW_PREFIX}/bin/python" -m pytest -p no:cacheprovider \
+    --ignore="${_tests}/test_sql_sqlite.py" "${_tests}"
+}
+
+package() {
+  cd "${srcdir}/python-build-${MSYSTEM}"
+  MSYS2_ARG_CONV_EXCL="--prefix=" \
+    "${MINGW_PREFIX}/bin/python" -m installer --prefix=${MINGW_PREFIX} --destdir="${pkgdir}" dist/*.whl
+  install -Dm644 LICENSE NOTICE -t "${pkgdir}${MINGW_PREFIX}/share/licenses/python-${_realname}"
+}

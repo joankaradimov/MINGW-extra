@@ -1,0 +1,23 @@
+Pass the MSVC compile options to MSVC only.
+
+On WIN32 the extension gets /O2 /EHsc /MD unconditionally. GCC and
+Clang targeting MinGW-w64 read them as input file names and the build
+stops. MinGW-w64 compilers need none of them: they use C++ exceptions
+by default and link the C runtime the toolchain was built for.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -201,7 +201,9 @@
+ 
+ 
+     # Ensure /MD and exception model are set
+-    target_compile_options(_jpype PRIVATE /O2 /EHsc /MD)
++    if(MSVC)
++        target_compile_options(_jpype PRIVATE /O2 /EHsc /MD)
++    endif()
+ else()
+     # Additional libraries for non-Windows
+     target_link_libraries(_jpype PRIVATE
