@@ -4,7 +4,7 @@ _realname=ghidra
 pkgbase=mingw-w64-${_realname}
 pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
 pkgver=12.1.4
-pkgrel=1
+pkgrel=2
 _javaver=27
 _yajsw=13.18
 # The JNA releases that Ghidra and YAJSW bundle
@@ -18,7 +18,9 @@ msys2_repository_url='https://github.com/NationalSecurityAgency/ghidra'
 msys2_references=(
   'archlinux: ghidra'
 )
-license=('spdx:Apache-2.0 AND GPL-3.0-or-later')
+# Ghidra, its GPL modules and the libraries it bundles, by what each one
+# states. 7-Zip-JBinding carries 7-Zip's unRAR restriction.
+license=('spdx:Apache-2.0 AND GPL-3.0-or-later AND LGPL-2.1-only AND BSD-2-Clause AND BSD-3-Clause AND MIT AND Zlib AND PSF-2.0 AND UnRAR AND GPL-2.0-only WITH Classpath-exception-2.0 AND (EPL-2.0 OR LGPL-2.1-or-later) AND (MPL-2.0 OR EPL-1.0) AND LicenseRef-JDOM AND LicenseRef-public-domain')
 # The launchers run Ghidra on the JDK that built it, by its directory name,
 # so the next major version needs a rebuild.
 depends=("${MINGW_PACKAGE_PREFIX}-cc-libs"
@@ -59,6 +61,7 @@ source=("${_realname}-${pkgver}.tar.gz::https://github.com/NationalSecurityAgenc
         '0004-compile-the-gui-test-helpers-without-appcontext.patch'
         '0005-let-a-gradle-property-choose-the-python.patch'
         '0006-leave-yajsws-sigar-out-of-the-distribution.patch'
+        'verification-metadata.xml'
         'launcher.cmd'
         'launcher.sh'
         'test-ghidra.cpp'
@@ -90,6 +93,7 @@ sha256sums=('2a858300c350f05ae2e729dff86b4f584d0b9a6b398879c55025574e67696cec'
             'b4a3a2ac064bb3a4ed304ee68137c0b6dc018f56d7b4edcd27819707367c3c5b'
             '67a97102d7f331035efd800147e268c95dd40606eed2c3ecacf6bd743d88eff2'
             '4c6c445fbe6692da0de5067e33dffb6894d8bee96e59384e3965540d9898f8fc'
+            'cdc59e61320652f18176b8ca1b0c4131af90b0a534effb8a6fbb9d45fc73a3ca'
             '5186b5468ac6c0a4ad5a69b7a84ad73d4653ee181e88efb135f3390030cc3652'
             'e6be601ad0fb8494dc62b4cbd0eef043b26e3c2c65a4745a58b9e74df38f1e25'
             '3f568aad40a3f5e6318c164d99626584e29911958a3e20f1bd5ee2e147f6aa11'
@@ -122,6 +126,8 @@ prepare() {
   install -Dm644 "${srcdir}/dbgmodel.tlb" -t dependencies/Debugger-agent-dbgeng
   install -Dm644 "${srcdir}/yajsw-stable-${_yajsw}.zip" -t dependencies/GhidraServer
   install -Dm644 "${_fidbs[@]/#/${srcdir}/}" -t dependencies/fidb
+  # Gradle checks everything it fetches against these checksums.
+  install -Dm644 "${srcdir}/verification-metadata.xml" -t gradle
 
   grep -q "net.java.dev.jna:jna:${_jna}\"" Ghidra/Framework/Pty/build.gradle \
     || { error "Ghidra no longer bundles JNA ${_jna}"; return 1; }
@@ -168,8 +174,12 @@ build() {
   export PIP_NO_BUILD_ISOLATION=0
 
   # The empty Visual Studio directory keeps the natives on MinGW (0001).
+  # Ghidra's build also looks in the local Maven repository; an empty one
+  # keeps the builder's ~/.m2 out, so every jar comes checked from Maven
+  # Central.
   gradle --no-daemon \
     -PVISUAL_STUDIO_INSTALL_DIR= \
+    -Dmaven.repo.local="$(cygpath -w "${srcdir}/m2")" \
     -Ppython3="$(cygpath -w "${MINGW_PREFIX}/bin/python.exe")" \
     buildGhidra
 
@@ -251,4 +261,50 @@ package() {
   install -Dm644 "${_ghidra}/LICENSE" -t "${_licdir}"
   cp -r "${_ghidra}/licenses" "${_licdir}/licenses"
   cp -r "${_ghidra}/GPL/licenses" "${_licdir}/GPL"
+
+  # One directory per bundled library: the license Ghidra's module
+  # manifests name for it, and whatever license and notice files its jar
+  # carries. The extensions' manifests are inside their zips. DMG lists its
+  # libraries in its own LICENSE.txt, and Ghidra takes YAJSW and the Gradle
+  # wrapper as they come.
+  local _ext="${srcdir}/extensions"
+  rm -rf "${_ext}" && mkdir "${_ext}"
+  local _z
+  for _z in "${_ghidra}"/Extensions/Ghidra/*.zip; do
+    bsdtar -xf "${_z}" -C "${_ext}"
+  done
+  local _m _file _lic _text _lib
+  while IFS= read -r -d '' _m; do
+    # Lines for other platforms' files name nothing shipped here.
+    while read -r _ _ _ _file _lic; do
+      [[ -e "${_m%/*}/${_file}" ]] || continue
+      _lib=${_file##*/}
+      for _text in "${_ghidra}"/{licenses,GPL/licenses}/"${_lic// /_}".*; do
+        [[ -e "${_text}" ]] && break
+      done
+      install -Dm644 "${_text}" -t "${_licdir}/${_lib%.*}"
+      _jar_licenses "${_m%/*}/${_file}" "${_licdir}/${_lib%.*}"
+    done < <(tr -d '\r' < "${_m}" | grep '^MODULE FILE LICENSE:')
+  done < <(find "${_ghidra}" "${_ext}" -name Module.manifest -print0)
+
+  install -Dm644 "${_ghidra}/GPL/DMG/LICENSE.txt" -t "${_licdir}/dmg"
+  local _yajsw_dir="${_ghidra}/Ghidra/Features/GhidraServer/data/yajsw-stable-${_yajsw}"
+  install -Dm644 "${_yajsw_dir}/LICENSE.txt" -t "${_licdir}/yajsw"
+  local _jar
+  while IFS= read -r -d '' _jar; do
+    _lib=${_jar##*/}
+    _jar_licenses "${_jar}" "${_licdir}/yajsw/${_lib%.*}"
+  done < <(find "${_yajsw_dir}" -name '*.jar' -print0)
+  _jar_licenses "${_ghidra}/support/gradle/gradle-wrapper.jar" "${_licdir}/gradle-wrapper"
+}
+
+# Copies the license and notice files that the jar $1 carries, if any, into
+# the directory $2.
+_jar_licenses() {
+  [[ $1 == *.jar ]] || return 0
+  local _f
+  while read -r _f; do
+    mkdir -p "$2"
+    bsdtar -xOf "$1" "${_f}" > "$2/${_f##*/}"
+  done < <(bsdtar -tf "$1" | grep -i -E '^(META-INF/)?[^/]*(LICEN[CS]E|NOTICE|COPYING)[^/]*$')
 }
