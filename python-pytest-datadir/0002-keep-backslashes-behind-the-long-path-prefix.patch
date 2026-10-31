@@ -1,0 +1,45 @@
+Keep backslashes behind the long-path prefix in MSYS2's ntpath.
+
+While MSYSTEM is set, MSYS2's Python separates with "/", and its
+ntpath.join() does so behind a "\\?\" prefix too, so shutil.copytree's
+copies failed with WinError 123. MSYS2's C helpers (Py_GetSepW) return
+a backslash for prefixed paths; ntpath's _get_sep and _get_altsep get
+the same rule here. Only MSYS2's ntpath has them, so elsewhere this
+does nothing.
+
+Upstream: not applicable (MSYS2's ntpath, from msys2-contrib/cpython-mingw)
+Applies-to: all environments
+
+--- a/src/pytest_datadir/plugin.py
++++ b/src/pytest_datadir/plugin.py
+@@ -1,3 +1,4 @@
++import ntpath
+ import os
+ import shutil
+ import sys
+@@ -6,6 +7,25 @@
+ from typing import Union
+ 
+ import pytest
++
++
++# MSYS2's ntpath joins with "/" behind the "\\?\" prefix while MSYSTEM is
++# set. Windows takes only backslashes there, as MSYS2's C helpers know.
++if hasattr(ntpath, "_get_sep"):
++
++    def _keep_backslashes(get_sep, prefixed_sep):
++        def wrapper(path):
++            if isinstance(path, bytes):
++                if path.startswith(b"\\\\?\\"):
++                    return prefixed_sep.encode()
++            elif path.startswith("\\\\?\\"):
++                return prefixed_sep
++            return get_sep(path)
++
++        return wrapper
++
++    ntpath._get_sep = _keep_backslashes(ntpath._get_sep, "\\")
++    ntpath._get_altsep = _keep_backslashes(ntpath._get_altsep, "/")
+ 
+ 
+ def _win32_longpath(path: str) -> str:

@@ -1,0 +1,60 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=pytest-datadir
+_pyname=${_realname/-/_}
+pkgbase=mingw-w64-python-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-python-${_realname}")
+pkgver=1.8.0
+pkgrel=1
+pkgdesc="pytest plugin for test data directories and files (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://github.com/gabrielcnr/pytest-datadir'
+msys2_repository_url='https://github.com/gabrielcnr/pytest-datadir'
+msys2_references=(
+  'archlinux: python-pytest-datadir'
+  'purl: pkg:pypi/pytest-datadir'
+)
+license=('spdx:MIT')
+depends=("${MINGW_PACKAGE_PREFIX}-python-pytest")
+makedepends=("${MINGW_PACKAGE_PREFIX}-python-build"
+             "${MINGW_PACKAGE_PREFIX}-python-installer"
+             "${MINGW_PACKAGE_PREFIX}-python-setuptools"
+             "${MINGW_PACKAGE_PREFIX}-python-setuptools-scm")
+options=('!strip')
+source=("https://pypi.org/packages/source/${_pyname::1}/${_pyname}/${_pyname}-${pkgver}.tar.gz"
+        '0001-build-the-long-path-prefix-with-backslashes.patch'
+        '0002-keep-backslashes-behind-the-long-path-prefix.patch')
+sha256sums=('7a15faed76cebe87cc91941dd1920a9a38eba56a09c11e9ddf1434d28a0f78eb'
+            'd40a1d02b05b75388efdeb9ad77b3077874c72525f2a98878a6ed5471f37a499'
+            '7c2ce1e23af3d01084b28f4f02b959f617d58ee7f3031b06fc76fed2ef3bfe3f')
+
+prepare() {
+  cd "${_pyname}-${pkgver}"
+  patch -Np1 -i "${srcdir}/0001-build-the-long-path-prefix-with-backslashes.patch"
+  patch -Np1 -i "${srcdir}/0002-keep-backslashes-behind-the-long-path-prefix.patch"
+}
+
+build() {
+  rm -rf "python-build-${MSYSTEM}"
+  cp -r "${_pyname}-${pkgver}" "python-build-${MSYSTEM}" && cd "python-build-${MSYSTEM}"
+  SETUPTOOLS_SCM_PRETEND_VERSION=${pkgver} \
+    "${MINGW_PREFIX}/bin/python" -m build --wheel --skip-dependency-check --no-isolation
+}
+
+check() {
+  cd "${srcdir}/python-build-${MSYSTEM}"
+  rm -rf _install
+  "${MINGW_PREFIX}/bin/python" -m installer --prefix= --destdir=_install dist/*.whl
+  local _tests="${PWD}/tests"
+  # pytest finds the plugin through the staged install's entry point.
+  cd _install/lib/python*/site-packages
+  PYTHONPATH=. "${MINGW_PREFIX}/bin/python" -m pytest -p no:cacheprovider "${_tests}"
+}
+
+package() {
+  cd "${srcdir}/python-build-${MSYSTEM}"
+  MSYS2_ARG_CONV_EXCL="--prefix=" \
+    "${MINGW_PREFIX}/bin/python" -m installer --prefix=${MINGW_PREFIX} --destdir="${pkgdir}" dist/*.whl
+  install -Dm644 LICENSE -t "${pkgdir}${MINGW_PREFIX}/share/licenses/python-${_realname}"
+}

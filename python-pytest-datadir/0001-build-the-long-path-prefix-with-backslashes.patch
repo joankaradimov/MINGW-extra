@@ -1,0 +1,24 @@
+Build the long-path prefix with backslashes only.
+
+_win32_longpath() puts "\\?\" in front of os.path.normpath(path).
+Behind that prefix Windows takes the path as it is, and only
+backslashes separate there. normpath separates with os.sep, which is
+"/" in MSYS2's Python while MSYSTEM is set, as it is in every MSYS2
+shell, so the fixtures' copies failed with WinError 3. The prefix now
+gets backslashes whatever os.sep is.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/src/pytest_datadir/plugin.py
++++ b/src/pytest_datadir/plugin.py
+@@ -18,7 +18,8 @@
+         # to a path string tells the Windows APIs to disable all string parsing
+         # and to send the string that follows it straight to the file system".
+         # (See https://docs.microsoft.com/pt-br/windows/desktop/FileIO/naming-a-file)
+-        normalized = os.path.normpath(path)
++        # Behind the prefix only backslashes separate, whatever os.sep is.
++        normalized = os.path.normpath(path).replace("/", "\\")
+         if not normalized.startswith("\\\\?\\"):
+             is_unc = normalized.startswith("\\\\")
+             # see https://en.wikipedia.org/wiki/Path_(computing)#Universal_Naming_Convention # noqa: E501
