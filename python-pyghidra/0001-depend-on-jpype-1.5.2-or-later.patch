@@ -1,0 +1,21 @@
+Depend on JPype 1.5.2 or later.
+
+PyGhidra 3.1.0 pins JPype1==1.5.2. This package runs on the JPype that
+MSYS2 users get here, 1.7.1, and Ghidra's master branch allows it:
+GP-7032 changed the pin to >=1.5.2, !=1.6.0, !=1.7.0 for PyGhidra
+3.2.0. Backported without the README entry.
+
+Upstream: https://github.com/NationalSecurityAgency/ghidra/commit/d5ed9bf9bb7022b91f617e0475fd8b53b1970a6a
+Applies-to: all environments
+
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -30,7 +30,7 @@
+     "Programming Language :: Python :: 3.14",
+ ]
+ dependencies = [
+-    "Jpype1==1.5.2",
++    "Jpype1 >=1.5.2, !=1.6.0, !=1.7.0",
+     "packaging"
+ ]
+ 

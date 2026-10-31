@@ -1,0 +1,37 @@
+Default to the Ghidra installed beside this Python.
+
+PyGhidra finds Ghidra through its install_dir argument, then the
+GHIDRA_INSTALL_DIR environment variable, then the "lastrun" file that
+the Ghidra GUI writes. Until one of them is set, the pyghidra command
+and pyghidra.start() stop with "GHIDRA_INSTALL_DIR is not set". MSYS2's
+ghidra package installs Ghidra in lib/ghidra under the prefix that
+holds this Python, so take that one last.
+
+Upstream: not applicable (MSYS2 layout)
+Applies-to: all environments
+
+--- a/src/pyghidra/launcher.py
++++ b/src/pyghidra/launcher.py
+@@ -176,6 +176,12 @@
+         
+     return None
+ 
++
++def _prefix_ghidra() -> Path:
++    # The Ghidra of the MSYS2 prefix this Python belongs to
++    install_dir = Path(sys.base_prefix) / "lib" / "ghidra"
++    return install_dir if install_dir.is_dir() else None
++
+ class PyGhidraLauncher:
+     """
+     Base pyghidra launcher
+@@ -196,7 +202,8 @@
+         self._dev_mode = False
+         self._extension_path = None
+ 
+-        install_dir = install_dir or os.getenv("GHIDRA_INSTALL_DIR") or _lastrun()
++        install_dir = (install_dir or os.getenv("GHIDRA_INSTALL_DIR") or _lastrun()
++                       or _prefix_ghidra())
+         self._install_dir = self._validate_install_dir(install_dir)
+ 
+         java_home_override = os.getenv("JAVA_HOME_OVERRIDE")

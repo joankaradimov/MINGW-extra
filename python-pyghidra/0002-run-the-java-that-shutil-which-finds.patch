@@ -1,0 +1,27 @@
+Run the java that shutil.which() finds.
+
+PyGhidraLauncher.java_home checks for java on the PATH with
+shutil.which() but then runs the bare name. On Windows which() also
+matches java.cmd and java.bat through PATHEXT, while CreateProcess
+looks only for java.exe, so a PATH whose java is a .cmd, as MSYS2's
+openjdk installs, ends in an uncaught FileNotFoundError, and a java.exe
+from a later PATH entry runs instead when there is one. Running the
+path which() returned makes the check and LaunchSupport use the java
+it found.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/src/pyghidra/launcher.py
++++ b/src/pyghidra/launcher.py
+@@ -320,8 +320,8 @@
+             # Check to see if java is on the PATH. If not, use JAVA_HOME.
+             # NOTE: shutils.which() is not enough...macOS puts a stub java on the PATH which
+             # will prevent that from working as expected, so you have to actually run it.
+-            java_cmd = 'java'
+-            if not shutil.which(java_cmd) or subprocess.run([java_cmd, "-version"], stderr=subprocess.DEVNULL).returncode != 0:
++            java_cmd = shutil.which('java')
++            if not java_cmd or subprocess.run([java_cmd, "-version"], stderr=subprocess.DEVNULL).returncode != 0:
+                 java_home_dir = os.environ.get('JAVA_HOME')
+                 if java_home_dir and os.path.isdir(java_home_dir):
+                     java_cmd = java_home_dir + "/bin/java"

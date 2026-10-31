@@ -1,0 +1,93 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=pyghidra
+pkgbase=mingw-w64-python-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-python-${_realname}")
+pkgver=3.1.0
+# PyGhidra comes from the tree of the Ghidra release it runs; Ghidra changes
+# it between releases without a new version, so PyPI's 3.1.0 is older.
+_ghidraver=12.1.4
+pkgrel=1
+pkgdesc="Native CPython for Ghidra (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://github.com/NationalSecurityAgency/ghidra/tree/master/Ghidra/Features/PyGhidra'
+msys2_repository_url='https://github.com/NationalSecurityAgency/ghidra'
+msys2_references=(
+  'purl: pkg:pypi/pyghidra'
+)
+license=('spdx:Apache-2.0')
+depends=("${MINGW_PACKAGE_PREFIX}-ghidra=${_ghidraver}"
+         "${MINGW_PACKAGE_PREFIX}-python"
+         "${MINGW_PACKAGE_PREFIX}-python-jpype1"
+         "${MINGW_PACKAGE_PREFIX}-python-packaging")
+makedepends=("${MINGW_PACKAGE_PREFIX}-python-build"
+             "${MINGW_PACKAGE_PREFIX}-python-installer"
+             "${MINGW_PACKAGE_PREFIX}-python-setuptools"
+             "${MINGW_PACKAGE_PREFIX}-python-wheel")
+checkdepends=("${MINGW_PACKAGE_PREFIX}-cc"
+              "${MINGW_PACKAGE_PREFIX}-python-pytest"
+              "${MINGW_PACKAGE_PREFIX}-python-pytest-datadir")
+options=('!strip')
+source=("ghidra-${_ghidraver}.tar.gz::https://github.com/NationalSecurityAgency/ghidra/archive/refs/tags/Ghidra_${_ghidraver}_build.tar.gz"
+        '0001-depend-on-jpype-1.5.2-or-later.patch'
+        '0002-run-the-java-that-shutil-which-finds.patch'
+        '0003-default-to-the-ghidra-beside-this-python.patch'
+        '0004-expect-the-bundle-finder-after-the-import-loader.patch'
+        'test-pyghidra.c'
+        'test-pyghidra.py')
+noextract=("ghidra-${_ghidraver}.tar.gz")
+sha256sums=('2a858300c350f05ae2e729dff86b4f584d0b9a6b398879c55025574e67696cec'
+            'c41fcf81c4fa2cead5db3100ef4e2afba7e1bb60791f81aedc729bcd749e6ece'
+            '9bb95af2c95c472506b36edffa0c8fe5b57cf5a07911e36fade4530cbdfb8e14'
+            '4f00985b2c71047a258ab7d3f5731a5cb7a813931beef935aebce3460654d58b'
+            'd1147c2e281258b7ba3724151cbc7a07585f22f41e17d766ed383fdf0c7593f5'
+            'aad89adf7fbfa076ead006e30ca07823e35b118a2d490778f77751d600148f24'
+            '96605d65244980f417bf6795823bc8da9a2726f5cdb923f3cf709f9f1bff8a8e')
+
+prepare() {
+  rm -rf "${_realname}-${pkgver}" && mkdir "${_realname}-${pkgver}"
+  bsdtar -xf "ghidra-${_ghidraver}.tar.gz" -C "${_realname}-${pkgver}" --strip-components 7 \
+    "ghidra-Ghidra_${_ghidraver}_build/Ghidra/Features/PyGhidra/src/main/py/*"
+  cd "${_realname}-${pkgver}"
+  grep -qx "__version__ = \"${pkgver}\"" src/pyghidra/__init__.py \
+    || { error "Ghidra ${_ghidraver} holds another PyGhidra version"; return 1; }
+
+  patch -Np1 -i "${srcdir}/0001-depend-on-jpype-1.5.2-or-later.patch"
+  patch -Np1 -i "${srcdir}/0002-run-the-java-that-shutil-which-finds.patch"
+  patch -Np1 -i "${srcdir}/0003-default-to-the-ghidra-beside-this-python.patch"
+  patch -Np1 -i "${srcdir}/0004-expect-the-bundle-finder-after-the-import-loader.patch"
+}
+
+build() {
+  rm -rf "python-build-${MSYSTEM}"
+  cp -r "${_realname}-${pkgver}" "python-build-${MSYSTEM}" && cd "python-build-${MSYSTEM}"
+  "${MINGW_PREFIX}/bin/python" -m build --wheel --skip-dependency-check --no-isolation
+}
+
+check() {
+  cd "${srcdir}/python-build-${MSYSTEM}"
+  rm -rf _install _test && mkdir _test
+  "${MINGW_PREFIX}/bin/python" -m installer --prefix= --destdir=_install dist/*.whl
+  cc -O2 -o _test/test-pyghidra.exe "${srcdir}/test-pyghidra.c"
+
+  local _tests="${PWD}/tests"
+  local _test="$(cygpath -w "${PWD}/_test")"
+  cd _install/lib/python*/site-packages
+  # Ghidra's settings and caches, and the lastrun file PyGhidra reads, kept
+  # out of the user's profile. Without GHIDRA_INSTALL_DIR and JAVA_HOME,
+  # PyGhidra takes the installed Ghidra and the java on PATH.
+  local -a _env=(env -u GHIDRA_INSTALL_DIR -u JAVA_HOME
+    XDG_CONFIG_HOME="${_test}\\config" XDG_CACHE_HOME="${_test}\\cache" PYTHONPATH=.)
+  "${_env[@]}" "${MINGW_PREFIX}/bin/python" -m pytest -p no:cacheprovider "${_tests}"
+  "${_env[@]}" "${MINGW_PREFIX}/bin/python" "${srcdir}/test-pyghidra.py" \
+    "${_test}\\test-pyghidra.exe" "${_test}\\project" 2>&1 | tee "${_test}/test-pyghidra.log"
+  grep -q 'test-pyghidra: passed' "${_test}/test-pyghidra.log"
+}
+
+package() {
+  cd "${srcdir}/python-build-${MSYSTEM}"
+  MSYS2_ARG_CONV_EXCL="--prefix=" \
+    "${MINGW_PREFIX}/bin/python" -m installer --prefix=${MINGW_PREFIX} --destdir="${pkgdir}" dist/*.whl
+  install -Dm644 LICENSE -t "${pkgdir}${MINGW_PREFIX}/share/licenses/python-${_realname}"
+}

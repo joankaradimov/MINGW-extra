@@ -1,0 +1,26 @@
+Expect the bundle finder after PyGhidra's import loader.
+
+test_import_ghidra_base_java_packages asserts that _PyGhidraImportLoader
+is the last entry of sys.meta_path. PyGhidraLauncher appends it and then
+a _GhidraBundleFinder, so the last entry is the finder and the test
+fails everywhere; Ghidra's master branch has the same test and code.
+Check both, in the order the launcher adds them.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/tests/test_core.py
++++ b/tests/test_core.py
+@@ -192,8 +192,10 @@
+ 
+     launcher = pyghidra.start()
+ 
+-    # Test to ensure _PyGhidraImportLoader is last loader
+-    assert isinstance(sys.meta_path[-1], pyghidra.launcher._PyGhidraImportLoader)
++    # Test to ensure _PyGhidraImportLoader comes after Python's own finders,
++    # followed only by the _GhidraBundleFinder that start() adds with it
++    assert isinstance(sys.meta_path[-2], pyghidra.launcher._PyGhidraImportLoader)
++    assert isinstance(sys.meta_path[-1], pyghidra.launcher._GhidraBundleFinder)
+ 
+     packages = get_runtime_top_level_java_packages(launcher)
+ 
