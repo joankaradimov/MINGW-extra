@@ -7,6 +7,13 @@ import java.awt.image.BufferedImage;
 import java.awt.image.ColorConvertOp;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.lang.foreign.Arena;
+import java.lang.foreign.FunctionDescriptor;
+import java.lang.foreign.Linker;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.SymbolLookup;
+import java.lang.foreign.ValueLayout;
+import java.lang.invoke.MethodHandle;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -60,7 +67,7 @@ public class SmokeTest {
     static int depth;
     static void recurse() { depth++; recurse(); }
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) throws Throwable {
         System.out.println(System.getProperty("java.vm.name") + " "
                 + System.getProperty("java.runtime.version"));
 
@@ -147,6 +154,20 @@ public class SmokeTest {
         ColorConvertOp gray = new ColorConvertOp(ColorSpace.getInstance(ColorSpace.CS_GRAY), null);
         BufferedImage grey = gray.filter(img, null);
         check("color management", grey.getWidth() == 64);
+
+        // Windows gives a program its own version only if the program's
+        // manifest says it supports Windows 10; otherwise it says 6.2.
+        try (Arena arena = Arena.ofConfined()) {
+            MethodHandle getVersionEx = Linker.nativeLinker().downcallHandle(
+                    SymbolLookup.libraryLookup("kernel32", arena).find("GetVersionExW").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+            MemorySegment info = arena.allocate(276);  // OSVERSIONINFOW
+            info.set(ValueLayout.JAVA_INT, 0, 276);
+            int ok = (int) getVersionEx.invokeExact(info);
+            int major = info.get(ValueLayout.JAVA_INT, 4);
+            check("launcher manifest (GetVersionEx says " + major + "."
+                    + info.get(ValueLayout.JAVA_INT, 8) + ")", ok != 0 && major >= 10);
+        }
 
         if (failures > 0) {
             System.out.println(failures + " failure(s)");

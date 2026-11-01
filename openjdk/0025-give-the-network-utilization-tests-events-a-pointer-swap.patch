@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sat, 31 Oct 2026 17:10:31 +0200
+Subject: [PATCH] Give the network utilization test's events a pointer swap
+
+libc++ 23's vector swaps its pointers with an unqualified swap after
+using std::swap. For MockEventNetworkUtilization, whose base class
+EventNetworkUtilization is global, argument-dependent lookup also finds
+HotSpot's swap template, which ties with std::swap, and clang rejects
+the call. A plain function for the pointer type wins over both. This is
+the only gtest the clash reaches.
+
+Upstream: not submitted; upstream builds no gtests against libc++ 23 yet
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ test/hotspot/gtest/jfr/test_networkUtilization.cpp | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/test/hotspot/gtest/jfr/test_networkUtilization.cpp b/test/hotspot/gtest/jfr/test_networkUtilization.cpp
+index 46c92dc46..5c339dec5 100644
+--- a/test/hotspot/gtest/jfr/test_networkUtilization.cpp
++++ b/test/hotspot/gtest/jfr/test_networkUtilization.cpp
+@@ -158,6 +158,17 @@ namespace {
+ 
+   std::list<MockNetworkInterface> MockJfrOSInterface::_interfaces;
+ 
++  class MockEventNetworkUtilization;
++
++  // libc++'s vector swaps its pointers after using std::swap, so lookup
++  // also finds HotSpot's swap template, by way of the base class, and the
++  // two tie. A function that is no template is preferred to both.
++  inline void swap(MockEventNetworkUtilization*& a, MockEventNetworkUtilization*& b) {
++    MockEventNetworkUtilization* t = a;
++    a = b;
++    b = t;
++  }
++
+   class MockEventNetworkUtilization : public ::EventNetworkUtilization {
+    public:
+     std::string iface;

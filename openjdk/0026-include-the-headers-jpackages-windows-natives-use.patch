@@ -1,0 +1,68 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sat, 31 Oct 2026 17:41:43 +0200
+Subject: [PATCH] Include the headers jpackage's Windows natives use
+
+SysInfo.h, Resources.h and WinFileUtils.h declare std::nothrow_t
+parameters without <new>, and ResourceEditor.h takes std::istream and
+std::streamsize without <istream>. They came in through other standard
+headers until libc++ 23, which no longer includes them there; jpackage.cpp
+then matched ResourceEditor::apply's other overload and failed too.
+
+Upstream: not submitted; upstream builds Windows only with Visual Studio
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/jdk.jpackage/share/native/common/SysInfo.h               | 1 +
+ src/jdk.jpackage/windows/native/common/Resources.h           | 1 +
+ src/jdk.jpackage/windows/native/common/WinFileUtils.h        | 1 +
+ src/jdk.jpackage/windows/native/libjpackage/ResourceEditor.h | 1 +
+ 4 files changed, 4 insertions(+)
+
+diff --git a/src/jdk.jpackage/share/native/common/SysInfo.h b/src/jdk.jpackage/share/native/common/SysInfo.h
+index 28609d084..f0513cf54 100644
+--- a/src/jdk.jpackage/share/native/common/SysInfo.h
++++ b/src/jdk.jpackage/share/native/common/SysInfo.h
+@@ -27,6 +27,7 @@
+ #ifndef SYSINFO_H
+ #define SYSINFO_H
+ 
++#include <new>
+ #include "tstrings.h"
+ 
+ 
+diff --git a/src/jdk.jpackage/windows/native/common/Resources.h b/src/jdk.jpackage/windows/native/common/Resources.h
+index 4d68e6780..c87fcf7cc 100644
+--- a/src/jdk.jpackage/windows/native/common/Resources.h
++++ b/src/jdk.jpackage/windows/native/common/Resources.h
+@@ -26,6 +26,7 @@
+ #ifndef RESOURCES_H
+ #define RESOURCES_H
+ 
++#include <new>
+ #include "WinSysInfo.h"
+ 
+ 
+diff --git a/src/jdk.jpackage/windows/native/common/WinFileUtils.h b/src/jdk.jpackage/windows/native/common/WinFileUtils.h
+index ba07efec7..9685b5ed4 100644
+--- a/src/jdk.jpackage/windows/native/common/WinFileUtils.h
++++ b/src/jdk.jpackage/windows/native/common/WinFileUtils.h
+@@ -27,6 +27,7 @@
+ #define WINFILEUTILS_H
+ 
+ 
++#include <new>
+ #include <fstream>
+ #include "SysInfo.h"
+ 
+diff --git a/src/jdk.jpackage/windows/native/libjpackage/ResourceEditor.h b/src/jdk.jpackage/windows/native/libjpackage/ResourceEditor.h
+index a41de54d9..c612b4db7 100644
+--- a/src/jdk.jpackage/windows/native/libjpackage/ResourceEditor.h
++++ b/src/jdk.jpackage/windows/native/libjpackage/ResourceEditor.h
+@@ -27,6 +27,7 @@
+ #define RESOURCEEDITOR_H
+ 
+ #include <windows.h>
++#include <istream>
+ #include <vector>
+ #include <string>
+ 

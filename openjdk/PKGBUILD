@@ -6,7 +6,7 @@ pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
 _majorver=27
 _updatever=35
 pkgver=${_majorver}.u${_updatever}
-pkgrel=2
+pkgrel=3
 # OpenJDK builds with a JDK of its own or the previous major version. MSYS2
 # has none, so the build runs on Adoptium's Temurin binaries; nothing of
 # them is installed.
@@ -70,6 +70,9 @@ source=("${_realname}-${pkgver}.tar.gz::https://github.com/openjdk/jdk/archive/r
         '0021-include-errno-h-where-winntfilesystem-sets-enomem.patch'
         '0022-mark-the-gss-api-exports-for-every-windows-compiler.patch'
         '0023-quote-the-dialog-menu-name-for-llvm-rc.patch'
+        '0024-link-the-launcher-manifests-that-the-link-recipe-compiles.patch'
+        '0025-give-the-network-utilization-tests-events-a-pointer-swap.patch'
+        '0026-include-the-headers-jpackages-windows-natives-use.patch'
         'launcher.cmd'
         'launcher.ps1'
         'openjdk.sh'
@@ -101,10 +104,13 @@ sha256sums=('73e6536bbcc31a5397bdb91ef976109bb648d794c3628e43908463647c54bd76'
             'c5ad2024a9cee23720d18acef4e02d7ea15810748d43aae17e83897fd9d8c775'
             '61bd080eac3e0f6c8b98e1220992a73ee2ce7a7b1fe96520b2273f2262616aaa'
             '6ace9e51993abaebcd8c16ac6fd7d145c8bfb724ac9b33a8f8f6820010931e6c'
+            '74dee134dba6ac204ee0c82cab4dcde2bb87e24ab5218ae634d64af35d41d891'
+            'a3de4acec27f9e9a6e9d9641976bd932aea1d2cd534aad8fb821061db4a7cef5'
+            'a7c96439da179ca6ddb47bd890c9c409b2a6315a08e68f6ade75773ca1dc9ac9'
             '757af1ee3caf476521f86311dfea5c5b0bdd939fc2cbc9e194bbd29a774d3631'
             '415db5eee471793deb67b3b4c9de65c2a7f7a13ccdb9c2871abb8f8a42ca7992'
             'cfad1d1e80bb014c04c5bb4e73c9347cc57f41778fdb946d1732b6990c3aa58b'
-            'de7440c665164e54304e96c4c9aa3d7fd415a1b439d51849efbfce44651177dd'
+            'c7610db5c95434647e5c19f249ac70b3a99cc467256f23d23fd9d68be53606ca'
             'c9f0e5959ecb923ac713fc8d735cd8faebbcb4763560b509050ece7ce7a753eb')
 
 _srcdir="jdk-${_tag/+/-}"
@@ -175,7 +181,16 @@ check() {
   make test-image-hotspot-gtest
   make test-only TEST=gtest
 
-  ./images/jdk/bin/java "${srcdir}/test-openjdk.java"
+  # Every launcher carries the manifest OpenJDK gives it (0024), not GCC's
+  # default or none; OpenJDK's set uiAccess, GCC's does not. The two
+  # accessibility tools get none from OpenJDK.
+  local _exe
+  for _exe in images/jdk/bin/*.exe; do
+    case ${_exe##*/} in jaccessinspector.exe|jaccesswalker.exe) continue ;; esac
+    grep -q -a 'uiAccess=' "${_exe}" \
+      || { error "${_exe##*/} lacks OpenJDK's manifest"; return 1; }
+  done
+  ./images/jdk/bin/java --enable-native-access=ALL-UNNAMED "${srcdir}/test-openjdk.java"
 
   # libjsvml has a variant per instruction set; the VM caps UseAVX at what
   # the CPU supports.

@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sat, 31 Oct 2026 16:45:00 +0200
+Subject: [PATCH] Link the launcher manifests that the link recipe compiles
+
+The link line took manifest.res through $(wildcard), but make expands
+the whole recipe before it runs the windres step that writes the file,
+so a clean build linked no manifest. CLANG64's launchers came out
+without one, and Windows told them they ran on Windows 8 (GetVersionEx
+6.2); UCRT64's got GCC's default manifest instead, without the common
+controls 6 dependency and the DPI awareness that java.manifest asks for.
+Link it under the same conditions that compile it.
+
+Upstream: not submitted; fixes the Windows/gcc port, not upstream OpenJDK
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ make/common/native/Link.gmk | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/make/common/native/Link.gmk b/make/common/native/Link.gmk
+index d354de99e..4e2bbdf9b 100644
+--- a/make/common/native/Link.gmk
++++ b/make/common/native/Link.gmk
+@@ -172,6 +172,15 @@ define CreateDynamicLibraryOrExecutable
+ 
+   $1_TARGET_DEPS := $$($1_ALL_OBJS) $$($1_RES) $$($1_MANIFEST) $$($1_EXTRA_LINK_DEPS) $$($1_VARDEPS_FILE)
+ 
++  # The recipe compiles the manifest just before it links, and make expands
++  # the whole recipe before it runs any of it, so a wildcard there finds the
++  # compiled manifest only when an earlier build left one behind.
++  ifneq ($(filter gcc+true clang+true, $(TOOLCHAIN_TYPE)+$(call isTargetOs, windows)), )
++    ifneq ($$($1_MANIFEST), )
++      $1_MANIFEST_RES := $$($1_OBJECT_DIR)/manifest.res
++    endif
++  endif
++
+   $$($1_TARGET): $$($1_TARGET_DEPS)
+         ifneq ($$($1_OBJ_FILE_LIST), )
+           ifeq ($$($1_LINK_OBJS_RELATIVE), true)
+@@ -206,7 +215,7 @@ define CreateDynamicLibraryOrExecutable
+ 	    $$($1_LD) $$($1_LDFLAGS) $$($1_EXTRA_LDFLAGS) \
+ 	        $$($1_SYSROOT_LDFLAGS) -o $$($1_TARGET) $$($1_LD_OBJ_ARG) \
+ 	        $$(if $$(filter true, $$(call And, $(call isTargetOs, macosx) $$(if $$(findstring -flto, $$($1_LDFLAGS)), true, false) $$(if $$(filter clang, $(TOOLCHAIN_TYPE)), true, false))), -Wl$$(COMMA)-object_path_lto$$(COMMA)$$($1_OBJECT_DIR)/$$($1_NAME)_lto_helper.o) \
+-	        $$(if $$(wildcard $$($1_OBJECT_DIR)/manifest.res), $$($1_OBJECT_DIR)/manifest.res) \
++	        $$($1_MANIFEST_RES) \
+ 	        $$($1_RES) $$($1_LIBS) $$($1_EXTRA_LIBS))
+         ifeq ($$($1_CREATE_DEBUGINFO), true)
+           ifeq ($(call isTargetOs, linux), true)
