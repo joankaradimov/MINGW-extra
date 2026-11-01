@@ -1,0 +1,33 @@
+Don't make the system libffi's linker flags a make prerequisite.
+
+With USE_SYSTEM_LIBFFI=1, LIBFFI_LIBS holds `pkg-config --libs libffi`,
+which on MSYS2 is "-LC:/msys64/<env>/lib -lffi". As a prerequisite of
+the DLL and of every object, the "C:" makes GNU make stop with
+"multiple target patterns", and -lffi alone fails with "No rule to make
+target '-lffi'" because make only looks for it in /lib and /usr/lib.
+Depend on $(LIBFFI), the bundled convenience archive, which is empty
+when the system libffi is used; the link line keeps $(LIBFFI_LIBS).
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/jni/GNUmakefile
++++ b/jni/GNUmakefile
+@@ -262,7 +262,7 @@
+ 	@echo "JFFI_BUILD_DIR=$(JFFI_BUILD_DIR)"
+ 	@echo "OBJS=$(OBJS)"
+ 
+-$(LIBJFFI):  $(OBJS) $(LIBFFI_LIBS)
++$(LIBJFFI):  $(OBJS) $(LIBFFI)
+ 	$(CC) -o $@ $(LDFLAGS) $(SOFLAGS) $(OBJS) $(LIBFFI_LIBS) $(LIBS)
+ 	$(STRIP) $@
+ ifeq ($(OS), darwin)
+@@ -277,7 +277,7 @@
+ 	@mkdir -p $(@D)
+ 	@$(CC) $(CFLAGS) -o $@ -c $<
+ 
+-$(OBJS) : $(LIBFFI_LIBS)
++$(OBJS) : $(LIBFFI)
+ 
+ ifeq ($(OS), darwin)
+ build_ffi = \

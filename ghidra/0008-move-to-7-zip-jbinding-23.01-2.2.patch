@@ -1,0 +1,45 @@
+Move to 7-Zip-JBinding 23.01-2.2.
+
+16.02-2.01 compiles in 7-Zip 16.02, whose archive decoders have published
+memory-safety bugs, CVE-2018-10115 in RAR among them. 23.01-2.2 carries
+7-Zip 23.01 behind the same Java API. Its jar names the macOS directory
+"Mac" rather than "Mac-x86_64".
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/Ghidra/Features/FileFormats/Module.manifest
++++ b/Ghidra/Features/FileFormats/Module.manifest
+@@ -5,8 +5,8 @@ MODULE FILE LICENSE: lib/dex-translator-2.4.24.jar Apache License 2.0
+ MODULE FILE LICENSE: lib/baksmali-2.5.2.jar BSD-3-GRUVER
+ MODULE FILE LICENSE: lib/dexlib2-2.5.2.jar BSD-3-GRUVER
+ MODULE FILE LICENSE: lib/util-2.5.2.jar BSD-3-GRUVER
+-MODULE FILE LICENSE: lib/sevenzipjbinding-16.02-2.01.jar LGPL 2.1
+-MODULE FILE LICENSE: lib/sevenzipjbinding-all-platforms-16.02-2.01.jar LGPL 2.1
++MODULE FILE LICENSE: lib/sevenzipjbinding-23.01-2.2.jar LGPL 2.1
++MODULE FILE LICENSE: lib/sevenzipjbinding-all-platforms-23.01-2.2.jar LGPL 2.1
+ MODULE FILE LICENSE: lib/AXMLPrinter2.jar Apache License 2.0
+ MODULE FILE LICENSE: os/win_86_64/lzfse.exe BSD-3-APPLE
+ MODULE FILE LICENSE: os/mac_86_64/lzfse BSD-3-APPLE
+--- a/Ghidra/Features/FileFormats/build.gradle
++++ b/Ghidra/Features/FileFormats/build.gradle
+@@ -46,8 +46,8 @@ dependencies {
+ 	api ':AXMLPrinter2'
+ 
+ 	// Used by "ZIP" and "7zip" file systems
+-	api 'net.sf.sevenzipjbinding:sevenzipjbinding:16.02-2.01'	
+-	runtimeOnly 'net.sf.sevenzipjbinding:sevenzipjbinding-all-platforms:16.02-2.01'
++	api 'net.sf.sevenzipjbinding:sevenzipjbinding:23.01-2.2'	
++	runtimeOnly 'net.sf.sevenzipjbinding:sevenzipjbinding-all-platforms:23.01-2.2'
+ 	
+ 	// include code from src/test/slow in Base
+ 	testImplementation project(path: ':Base', configuration: 'integrationTestArtifacts')	
+@@ -87,7 +87,7 @@ task extractSevenZipNativeLibs(type: Copy) {
+ 	    from zipTree(jarPath)
+ 	    include  "Linux-amd64/*.so"
+ 	    include  "Windows-amd64/*.dll"
+-	    include  "Mac-x86_64/*.dylib"
++	    include  "Mac/*.dylib"
+ 	    exclude "META-INF"
+ 	    exclude "Linux-i386"
+ 	    exclude "Windows-x86"

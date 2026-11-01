@@ -1,0 +1,20 @@
+Fix the Windows branch of libtest's testThreadedClosureVrV().
+
+The non-pthread branch loops over t->count, but t is only declared in
+the pthread branch, so libtest (built only by `ant test`) does not
+compile on Windows. The call count is the parameter n.
+
+Upstream: not submitted
+Applies-to: all environments (test library only)
+
+--- a/libtest/ClosureTest.c
++++ b/libtest/ClosureTest.c
+@@ -124,7 +124,7 @@
+     pthread_join(t, NULL);
+ #else
+     int i;
+-    for (i = 0; i < t->count; i++) {
++    for (i = 0; i < n; i++) {
+         (*closure)();
+     }
+ #endif

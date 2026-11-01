@@ -1,0 +1,34 @@
+Declare PathIsRelative() and link shlwapi on Windows.
+
+Library.c calls PathIsRelativeW() and PathIsRelative(), which live in
+<shlwapi.h> and shlwapi.dll, but includes neither. GCC 14+ and clang
+reject the implicit declarations as errors, and the DLL would not link.
+The 2012 prebuilt jffi-1.2.dll imports no shlwapi.dll; it predates them.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/jni/GNUmakefile
++++ b/jni/GNUmakefile
+@@ -161,6 +161,11 @@
+   JNIEXT=dll
+ endif
+ 
++ifneq ($(filter win32 win64,$(OS)),)
++  # PathIsRelative() in Library.c
++  LIBS += -lshlwapi
++endif
++
+ ifeq ($(OS), darwin)
+   PLATFORM = darwin
+   ARCHES = x86_64 arm64
+--- a/jni/jffi/Library.c
++++ b/jni/jffi/Library.c
+@@ -38,6 +38,7 @@
+ 
+ #if defined(_WIN32) || defined(__WIN32__)
+ # include <windows.h>
++# include <shlwapi.h>
+ # include <malloc.h>
+ #else
+ # include <dlfcn.h>

@@ -1,0 +1,24 @@
+Name the native library without reading LOCATION.
+
+CMake 4 refuses cmake_policy(SET CMP0026 OLD), and with the policy NEW
+the LOCATION property of a target cannot be read at configure time.
+The value was only used for its file name, which is the shared-library
+prefix and suffix around the target name.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -165,10 +165,7 @@
+ 
+ ADD_DEPENDENCIES(7-Zip-JBinding sevenzipjbinding-jar)
+ 
+-cmake_policy(SET CMP0026 OLD)
+-# TODO: Not allowed due to policy CMP0026
+-GET_TARGET_PROPERTY(SEVENZIP_JBINDING_LIB 7-Zip-JBinding LOCATION)
+-GET_FILENAME_COMPONENT(SEVENZIP_JBINDING_LIB_FILENAME "${SEVENZIP_JBINDING_LIB}" NAME)
++SET(SEVENZIP_JBINDING_LIB_FILENAME "${CMAKE_SHARED_LIBRARY_PREFIX}7-Zip-JBinding${CMAKE_SHARED_LIBRARY_SUFFIX}")
+ 
+ FILE(MAKE_DIRECTORY ${PROJECT_BINARY_DIR}/${PLATFORM})
+ STRING(RANDOM LENGTH 12 BUILD_REF)

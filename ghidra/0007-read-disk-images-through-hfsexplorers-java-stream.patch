@@ -1,0 +1,50 @@
+Read disk images through HFSExplorer's Java file stream on Windows too.
+
+On Windows, DmgFileReader opened the image with HFSExplorer's
+WindowsLowLevelIO, which loads llio_amd64.dll: a 2008 Visual C++ build
+checked in without its source. That class exists to read raw drives,
+which Java cannot open on Windows; a disk image is an ordinary file, and
+ReadableFileStream, used on every other system and already here for the
+UDIF header, reads it. The llio libraries are deleted in prepare(), so
+their lines leave the certification manifest.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/GPL/DMG/certification.manifest
++++ b/GPL/DMG/certification.manifest
+@@ -9,10 +9,4 @@ data/lib/hfsexplorer-0_21-src.zip||GPL 3||||END|
+ data/lib/hfsx.jar||GPL 3||||END|
+ data/lib/hfsx_dmglib.jar||GPL 3||||END|
+ data/lib/iharder-base64.jar||GPL 3||||END|
+-data/os/win_x86_32/llio_amd64.dll||GPL 3||||END|
+-data/os/win_x86_32/llio_i386.dll||GPL 3||||END|
+-data/os/win_x86_32/llio_ia64.dll||GPL 3||||END|
+-data/os/win_x86_64/llio_amd64.dll||GPL 3||||END|
+-data/os/win_x86_64/llio_i386.dll||GPL 3||||END|
+-data/os/win_x86_64/llio_ia64.dll||GPL 3||||END|
+ data/server_memory.cfg||Public Domain||||END|
+--- a/GPL/DMG/src/dmg/java/mobiledevices/dmg/reader/DmgFileReader.java
++++ b/GPL/DMG/src/dmg/java/mobiledevices/dmg/reader/DmgFileReader.java
+@@ -14,7 +14,6 @@ import org.catacombae.hfsexplorer.PartitionSystemRecognizer;
+ import org.catacombae.hfsexplorer.UDIFRecognizer;
+ import org.catacombae.hfsexplorer.partitioning.Partition;
+ import org.catacombae.hfsexplorer.partitioning.PartitionSystem;
+-import org.catacombae.hfsexplorer.win32.WindowsLowLevelIO;
+ import org.catacombae.io.*;
+ import org.catacombae.jparted.lib.DataLocator;
+ import org.catacombae.jparted.lib.ReadableStreamDataLocator;
+@@ -47,12 +46,7 @@ public class DmgFileReader implements Closeable {
+ 
+ 		File file = provider.getFile();
+ 
+-		if (WindowsLowLevelIO.isSystemSupported()) {
+-			rras = new WindowsLowLevelIO(file.getAbsolutePath());
+-		}
+-		else {
+-			rras = new ReadableFileStream(file.getAbsolutePath());
+-		}
++		rras = new ReadableFileStream(file.getAbsolutePath());
+ 
+ 		if (ReadableCEncryptedEncodingStream.isCEncryptedEncoding(rras)) {
+ 			//TODO use our decryption instead??

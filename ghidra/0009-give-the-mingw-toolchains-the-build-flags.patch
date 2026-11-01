@@ -1,0 +1,29 @@
+Give the MinGW-w64 toolchains CFLAGS, CXXFLAGS and LDFLAGS.
+
+Gradle's native plugins read no flags from the environment, so the
+natives built with 0001's cc and c++ got none of the build's own: here
+makepkg's, and a -ffile-prefix-map that keeps the build directory out of
+lzfse.exe's assert messages.
+
+Upstream: not submitted
+Applies-to: all environments
+
+--- a/GPL/nativeBuildProperties.gradle
++++ b/GPL/nativeBuildProperties.gradle
+@@ -61,10 +61,16 @@ model {
+ 				// MinGW-w64 GCC or Clang. A bare "gcc" can find an MSYS2 or
+ 				// Cygwin compiler that builds for neither.
+ 				removeAll { it in VisualCpp }
++				// They also take CFLAGS, CXXFLAGS and LDFLAGS, as a build
++				// with make would.
++				def flags = { name -> (System.getenv(name) ?: "").tokenize() }
+ 				def mingw = { t ->
+ 					t.cCompiler.executable = "cc"
+ 					t.cppCompiler.executable = "c++"
+ 					t.linker.executable = "c++"
++					t.cCompiler.withArguments { it.addAll(flags("CFLAGS")) }
++					t.cppCompiler.withArguments { it.addAll(flags("CXXFLAGS")) }
++					t.linker.withArguments { it.addAll(flags("LDFLAGS")) }
+ 				}
+ 				gcc(Gcc).target(current, mingw)
+ 				clang(Clang).target(current, mingw)

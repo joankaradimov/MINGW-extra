@@ -4,12 +4,18 @@ _realname=ghidra
 pkgbase=mingw-w64-${_realname}
 pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
 pkgver=12.1.4
-pkgrel=2
+pkgrel=3
 _javaver=27
 _yajsw=13.18
 # The JNA releases that Ghidra and YAJSW bundle
 _jna=5.14.0
 _yajsw_jna=5.12.1
+# The libraries whose natives are built here, as Ghidra bundles them, and
+# the jffi that Ghidra's Jython bundles
+_sevenzip=23.01-2.2
+_flatlaf=3.5.4
+_jython=2.7.4
+_jffi=1.3.13
 pkgdesc="Software reverse engineering framework (mingw-w64)"
 arch=('any')
 mingw_arch=('ucrt64' 'clang64')
@@ -30,6 +36,9 @@ depends=("${MINGW_PACKAGE_PREFIX}-cc-libs"
          "${MINGW_PACKAGE_PREFIX}-zlib")
 makedepends=("${MINGW_PACKAGE_PREFIX}-ant"
              "${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-cmake"
+             "${MINGW_PACKAGE_PREFIX}-ninja"
+             "${MINGW_PACKAGE_PREFIX}-pkgconf"
              "${MINGW_PACKAGE_PREFIX}-python"
              "${MINGW_PACKAGE_PREFIX}-python-pip"
              "${MINGW_PACKAGE_PREFIX}-python-setuptools"
@@ -47,6 +56,8 @@ _data=https://github.com/NationalSecurityAgency/ghidra-data/raw/Ghidra_${pkgver}
 # for the server and the Function ID databases. The Maven Central jars come
 # with the build itself.
 _fidbs=({vs2012,vs2015,vs2017,vs2019,vsOlder}_{x64,x86}.fidb)
+# For check(): Rectangle's release, a small HFS+ disk image (MIT)
+_dmg=https://github.com/rxhanson/Rectangle/releases/download/v2.0.4/Rectangle2.0.4.dmg
 source=("${_realname}-${pkgver}.tar.gz::https://github.com/NationalSecurityAgency/ghidra/archive/refs/tags/Ghidra_${pkgver}_build.tar.gz"
         "${_data}/lib/java-sarif-2.1-modified.jar"
         "${_data}/Debugger/dbgmodel.tlb"
@@ -55,21 +66,37 @@ source=("${_realname}-${pkgver}.tar.gz::https://github.com/NationalSecurityAgenc
         "${_fidbs[@]/#/${_data}/FunctionID/}"
         "jna-${_jna}.tar.gz::https://github.com/java-native-access/jna/archive/refs/tags/${_jna}.tar.gz"
         "jna-${_yajsw_jna}.tar.gz::https://github.com/java-native-access/jna/archive/refs/tags/${_yajsw_jna}.tar.gz"
+        "sevenzipjbinding-${_sevenzip}.tar.gz::https://github.com/borisbrodski/sevenzipjbinding/archive/refs/tags/Release-${_sevenzip}.tar.gz"
+        "FlatLaf-${_flatlaf}.tar.gz::https://github.com/JFormDesigner/FlatLaf/archive/refs/tags/${_flatlaf}.tar.gz"
+        "jffi-${_jffi}.tar.gz::https://github.com/jnr/jffi/archive/refs/tags/jffi-${_jffi}.tar.gz"
+        "${_dmg}"
         '0001-build-the-windows-natives-with-mingw-w64.patch'
         '0002-keep-the-sleigh-scanners-isatty-stub-to-msvc.patch'
         '0003-link-sleigh-against-the-system-zlib.patch'
         '0004-compile-the-gui-test-helpers-without-appcontext.patch'
         '0005-let-a-gradle-property-choose-the-python.patch'
         '0006-leave-yajsws-sigar-out-of-the-distribution.patch'
+        '0007-read-disk-images-through-hfsexplorers-java-stream.patch'
+        '0008-move-to-7-zip-jbinding-23.01-2.2.patch'
+        '0009-give-the-mingw-toolchains-the-build-flags.patch'
+        'sevenzipjbinding-0001-name-the-native-library-without-cmp0026.patch'
+        'jffi-0001-do-not-depend-on-system-libffi-link-flags.patch'
+        'jffi-0002-include-shlwapi-for-PathIsRelative.patch'
+        'jffi-0003-fix-windows-testThreadedClosureVrV.patch'
+        'jffi-0004-drop-gcc-only-flags-from-win64-build.patch'
         'verification-metadata.xml'
         'launcher.cmd'
         'launcher.sh'
+        'test-flatlaf.java'
+        'test-formats.java'
         'test-ghidra.cpp'
         'test-ghidra.java'
-        'test-jna.java')
+        'test-jna.java'
+        'test-jython.py')
 noextract=('java-sarif-2.1-modified.jar'
            'AXMLPrinter2.jar'
-           "yajsw-stable-${_yajsw}.zip")
+           "yajsw-stable-${_yajsw}.zip"
+           "${_dmg##*/}")
 sha256sums=('2a858300c350f05ae2e729dff86b4f584d0b9a6b398879c55025574e67696cec'
             '7f736566494756d271aa5e4b1af6c89dc50d074ab1c6374a47df822264226b01'
             '8cf5f3a2eb81160aa349056a5ca4c2c726b1b6e98bf3097cd4135147163343c7'
@@ -87,18 +114,33 @@ sha256sums=('2a858300c350f05ae2e729dff86b4f584d0b9a6b398879c55025574e67696cec'
             '98605c6b6b9214a945d844e41c85860d54649a45bca7873ef6991c0e93720787'
             'b8a51f4c97708171fc487304f98832ce954b6c02e85780de71d18888fddc69e3'
             '2046655137ecd7f03e57a14bbe05e14d8299440604f993cef171c449daa3789c'
+            '8e12ceb67530e6332f7778256b37ff1694cc7098ad3ccac208f8b7c688e58ce3'
+            '23ea9e98fd05cd6937b44d820a883985156424decb7d02d952710bc8478e3ced'
+            '299a1656b7ca35593623160f5bca988ea773c49480eb33d495256f46ccfc655d'
+            '9f820a2e56bd2c27cdda4fb4556de3cbcfcbac052d9eeb2179d49e2dae277abc'
             'dccfc7511b819e0f53a07f5f2f47acd9c55d5cf4dedf188c1a850f36ba1c30d4'
             '670085b88cf8f90c66ac7a5f117e150c725223e1501c2b2d3f8e69ffe5ed1cda'
             'c860bbcd61e990d6b8e86b5112f189677968988aaed7dbc3d287cadf8140ac21'
             'b4a3a2ac064bb3a4ed304ee68137c0b6dc018f56d7b4edcd27819707367c3c5b'
             '67a97102d7f331035efd800147e268c95dd40606eed2c3ecacf6bd743d88eff2'
             '4c6c445fbe6692da0de5067e33dffb6894d8bee96e59384e3965540d9898f8fc'
-            'cdc59e61320652f18176b8ca1b0c4131af90b0a534effb8a6fbb9d45fc73a3ca'
+            '8a3e4330ad7eef34378749d036f40d7b8cd3fb7552566fd5af8b9c09854e7007'
+            'fc14cc87b5bba7cb01838dd0f6fbfd7200e6a37173c66fb924c8fbafa9009e82'
+            '6c619d085b2d8bc4638ca2da3fdf2a2b09b381a3e4b4cb51b4b30231162d7816'
+            'd88a40585063467bfefa32f187c64b2bad45c7205075f64bc560b6cee113ea03'
+            'e66138f8e156409151616cd1f095e89a58a18794b9309eb277c1b4f28f72184a'
+            'fcb59ac839e4cfbe4710a53931fd563c3488e39b9c87af43584e5e82e08dfc0a'
+            '859bda93f2d1bd013453a32687338c75d17950a05d832e8c46918fe8819a6263'
+            '96a155c62f1bcf79fa3468b677d2842d899077a02c635114b79309dd8e629380'
+            '7068747b23bc09ad07d8eab85b7d92054175c3e96e7162683c28b595b715f441'
             '5186b5468ac6c0a4ad5a69b7a84ad73d4653ee181e88efb135f3390030cc3652'
             'e6be601ad0fb8494dc62b4cbd0eef043b26e3c2c65a4745a58b9e74df38f1e25'
+            '17ddd40af4c7a09aec3b74067ea92f73d35525113fed1f2a4a906d89e6423fc3'
+            '325af9b42a32ae177566678cb1e89dd705c20e7104774d2055162f1453be8abb'
             '3f568aad40a3f5e6318c164d99626584e29911958a3e20f1bd5ee2e147f6aa11'
             '68dd88cc5ed95abc5c0f9c7a348c856f7e80fe62a552c4e04bc301765d89b445'
-            'c4ff30adaa1910203a30fbe876c73dacf500b6d0fb694276c74d4ef8e287ac75')
+            'c4ff30adaa1910203a30fbe876c73dacf500b6d0fb694276c74d4ef8e287ac75'
+            '44c19b288c18950507014405081c0b8ecc83bdb680eecc4c54490d47eeb05e59')
 
 _srcdir="ghidra-Ghidra_${pkgver}_build"
 _jvmdir="java-${_javaver}-openjdk"
@@ -113,6 +155,8 @@ prepare() {
 
   # It needs Z3's Java bindings, which MSYS2's z3 does not build.
   rm -r Ghidra/Extensions/SymbolicSummaryZ3
+  # HFSExplorer's Windows file reader, which 0007 retires
+  rm -r GPL/DMG/data/os
 
   local _f _sum
   for _f in java-sarif-2.1-modified.jar AXMLPrinter2.jar dbgmodel.tlb \
@@ -133,6 +177,22 @@ prepare() {
     || { error "Ghidra no longer bundles JNA ${_jna}"; return 1; }
   bsdtar -tf "${srcdir}/yajsw-stable-${_yajsw}.zip" | grep -q "/lib/core/jna/jna-${_yajsw_jna}.jar$" \
     || { error "YAJSW no longer bundles JNA ${_yajsw_jna}"; return 1; }
+  grep -q "sevenzipjbinding:${_sevenzip}'" Ghidra/Features/FileFormats/build.gradle \
+    || { error "Ghidra no longer bundles 7-Zip-JBinding ${_sevenzip}"; return 1; }
+  grep -q "com.formdev:flatlaf:${_flatlaf}'" Ghidra/Framework/Gui/build.gradle \
+    || { error "Ghidra no longer bundles FlatLaf ${_flatlaf}"; return 1; }
+  grep -q "jython-standalone:${_jython}\"" Ghidra/Extensions/Jython/build.gradle \
+    || { error "Ghidra no longer bundles Jython ${_jython}"; return 1; }
+
+  cd "${srcdir}/sevenzipjbinding-Release-${_sevenzip}"
+  patch -Np1 -i "${srcdir}/sevenzipjbinding-0001-name-the-native-library-without-cmp0026.patch"
+
+  cd "${srcdir}/jffi-jffi-${_jffi}"
+  for _p in "${srcdir}"/jffi-00*.patch; do
+    patch -Np1 -i "${_p}"
+  done
+  # Upstream's stubs for every platform, and a JUnit the tests do not use
+  rm archive/*.jar lib/junit/junit-3.8.2.jar
 }
 
 # Runs JNA $1's own Ant build with the targets that follow, jnidispatch.dll
@@ -153,15 +213,88 @@ _ant_jna() {
     "$@")
 }
 
-# Replaces the jnidispatch libraries in the JNA jar $1, built by upstream for
-# every platform, with the one built for JNA $2.
+# Replaces the natives in the jar $1, built by upstream for every platform:
+# the entries matching the patterns that follow go, and the files under the
+# directory $2 come in at the same paths.
+_swap_natives() {
+  local _jar=$1 _dir=$2; shift 2
+  zip -q -d "${_jar}" "$@"
+  (cd "${_dir}" && zip -q -X -D -r "${_jar}" .)
+}
+
+# Fails unless the natives in the jar $1 are the paths that follow. A
+# pattern that no longer matches leaves upstream's in without a word.
+_check_natives() {
+  local _jar=$1; shift
+  local _got _want
+  _got=$(bsdtar -tf "${_jar}" | grep -i -E '\.(dll|exe|so|dylib|jnilib|a)$' | sort)
+  _want=$(printf '%s\n' "$@" | sort)
+  [[ ${_got} == "${_want}" ]] \
+    || { error "${_jar##*/} holds other natives: ${_got//$'\n'/ }"; return 1; }
+}
+
+# Replaces the jnidispatch libraries in the JNA jar $1 with the one built for
+# JNA $2.
 _swap_jnidispatch() {
   local _dir="${srcdir}/jna-$2/build/jar-swap"
   mkdir -p "${_dir}/com/sun/jna/win32-x86-64"
   cp "${srcdir}/jna-$2/build/native-win32-x86-64/jnidispatch.dll" \
     "${_dir}/com/sun/jna/win32-x86-64/"
-  zip -q -d "$1" 'com/sun/jna/*/*jnidispatch*'
-  (cd "${_dir}" && zip -q -X "$1" com/sun/jna/win32-x86-64/jnidispatch.dll)
+  _swap_natives "$1" "${_dir}" 'com/sun/jna/*/*jnidispatch*'
+  _check_natives "$1" com/sun/jna/win32-x86-64/jnidispatch.dll
+}
+
+# FlatLaf's Windows library, built with its Gradle file's GCC and Clang
+# flags and with MSVC's ways: no exceptions or RTTI, so no C++ runtime to
+# import, and a new that returns NULL, as Runtime.cpp's does. Clang leaves
+# sized deallocation off for MinGW, and delete would then reach the C++
+# runtime's operator delete instead of Runtime.cpp's.
+_build_flatlaf() {
+  local _jdk="${MINGW_PREFIX}/lib/jvm/${_jvmdir}"
+  local _out="${srcdir}/flatlaf-natives/com/formdev/flatlaf/natives"
+  mkdir -p "${_out}"
+  cd "${srcdir}/FlatLaf-${_flatlaf}/flatlaf-natives/flatlaf-natives-windows"
+  c++ ${CPPFLAGS} ${CXXFLAGS} -DUNICODE \
+    -fno-exceptions -fno-rtti -fcheck-new -fsized-deallocation \
+    -I"${_jdk}/include" -I"${_jdk}/include/win32" -Isrc/main/headers \
+    -shared ${LDFLAGS} -o "${_out}/flatlaf-windows-x86_64.dll" src/main/cpp/*.cpp \
+    -luser32 -lgdi32 -lshell32 -ladvapi32 -lkernel32 -ldwmapi
+}
+
+# Runs jffi's own Ant build with the arguments that follow, its stub linked
+# against MSYS2's libffi. Its win64 make rules name x86_64-w64-mingw32-gcc
+# and -strip and take the JNI headers from WIN32_JNI_INCLUDES; Ant passes
+# make none of these, but MAKEFLAGS carries them past it.
+_ant_jffi() {
+  local _jdk="${MINGW_PREFIX}/lib/jvm/${_jvmdir}"
+  (cd "${srcdir}/jffi-jffi-${_jffi}" && JAVA_HOME="${_jdk}" \
+    MAKEFLAGS="${MAKEFLAGS} OS=win64 CC=cc STRIP=strip WIN32_JNI_INCLUDES=${_jdk}/include" \
+    ant -Duse.system.libffi=1 "$@")
+}
+
+# 7-Zip-JBinding's own CMake build. CMake 4 takes it only as a 3.5 project,
+# and above 3.19 its source list's extensionless C/Lzma2DecMt stops
+# resolving. Its Java compile runs only for the JNI headers, which javac -h
+# writes now that JDK 27 has no javah; its javah step does nothing. 7-Zip's
+# privilege code is meant to be off on MinGW, but nothing turns it off. GCC
+# would devirtualize calls to 7-Zip's inline AddRef and Release, whose
+# classes' vtables are in files 7-Zip-JBinding leaves out.
+_build_sevenzip() {
+  local _jdk="${MINGW_PREFIX}/lib/jvm/${_jvmdir}"
+  rm -rf "${srcdir}/build-sevenzip" && mkdir -p "${srcdir}/build-sevenzip/tmp"
+  cd "${srcdir}/build-sevenzip"
+  JAVA_HOME="${_jdk}" \
+  CXXFLAGS="${CXXFLAGS} -DZ7_JB_NO_SECURITY_CODE -fno-devirtualize-speculatively" \
+    "${MINGW_PREFIX}"/bin/cmake.exe -GNinja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+      -DMINGW64=ON \
+      -DSTATIC_BUILD=OFF \
+      -DJAVA_TMP="$(cygpath -m "${PWD}/tmp")" \
+      "-DJAVA_COMPILE=$(cygpath -m "${_jdk}/bin/javac.exe");-h;$(cygpath -m "${PWD}/jbinding-cpp/javah")" \
+      "-DJAVA_HEADER_COMPILE=$(cygpath -m "${MINGW_PREFIX}/bin/cmake.exe");-E;true" \
+      "../sevenzipjbinding-Release-${_sevenzip}"
+  "${MINGW_PREFIX}"/bin/cmake.exe --build .
 }
 
 build() {
@@ -172,6 +305,10 @@ build() {
   # Ghidra's Python packages build with MSYS2's setuptools and wheel, not
   # ones pip would look for in dependencies/.
   export PIP_NO_BUILD_ISOLATION=0
+  # 0009 hands these to Ghidra's natives. The map keeps the build directory
+  # out of lzfse.exe's assert messages.
+  local _map="-ffile-prefix-map=$(cygpath -m "${srcdir}")=."
+  export CFLAGS="${CFLAGS} ${_map}" CXXFLAGS="${CXXFLAGS} ${_map}"
 
   # The empty Visual Studio directory keeps the natives on MinGW (0001).
   # Ghidra's build also looks in the local Maven repository; an empty one
@@ -195,6 +332,48 @@ build() {
   _swap_jnidispatch \
     "${_ghidra}/Ghidra/Features/GhidraServer/data/yajsw-stable-${_yajsw}/lib/core/jna/jna-${_yajsw_jna}.jar" \
     ${_yajsw_jna}
+
+  # 7-Zip-JBinding's library, upstream's built with a 2017 MinGW, and the
+  # properties that name it. Ghidra loads the jar's properties and the
+  # loose copy of the library.
+  _build_sevenzip
+  local _dir="${srcdir}/sevenzip-natives"
+  rm -rf "${_dir}" && mkdir -p "${_dir}/Windows-amd64"
+  cp "${srcdir}"/build-sevenzip/Windows-amd64/{lib7-Zip-JBinding.dll,sevenzipjbinding-lib.properties} \
+    "${_dir}/Windows-amd64/"
+  cp "${srcdir}/build-sevenzip/sevenzipjbinding-platforms.properties" "${_dir}/"
+  local _jar="${_ghidra}/Ghidra/Features/FileFormats/lib/sevenzipjbinding-all-platforms-${_sevenzip}.jar"
+  _swap_natives "${_jar}" "${_dir}" 'Linux-*' 'Mac*' 'Windows-*' sevenzipjbinding-platforms.properties
+  _check_natives "${_jar}" Windows-amd64/lib7-Zip-JBinding.dll
+  local _loose="${_ghidra}/Ghidra/Features/FileFormats/data/sevenzipnativelibs"
+  rm -r "${_loose}"
+  install -Dm644 "${_dir}/Windows-amd64/lib7-Zip-JBinding.dll" -t "${_loose}/Windows-amd64"
+
+  # FlatLaf's library, upstream's built with Visual C++
+  _build_flatlaf
+  _jar="${_ghidra}/Ghidra/Framework/Gui/lib/flatlaf-${_flatlaf}.jar"
+  _swap_natives "${_jar}" "${srcdir}/flatlaf-natives" 'com/formdev/flatlaf/natives/*'
+  _check_natives "${_jar}" com/formdev/flatlaf/natives/flatlaf-windows-x86_64.dll
+
+  # Jython's jffi stub, upstream's built with MinGW in 2012, in the jar in
+  # the Jython extension's zip. The jar's jansi libraries for other systems
+  # go too.
+  _ant_jffi jar
+  local _jy="${srcdir}/jython"
+  rm -rf "${_jy}" && mkdir -p "${_jy}/natives/jni/x86_64-Windows"
+  cp "${srcdir}/jffi-jffi-${_jffi}/build/jni/jffi-1.2.dll" "${_jy}/natives/jni/x86_64-Windows/"
+  local _ext=("${_ghidra}"/Extensions/Ghidra/*_Jython.zip)
+  _jar="Jython/lib/jython-standalone-${_jython}.jar"
+  bsdtar -xf "${_ext}" -C "${_jy}" "${_jar}"
+  bsdtar -xOf "${_jy}/${_jar}" META-INF/maven/com.github.jnr/jffi/pom.properties \
+    | grep -q "^version=${_jffi}" \
+    || { error "Jython ${_jython} no longer bundles jffi ${_jffi}"; return 1; }
+  _swap_natives "${_jy}/${_jar}" "${_jy}/natives" 'jni/*' \
+    'META-INF/native/linux*' 'META-INF/native/osx/*' 'META-INF/native/windows32/*'
+  _check_natives "${_jy}/${_jar}" jni/x86_64-Windows/jffi-1.2.dll \
+    META-INF/native/windows64/jansi.dll \
+    Lib/distutils/command/wininst-{6.0,7.1,8.0,9.0,9.0-amd64}.exe
+  (cd "${_jy}" && zip -q -X "${_ext}" "${_jar}")
 }
 
 check() {
@@ -204,19 +383,35 @@ check() {
   c++ -O2 -o test-ghidra.exe "${srcdir}/test-ghidra.cpp"
   # A Ghidra script's file is named after its class.
   cp "${srcdir}/test-ghidra.java" TestGhidra.java
+  cp "${srcdir}/test-formats.java" TestFormats.java
+  cp "${srcdir}/test-jython.py" .
+  printf 'hello from 7z' > member.txt
+  bsdtar --format 7zip -cf archive.7z member.txt
 
   # What the launcher sets up, with settings and caches kept out of the
-  # user's profile.
+  # user's profile. With the home directory here too, the settings are
+  # config/ghidra/<the distribution's name>, and Ghidra finds the Jython
+  # extension installed there.
   local _test="$(cygpath -w "${PWD}")"
+  mkdir -p "config/ghidra/${_ghidra##*/}/Extensions"
+  bsdtar -xf "${_ghidra}"/Extensions/Ghidra/*_Jython.zip \
+    -C "config/ghidra/${_ghidra##*/}/Extensions"
   JAVA_HOME="$(cygpath -w "${MINGW_PREFIX}/lib/jvm/${_jvmdir}")" \
   PATH="${MINGW_PREFIX}/lib/jvm/${_jvmdir}/bin:${PATH}" \
   XDG_CONFIG_HOME="${_test}\\config" \
   XDG_CACHE_HOME="${_test}\\cache" \
+  GHIDRA_HEADLESS_JAVA_OPTIONS="-Duser.home=${_test}" \
     "${_ghidra}/support/analyzeHeadless.bat" "${_test}" test \
       -import test-ghidra.exe \
       -scriptPath "${_test}" -postScript TestGhidra.java \
+      -postScript TestFormats.java "${_test}\\archive.7z" member.txt 'hello from 7z' \
+        "$(cygpath -w "${srcdir}/${_dmg##*/}")" Rectangle \
+      -postScript test-jython.py \
       -deleteProject 2>&1 | tee analyze.log
-  grep -q 'test-ghidra: passed' analyze.log
+  local _t
+  for _t in ghidra formats jython; do
+    grep -q "test-${_t}: passed" analyze.log
+  done
 
   _ant_jna ${_jna} test
   _ant_jna ${_yajsw_jna} test
@@ -234,6 +429,25 @@ check() {
     -cp "$(cygpath -wp "${_yj}/jna-${_yajsw_jna}.jar:${_yj}/jna-platform-${_yajsw_jna}.jar:${_cp}")" \
     "${srcdir}/test-jna.java" yajsw 2>&1 | tee -a jna.log
   [[ $(grep -c 'test-jna: passed' jna.log) == 2 ]]
+
+  # FlatLaf's library from the jar, which it unpacks into java.io.tmpdir
+  "${MINGW_PREFIX}/lib/jvm/${_jvmdir}/bin/java" -Djava.io.tmpdir="${_test}" \
+    -cp "$(cygpath -w "${_ghidra}/Ghidra/Framework/Gui/lib/flatlaf-${_flatlaf}.jar")" \
+    "${srcdir}/test-flatlaf.java" 2>&1 | tee flatlaf.log
+  grep -q 'test-flatlaf: passed' flatlaf.log
+
+  # 7-Zip-JBinding's own suite, but for the three bundles that go through
+  # every format and method for 8 minutes
+  (cd "${srcdir}/build-sevenzip" && "${MINGW_PREFIX}"/bin/ctest.exe --output-on-failure \
+    -E 'single-file|multiple-files|compression')
+
+  # jffi's own suite, which reads the stub from archive/. Its last pass
+  # leaves the stub in TMP and refuses a different one it finds there.
+  cp "${srcdir}/jffi-jffi-${_jffi}/dist/jffi-x86_64-Windows.jar" \
+    "${srcdir}/jffi-jffi-${_jffi}/archive/"
+  mkdir jffi-tmp
+  TMP="$(cygpath -w "${PWD}/jffi-tmp")" TEMP="$(cygpath -w "${PWD}/jffi-tmp")" \
+    _ant_jffi -Dbuild.dir=build test
 }
 
 package() {
@@ -288,6 +502,8 @@ package() {
   done < <(find "${_ghidra}" "${_ext}" -name Module.manifest -print0)
 
   install -Dm644 "${_ghidra}/GPL/DMG/LICENSE.txt" -t "${_licdir}/dmg"
+  # Jython's jffi stub, built here from jffi's source
+  install -Dm644 "${srcdir}/jffi-jffi-${_jffi}/LICENSE" -t "${_licdir}/jffi"
   local _yajsw_dir="${_ghidra}/Ghidra/Features/GhidraServer/data/yajsw-stable-${_yajsw}"
   install -Dm644 "${_yajsw_dir}/LICENSE.txt" -t "${_licdir}/yajsw"
   local _jar

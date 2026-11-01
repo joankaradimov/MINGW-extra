@@ -1,0 +1,36 @@
+Drop -mwin32 and --add-stdcall-alias from the win64 flags.
+
+clang has no -mwin32 ("unknown argument") and lld has no
+--add-stdcall-alias, so CLANG64 cannot compile or link with them.
+Neither does anything for x86_64 MinGW GCC: the Windows macros are
+predefined anyway (gcc -dM -E is identical with and without -mwin32),
+and x86_64 has no @N stdcall decorations to alias (the UCRT64 DLL
+exports the same symbols without it). 32-bit flags are left alone.
+
+Upstream: not submitted
+Applies-to: all x86_64 environments (needed for CLANG64)
+
+--- a/jni/GNUmakefile
++++ b/jni/GNUmakefile
+@@ -93,8 +93,7 @@
+     CC += -mno-cygwin
+     LDFLAGS += -mno-cygwin
+   endif
+-  CFLAGS += -mwin32 -D_JNI_IMPLEMENTATION_
+-  LDFLAGS += -Wl,--add-stdcall-alias
++  CFLAGS += -D_JNI_IMPLEMENTATION_
+   PICFLAGS=
+   SOFLAGS += -shared -static-libgcc
+   PREFIX =
+--- a/libtest/GNUmakefile
++++ b/libtest/GNUmakefile
+@@ -61,8 +61,7 @@
+     CC += -mno-cygwin
+     LDFLAGS += -mno-cygwin
+   endif
+-  CFLAGS += -mwin32 -D_JNI_IMPLEMENTATION_
+-  LDFLAGS += -Wl,--add-stdcall-alias
++  CFLAGS += -D_JNI_IMPLEMENTATION_
+   PICFLAGS=
+   SOFLAGS += -shared -static-libgcc
+   PREFIX =
