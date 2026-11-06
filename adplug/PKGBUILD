@@ -1,0 +1,65 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=adplug
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=2.4
+pkgrel=1
+pkgdesc="AdLib sound player library (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://adplug.github.io/'
+license=('spdx:LGPL-2.1-or-later')
+msys2_repository_url='https://github.com/adplug/adplug'
+msys2_references=(
+  'aur: adplug'
+)
+depends=("${MINGW_PACKAGE_PREFIX}-cc-libs"
+         "${MINGW_PACKAGE_PREFIX}-libbinio")
+makedepends=("${MINGW_PACKAGE_PREFIX}-autotools"
+             "${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-pkgconf")
+source=("https://github.com/adplug/${_realname}/releases/download/${_realname}-${pkgver}/${_realname}-${pkgver}.tar.bz2"
+        "0001-stresstest-make-it-compilable-with-mingw.patch"
+        "0002-stresstest-leave-the-timeout-thread-to-the-exit.patch")
+sha256sums=('de18463bf7c0cb639a3228ad47e69eb7f78a5a197802d325f3a5ed7e1c56d57f'
+            '6671b237e05d74d4bcc61251cc58c359a2946a8ce6f012faed7162513ce53812'
+            '77d7728db0b423c576ad12a3c0c6cd84274d77e45b3adfb9e25c7e72aded34d3')
+
+prepare() {
+  cd "${_realname}-${pkgver}"
+
+  local _p
+  for _p in "${srcdir}"/0*.patch; do
+    patch -Np1 -i "${_p}"
+  done
+  # The release's libtool links clang64 DLLs without compiler-rt
+  autoreconf -fi
+}
+
+build() {
+  mkdir -p "build-${MSYSTEM}" && cd "build-${MSYSTEM}"
+
+  ../"${_realname}-${pkgver}"/configure \
+    --prefix="${MINGW_PREFIX}" \
+    --build="${MINGW_CHOST}" \
+    --host="${MINGW_CHOST}" \
+    --target="${MINGW_CHOST}" \
+    --enable-static \
+    --enable-shared
+
+  make
+}
+
+check() {
+  cd "build-${MSYSTEM}"
+  make check
+}
+
+package() {
+  cd "build-${MSYSTEM}"
+  make install DESTDIR="${pkgdir}"
+
+  install -Dm644 "../${_realname}-${pkgver}/COPYING" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/COPYING"
+}

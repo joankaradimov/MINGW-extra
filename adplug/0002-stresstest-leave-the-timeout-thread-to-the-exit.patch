@@ -1,0 +1,31 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] stresstest: Leave the timeout thread to the process exit
+
+On Windows each test child starts a timeout thread and, once the file
+has played, kills it with TerminateThread(). When the file is quick to
+process, that can hit the thread while it is still starting up and
+holds the loader lock. The child then deadlocks on the lock as it
+exits, and the run hangs for good: i-110_062.amd did so here. Close
+the handle and let ExitProcess() end the thread instead.
+
+Upstream: not submitted; the code is from 24b3829c and is unchanged on
+master
+---
+diff --git a/test/stresstest.cpp b/test/stresstest.cpp
+--- a/test/stresstest.cpp
++++ b/test/stresstest.cpp
+@@ -428,10 +428,10 @@
+ 	delete p;
+ 
+ #ifdef _WIN32
+-	if (hTimer) {
+-		TerminateThread(hTimer, 0);
+-		CloseHandle(hTimer);
+-	}
++	// Leave the timer thread to the process exit: TerminateThread() can
++	// catch it still starting up with the loader lock held, and the exit
++	// then waits for that lock forever.
++	if (hTimer) CloseHandle(hTimer);
+ #endif
+ 	return true;
+ }
