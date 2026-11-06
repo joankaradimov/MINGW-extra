@@ -1,0 +1,102 @@
+Build a DLL and an import library on Windows
+
+source/Makefile only knows how to link libzita-resampler.so.1.11.2 with a
+soname and install it with two symlinks. With a MinGW compiler, which
+$(CXX) -dumpmachine reports as *-mingw32 (GCC) or *-windows-gnu (Clang),
+it now links libzita-resampler-1.dll, writes the import library
+libzita-resampler.dll.a beside it, installs the DLL to BINDIR and the
+import library to LIBDIR, and links winpthreads for the mutex in
+resampler-table.h, which glibc keeps in libc.
+
+apps/Makefile links both tools with -lrt; Windows has no librt, so the
+flag is left out there.
+
+Upstream: not submitted (upstream publishes Linux tarballs only)
+Applies-to: all environments
+
+diff --git a/apps/Makefile b/apps/Makefile
+index a7025ce..1146920 100644
+--- a/apps/Makefile
++++ b/apps/Makefile
+@@ -26,12 +26,16 @@ VERSION = 1.10.1
+ CPPFLAGS += -MMD -MP -DVERSION=\"$(VERSION)\"
+ CXXFLAGS += -O2  -ffast-math -Wall
+ 
++ifeq (,$(filter %-mingw32 %-windows-gnu,$(shell $(CXX) -dumpmachine)))
++LIBRT = -lrt
++endif
++
+ 
+ all:	zresample zretune zresample.1.gz zretune.1.gz
+ 
+ 
+ ZRESAMPLE_O = zresample.o audiofile.o dither.o
+-zresample:	LDLIBS += -lzita-resampler -lsndfile -lrt
++zresample:	LDLIBS += -lzita-resampler -lsndfile $(LIBRT)
+ zresample:	$(ZRESAMPLE_O)
+ 	$(CXX) $(LDFLAGS) -o $@ $(ZRESAMPLE_O) $(LDLIBS)
+ $(ZRESAMPLE_O):
+@@ -39,7 +43,7 @@ $(ZRESAMPLE_O):
+ 
+ 
+ ZRETUNE_O = zretune.o audiofile.o dither.o
+-zretune:	LDLIBS += -lzita-resampler -lsndfile -lrt
++zretune:	LDLIBS += -lzita-resampler -lsndfile $(LIBRT)
+ zretune:	$(ZRETUNE_O)
+ 	$(CXX) $(LDFLAGS) -o $@ $(ZRETUNE_O) $(LDLIBS)
+ $(ZRETUNE_O):
+diff --git a/source/Makefile b/source/Makefile
+index e2ba29d..eaf0d7f 100644
+--- a/source/Makefile
++++ b/source/Makefile
+@@ -22,6 +22,7 @@
+ #
+ SUFFIX := $(shell uname -m | sed -e 's/^unknown/$//' -e 's/^i.86/$//' -e 's/^x86_64/$/64/')
+ PREFIX ?= /usr/local
++BINDIR ?= $(PREFIX)/bin
+ INCDIR ?= $(PREFIX)/include
+ LIBDIR ?= $(PREFIX)/lib$(SUFFIX)
+ 
+@@ -47,6 +48,28 @@ ZITA-RESAMPLER_H = zita-resampler/resampler.h zita-resampler/resampler-table.h \
+ 	zita-resampler/vresampler.h zita-resampler/cresampler.h
+ 
+ 
++ifneq (,$(filter %-mingw32 %-windows-gnu,$(shell $(CXX) -dumpmachine)))
++
++ZITA-RESAMPLER_DLL = libzita-resampler-$(MAJVERS).dll
++ZITA-RESAMPLER_IMP = libzita-resampler.dll.a
++ZITA-RESAMPLER_DEP += -lpthread
++
++$(ZITA-RESAMPLER_DLL): $(ZITA-RESAMPLER_O)
++	$(CXX) -shared $(LDFLAGS) -Wl,--out-implib,$(ZITA-RESAMPLER_IMP) -o $(ZITA-RESAMPLER_DLL) $(ZITA-RESAMPLER_O) $(ZITA-RESAMPLER_DEP)
++
++$(ZITA-RESAMPLER_O):	$(ZITA-RESAMPLER_H)
++
++
++install:	$(ZITA-RESAMPLER_DLL)
++	install -d $(DESTDIR)$(INCDIR)/zita-resampler
++	install -d $(DESTDIR)$(BINDIR)
++	install -d $(DESTDIR)$(LIBDIR)
++	install -m 644 $(ZITA-RESAMPLER_H)   $(DESTDIR)$(INCDIR)/zita-resampler
++	install -m 755 $(ZITA-RESAMPLER_DLL) $(DESTDIR)$(BINDIR)
++	install -m 644 $(ZITA-RESAMPLER_IMP) $(DESTDIR)$(LIBDIR)
++
++else
++
+ $(ZITA-RESAMPLER_MIN): $(ZITA-RESAMPLER_O)
+ 	$(CXX) -shared $(LDFLAGS) -Wl,-soname,$(ZITA-RESAMPLER_MAJ) -o $(ZITA-RESAMPLER_MIN) $(ZITA-RESAMPLER_O) $(ZITA-RESAMPLER_DEP)
+ 
+@@ -61,10 +84,12 @@ install:	$(ZITA-RESAMPLER_MIN)
+ 	ln -sf $(ZITA-RESAMPLER_MIN) $(DESTDIR)$(LIBDIR)/$(ZITA-RESAMPLER_SO)
+ 	ln -sf $(ZITA-RESAMPLER_MIN) $(DESTDIR)$(LIBDIR)/$(ZITA-RESAMPLER_MAJ)
+ 
++endif
++
+ uninstall:
+ 	/bin/rm -rf $(DESTDIR)$(INCDIR)/zita-resampler
+ 	/bin/rm -rf $(DESTDIR)$(LIBDIR)/libzita-resampler*
+ 
+ clean:
+-	/bin/rm -rf *~ *.o *.a *.d *.so.* zita-resampler/*~
++	/bin/rm -rf *~ *.o *.a *.d *.so.* *.dll zita-resampler/*~
+ 

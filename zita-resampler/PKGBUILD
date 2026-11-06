@@ -1,0 +1,93 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=zita-resampler
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=1.11.2
+pkgrel=1
+pkgdesc="C++ library for resampling audio signals (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://kokkinizita.linuxaudio.org/linuxaudio/'
+license=('spdx:GPL-3.0-or-later')
+# No msys2_repository_url: upstream publishes tarballs only.
+msys2_references=(
+  'archlinux: zita-resampler'
+)
+depends=("${MINGW_PACKAGE_PREFIX}-cc-libs"
+         "${MINGW_PACKAGE_PREFIX}-libsndfile")
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc")
+source=("https://kokkinizita.linuxaudio.org/linuxaudio/downloads/${_realname}-${pkgver}.tar.xz"
+        "0001-do-not-build-with-march-native.patch"
+        "0002-build-a-dll-and-import-library-on-windows.patch"
+        "0003-allocate-aligned-buffers-on-windows.patch")
+sha256sums=('aa5c54e696069af26f3f1fed4a963113cc1237cddfd57ae5842abcb1acd5492c'
+            'a83521aacc51627b61760872031e9b4609fb6d9bc733854f2f918b55c812eead'
+            'd55ca0ada51a72334b35c6435ed5454c8d0447506a1c6a09c7c17fabc1e6922b'
+            '61f2237a1b349b6649efab44150d0da4a8fb7031653bcab584cb1b456ce09629')
+
+prepare() {
+  cd "${_realname}-${pkgver}"
+
+  patch -Np1 -i "${srcdir}/0001-do-not-build-with-march-native.patch"
+  patch -Np1 -i "${srcdir}/0002-build-a-dll-and-import-library-on-windows.patch"
+  patch -Np1 -i "${srcdir}/0003-allocate-aligned-buffers-on-windows.patch"
+}
+
+build() {
+  rm -rf "build-${MSYSTEM}"
+  cp -r "${_realname}-${pkgver}" "build-${MSYSTEM}"
+  cd "build-${MSYSTEM}"
+
+  make -C source
+  CXXFLAGS="${CXXFLAGS} -I../source" LDFLAGS="${LDFLAGS} -L../source" \
+    make -C apps
+}
+
+check() {
+  cd "build-${MSYSTEM}"
+  local _out="${srcdir}/check-${MSYSTEM}"
+  rm -rf "${_out}" && mkdir -p "${_out}"
+  export PATH="${PWD}/source:${PATH}"
+
+  # upstest upsamples impulses at input offsets 0, 100 and 201 by 4.6 with
+  # Resampler and VResampler: both input and output counters must end at 0,
+  # the pulses must peak at 0, 460 and 924.6, and the two must agree.
+  ${CXX} ${CXXFLAGS} -Isource test/upstest.cc -Lsource -lzita-resampler \
+    -o "${_out}/upstest.exe"
+  "${_out}/upstest.exe" > "${_out}/upstest.out" 2> "${_out}/upstest.err"
+  tail -n 1 "${_out}/upstest.err" | grep -Eq '^inp_count = +0, out_count = +0$'
+  awk '
+    function peak(lo, hi, col,   i, m, at) {
+      m = -1
+      for (i = lo; i <= hi; i++) if (v[col, i] > m) { m = v[col, i]; at = i }
+      return at
+    }
+    { v[2, $1] = $2; v[3, $1] = $3; d = $2 - $3; if (d < 0) d = -d; if (d > dmax) dmax = d }
+    END {
+      for (c = 2; c <= 3; c++) {
+        p = peak(915, 935, c)
+        if (peak(0, 10, c) != 0 || peak(450, 470, c) != 460 || (p != 924 && p != 925)) exit 1
+      }
+      if (dmax > 1e-3) exit 1
+    }' "${_out}/upstest.out"
+
+  # zresample: 44032 frames of 16-bit mono silence at 44.1 kHz become
+  # 47926 frames at 48 kHz.
+  { printf 'RIFF\x24\x58\x01\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00'
+    printf '\x44\xac\x00\x00\x88\x58\x01\x00\x02\x00\x10\x00data\x00\x58\x01\x00'
+    head -c 88064 /dev/zero; } > "${_out}/in.wav"
+  apps/zresample.exe --rate 48000 "${_out}/in.wav" "${_out}/out.wav"
+  sndfile-info "${_out}/out.wav" | grep -Eq '^Frames +: 47926$'
+}
+
+package() {
+  cd "build-${MSYSTEM}"
+
+  make -C source DESTDIR="${pkgdir}" PREFIX="${MINGW_PREFIX}" SUFFIX= install
+  make -C apps DESTDIR="${pkgdir}" PREFIX="${MINGW_PREFIX}" \
+    MANDIR="${MINGW_PREFIX}/share/man/man1" install
+
+  install -Dm644 docs/* -t "${pkgdir}${MINGW_PREFIX}/share/doc/${_realname}"
+  install -Dm644 COPYING "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/COPYING"
+}

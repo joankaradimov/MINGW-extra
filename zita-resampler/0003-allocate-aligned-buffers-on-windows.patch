@@ -1,0 +1,122 @@
+Allocate the aligned buffers with _aligned_malloc() on Windows
+
+With ENABLE_SSE2, the filter table and the sample buffers are allocated
+with posix_memalign() for the 16-byte alignment _mm_load_ps() needs, and
+released with free(). Windows has no posix_memalign(), and memory from its
+counterpart, _aligned_malloc(), must go back through _aligned_free(). On
+Windows each of the three files now defines posix_memalign() over
+_aligned_malloc() and frees those buffers with _aligned_free(); elsewhere
+nothing changes.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/source/resampler-table.cc b/source/resampler-table.cc
+index d48cfc4..6ee34bf 100644
+--- a/source/resampler-table.cc
++++ b/source/resampler-table.cc
+@@ -32,6 +32,21 @@
+ #  define ENABLE_VEC4
+ #endif
+ 
++#if defined(ENABLE_VEC4) && defined(_WIN32)
++// Windows has no posix_memalign(), and memory from _aligned_malloc()
++// must be released with _aligned_free().
++#  include <errno.h>
++#  include <malloc.h>
++static inline int posix_memalign (void **ptr, size_t align, size_t size)
++{
++    *ptr = _aligned_malloc (size, align);
++    return *ptr ? 0 : ENOMEM;
++}
++#  define aligned_free(ptr) _aligned_free (ptr)
++#else
++#  define aligned_free(ptr) free (ptr)
++#endif
++
+ 
+ int zita_resampler_major_version (void)
+ {
+@@ -101,7 +116,7 @@ Resampler_table::Resampler_table (double fr, unsigned int hl, unsigned int np) :
+ Resampler_table::~Resampler_table (void)
+ {
+ #ifdef ENABLE_VEC4
+-    free (_ctab);
++    aligned_free (_ctab);
+ #else    
+     delete[] _ctab;
+ #endif
+diff --git a/source/resampler.cc b/source/resampler.cc
+index 593a79d..d80bc10 100644
+--- a/source/resampler.cc
++++ b/source/resampler.cc
+@@ -32,6 +32,21 @@
+ #  include <arm_neon.h>
+ #endif
+ 
++#if defined(ENABLE_VEC4) && defined(_WIN32)
++// Windows has no posix_memalign(), and memory from _aligned_malloc()
++// must be released with _aligned_free().
++#  include <errno.h>
++#  include <malloc.h>
++static inline int posix_memalign (void **ptr, size_t align, size_t size)
++{
++    *ptr = _aligned_malloc (size, align);
++    return *ptr ? 0 : ENOMEM;
++}
++#  define aligned_free(ptr) _aligned_free (ptr)
++#else
++#  define aligned_free(ptr) free (ptr)
++#endif
++
+ #include "zita-resampler/resampler.h"
+ 
+ 
+@@ -145,7 +160,7 @@ void Resampler::clear (void)
+ {
+     Resampler_table::destroy (_table);
+ #ifdef ENABLE_VEC4
+-    free (_buff);
++    aligned_free (_buff);
+ #else
+     delete[] _buff;
+ #endif    
+diff --git a/source/vresampler.cc b/source/vresampler.cc
+index 48550b7..5060daa 100644
+--- a/source/vresampler.cc
++++ b/source/vresampler.cc
+@@ -32,6 +32,21 @@
+ #  include <arm_neon.h>
+ #endif
+ 
++#if defined(ENABLE_VEC4) && defined(_WIN32)
++// Windows has no posix_memalign(), and memory from _aligned_malloc()
++// must be released with _aligned_free().
++#  include <errno.h>
++#  include <malloc.h>
++static inline int posix_memalign (void **ptr, size_t align, size_t size)
++{
++    *ptr = _aligned_malloc (size, align);
++    return *ptr ? 0 : ENOMEM;
++}
++#  define aligned_free(ptr) _aligned_free (ptr)
++#else
++#  define aligned_free(ptr) free (ptr)
++#endif
++
+ 
+ #include "zita-resampler/vresampler.h"
+ 
+@@ -119,9 +134,9 @@ void VResampler::clear (void)
+ {
+     Resampler_table::destroy (_table);
+ #ifdef ENABLE_VEC4
+-    free (_buff);
+-    free (_c1);
+-    free (_c2);
++    aligned_free (_buff);
++    aligned_free (_c1);
++    aligned_free (_c2);
+ #else
+     delete[] _buff;
+     delete[] _c1;
