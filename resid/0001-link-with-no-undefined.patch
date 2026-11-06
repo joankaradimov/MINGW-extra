@@ -1,0 +1,21 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Link libresid with -no-undefined
+
+libtool builds a Windows DLL only when the library promises to have no
+undefined symbols; without -no-undefined it falls back to a static
+archive alone.
+
+Upstream: not submitted
+---
+diff --git a/Makefile.am b/Makefile.am
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -19,6 +19,8 @@
+ ## default.
+ CLEANFILES = libresid.la libresidc.la
+ 
++libresid_la_LDFLAGS = -no-undefined
++
+ libresid_la_SOURCES = $(resid_sources)
+ libresidc_la_SOURCES = $(resid_sources)
+ 

@@ -1,0 +1,74 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=resid
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=0.16.p2
+pkgrel=1
+pkgdesc="MOS6581/8580 SID chip emulation library (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://sidplay2.sourceforge.net/'
+license=('spdx:GPL-2.0-or-later')
+# No msys2_repository_url: sidplay2's CVS is no longer browsable.
+msys2_references=(
+  'gentoo: media-libs/resid'
+)
+depends=("${MINGW_PACKAGE_PREFIX}-cc-libs")
+makedepends=("${MINGW_PACKAGE_PREFIX}-autotools"
+             "${MINGW_PACKAGE_PREFIX}-cc"
+             "perl")
+# sidplay2's 0.16-p2 is Dag Lem's reSID 0.16 with an install switch, an
+# optional namespace and mute(); it is the release Gentoo ships.
+source=("https://downloads.sourceforge.net/sidplay2/${_realname}-${pkgver/.p/-p}.tgz"
+        "0001-link-with-no-undefined.patch"
+        "0002-do-not-override-cxxflags.patch"
+        "test-resid.cpp")
+sha256sums=('750930868099d6f000f72970efdfa7706abd4608aded6fb1d3a5ab287cbb1bae'
+            'a7d1734a189f4a6ff43f91edf6d86fa06944791edf820428485bbe00190b8b9e'
+            'acc69c32e15d7c2183252dc52d8d1a2e000ea119402b5e4fcb1d89d543434af7'
+            '61b08e53b76ac160fbcebe78fdc8746dcb06e6a9d56338bff64eec141320c446')
+
+prepare() {
+  cd "${_realname}-${pkgver%.p*}"
+
+  local _p
+  for _p in "${srcdir}"/0*.patch; do
+    patch -Np1 -i "${_p}"
+  done
+  autoreconf -fi
+}
+
+build() {
+  mkdir -p "build-${MSYSTEM}" && cd "build-${MSYSTEM}"
+
+  ../"${_realname}-${pkgver%.p*}"/configure \
+    --prefix="${MINGW_PREFIX}" \
+    --build="${MINGW_CHOST}" \
+    --host="${MINGW_CHOST}" \
+    --target="${MINGW_CHOST}" \
+    --enable-resid-install \
+    --enable-static \
+    --enable-shared
+
+  make
+}
+
+check() {
+  local _stage="${srcdir}/stage-${MSYSTEM}"
+  rm -rf "${_stage}"
+  make -C "build-${MSYSTEM}" DESTDIR="${_stage}" install
+
+  cd "build-${MSYSTEM}"
+  c++ -Wall -Werror -O2 -o test-resid.exe "${srcdir}/test-resid.cpp" \
+    -I"${_stage}${MINGW_PREFIX}/include" -L"${_stage}${MINGW_PREFIX}/lib" -lresid
+  PATH="${_stage}${MINGW_PREFIX}/bin:${PATH}" ./test-resid.exe
+}
+
+package() {
+  cd "build-${MSYSTEM}"
+  make install DESTDIR="${pkgdir}"
+
+  install -Dm644 "../${_realname}-${pkgver%.p*}/COPYING" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/COPYING"
+}
