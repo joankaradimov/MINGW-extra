@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<!DOCTYPE lmms-project>
+<lmms-project version="1.0" creator="LMMS" creatorversion="1.2.2" type="song">
+  <head timesig_numerator="4" mastervol="100" timesig_denominator="4" bpm="140" masterpitch="0"/>
+  <song>
+    <trackcontainer width="600" x="5" y="5" maximized="0" height="300" visible="1" type="song" minimized="0">
+      <track muted="0" type="0" name="@INSTRUMENT@" solo="0">
+        <instrumenttrack pan="0" fxch="0" usemasterpitch="1" pitchrange="1" pitch="0" basenote="57" vol="100">
+          <instrument name="@INSTRUMENT@">
+            <@INSTRUMENT@/>
+          </instrument>
+          <fxchain numofeffects="0" enabled="0"/>
+        </instrumenttrack>
+        <pattern steps="16" muted="0" type="0" name="@INSTRUMENT@" pos="0" len="192">
+          <note pan="0" key="57" vol="100" pos="0" len="48"/>
+          <note pan="0" key="60" vol="100" pos="48" len="48"/>
+          <note pan="0" key="64" vol="100" pos="96" len="48"/>
+          <note pan="0" key="69" vol="100" pos="144" len="48"/>
+        </pattern>
+      </track>
+    </trackcontainer>
+  </song>
+</lmms-project>

@@ -1,0 +1,99 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Thu, 5 Nov 2026 23:39:59 +0200
+Subject: [PATCH] Allocate with the C library instead of rpmalloc
+
+MemoryManager handed every allocation to a compiled-in copy of rpmalloc.
+Upstream dropped MemoryManager altogether in c991a85e (#7128) for plain
+new and delete; keep its interface here and back it with malloc and
+free.
+
+Upstream: in the spirit of c991a85eef, which is too large to backport
+---
+ src/3rdparty/CMakeLists.txt |  1 -
+ src/CMakeLists.txt          |  1 -
+ src/core/MemoryManager.cpp  | 36 +++---------------------------------
+ 3 files changed, 3 insertions(+), 35 deletions(-)
+
+diff --git a/src/3rdparty/CMakeLists.txt b/src/3rdparty/CMakeLists.txt
+index 3939a58..2a05061 100644
+--- a/src/3rdparty/CMakeLists.txt
++++ b/src/3rdparty/CMakeLists.txt
+@@ -3,4 +3,3 @@ IF(QT5 AND LMMS_BUILD_LINUX AND WANT_VST)
+ 	add_subdirectory(qt5-x11embed)
+ ENDIF()
+ 
+-ADD_SUBDIRECTORY(rpmalloc)
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index b18fa89..1b59ee9 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -146,7 +146,6 @@ SET(LMMS_REQUIRED_LIBS ${LMMS_REQUIRED_LIBS}
+ 	${SAMPLERATE_LIBRARIES}
+ 	${SNDFILE_LIBRARIES}
+ 	${EXTRA_LIBRARIES}
+-	rpmalloc
+ )
+ 
+ # Expose required libs for tests binary
+diff --git a/src/core/MemoryManager.cpp b/src/core/MemoryManager.cpp
+index d0932e4..425e248 100644
+--- a/src/core/MemoryManager.cpp
++++ b/src/core/MemoryManager.cpp
+@@ -25,53 +25,23 @@
+ 
+ #include "MemoryManager.h"
+ 
+-#include <QtCore/QtGlobal>
+-#include "rpmalloc.h"
+-
+-/// Global static object handling rpmalloc intializing and finalizing
+-struct MemoryManagerGlobalGuard {
+-	MemoryManagerGlobalGuard() {
+-		rpmalloc_initialize();
+-	}
+-	~MemoryManagerGlobalGuard() {
+-		rpmalloc_finalize();
+-	}
+-} static mm_global_guard;
+-
+-
+-namespace {
+-static thread_local size_t thread_guard_depth;
+-}
++#include <cstdlib>
+ 
+ MemoryManager::ThreadGuard::ThreadGuard()
+ {
+-	if (thread_guard_depth++ == 0) {
+-		rpmalloc_thread_initialize();
+-	}
+ }
+ 
+ MemoryManager::ThreadGuard::~ThreadGuard()
+ {
+-	if (--thread_guard_depth == 0) {
+-		rpmalloc_thread_finalize();
+-	}
+ }
+ 
+-static thread_local MemoryManager::ThreadGuard local_mm_thread_guard{};
+-
+ void* MemoryManager::alloc(size_t size)
+ {
+-	// Reference local thread guard to ensure it is initialized.
+-	// Compilers may optimize the instance away otherwise.
+-	Q_UNUSED(&local_mm_thread_guard);
+-	Q_ASSERT_X(rpmalloc_is_thread_initialized(), "MemoryManager::alloc", "Thread not initialized");
+-	return rpmalloc(size);
++	return std::malloc(size);
+ }
+ 
+ 
+ void MemoryManager::free(void * ptr)
+ {
+-	Q_UNUSED(&local_mm_thread_guard);
+-	Q_ASSERT_X(rpmalloc_is_thread_initialized(), "MemoryManager::free", "Thread not initialized");
+-	return rpfree(ptr);
++	std::free(ptr);
+ }

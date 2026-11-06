@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Thu, 5 Nov 2026 23:40:03 +0200
+Subject: [PATCH] calf: Do not name a parameter _errno
+
+osc_net_exception's constructor names its parameter _errno, which the
+MinGW CRT defines as a function-like macro behind errno, so osctl.h
+does not compile. Call it err.
+
+Upstream: not submitted
+---
+ plugins/LadspaEffect/calf/src/calf/osctl.h | 12 ++++++------
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/plugins/LadspaEffect/calf/src/calf/osctl.h b/plugins/LadspaEffect/calf/src/calf/osctl.h
+index 2b50017..3db96fb 100644
+--- a/plugins/LadspaEffect/calf/src/calf/osctl.h
++++ b/plugins/LadspaEffect/calf/src/calf/osctl.h
+@@ -466,11 +466,11 @@ struct osc_net_exception: public std::exception
+ {
+     int net_errno;
+     std::string command, error_msg;
+-    osc_net_exception(const char *cmd, int _errno = errno)
++    osc_net_exception(const char *cmd, int err = errno)
+     {
+         command = cmd;
+-        net_errno = _errno;
+-        error_msg = "OSC error in "+command+": "+strerror(_errno);
++        net_errno = err;
++        error_msg = "OSC error in "+command+": "+strerror(err);
+     }
+     virtual const char *what() const throw() { return error_msg.c_str(); }
+     virtual ~osc_net_exception() throw () {}
+@@ -481,11 +481,11 @@ struct osc_net_dns_exception: public std::exception
+ #if 0
+     int net_errno;
+     std::string command, error_msg;
+-    osc_net_dns_exception(const char *cmd, int _errno = h_errno)
++    osc_net_dns_exception(const char *cmd, int err = h_errno)
+     {
+         command = cmd;
+-        net_errno = _errno;
+-        error_msg = "OSC error in "+command+": "+hstrerror(_errno);
++        net_errno = err;
++        error_msg = "OSC error in "+command+": "+hstrerror(err);
+     }
+     virtual const char *what() const throw() { return error_msg.c_str(); }
+     virtual ~osc_net_dns_exception() throw () {}

@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Thu, 5 Nov 2026 23:39:58 +0200
+Subject: [PATCH] Use the system adplug for the OPL2 instrument
+
+The plugin compiled in its own copy of adplug's OPL2 emulator (fmopl.c,
+temuopl.cpp, opl.h), which the adplug library installs and exports.
+Build against that instead; mididata.h stays, as adplug keeps it private.
+
+Upstream: not submitted
+---
+ plugins/opl2/CMakeLists.txt     | 7 ++++++-
+ plugins/opl2/opl2instrument.cpp | 4 ++--
+ plugins/opl2/opl2instrument.h   | 2 +-
+ 3 files changed, 9 insertions(+), 4 deletions(-)
+
+diff --git a/plugins/opl2/CMakeLists.txt b/plugins/opl2/CMakeLists.txt
+index a62eee5..cdc13c0 100644
+--- a/plugins/opl2/CMakeLists.txt
++++ b/plugins/opl2/CMakeLists.txt
+@@ -4,4 +4,9 @@ INCLUDE(BuildPlugin)
+ REMOVE_DEFINITIONS(-std=c++0x)
+ SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x")
+ 
+-BUILD_PLUGIN(OPL2 opl2instrument.cpp opl2instrument.h opl.h fmopl.c fmopl.h temuopl.cpp temuopl.h MOCFILES opl2instrument.h EMBEDDED_RESOURCES "${CMAKE_CURRENT_SOURCE_DIR}/*.png")
++PKG_CHECK_MODULES(ADPLUG REQUIRED adplug)
++INCLUDE_DIRECTORIES(${ADPLUG_INCLUDE_DIRS})
++LINK_DIRECTORIES(${ADPLUG_LIBRARY_DIRS})
++LINK_LIBRARIES(${ADPLUG_LIBRARIES})
++
++BUILD_PLUGIN(OPL2 opl2instrument.cpp opl2instrument.h MOCFILES opl2instrument.h EMBEDDED_RESOURCES "${CMAKE_CURRENT_SOURCE_DIR}/*.png")
+diff --git a/plugins/opl2/opl2instrument.cpp b/plugins/opl2/opl2instrument.cpp
+index be84d91..c79484c 100644
+--- a/plugins/opl2/opl2instrument.cpp
++++ b/plugins/opl2/opl2instrument.cpp
+@@ -47,8 +47,8 @@
+ #include <QFileInfo>
+ #include <QByteArray>
+ 
+-#include "opl.h"
+-#include "temuopl.h"
++#include <adplug/opl.h>
++#include <adplug/temuopl.h>
+ 
+ #include "embed.cpp"
+ #include "math.h"
+diff --git a/plugins/opl2/opl2instrument.h b/plugins/opl2/opl2instrument.h
+index f60ab32..1fa3419 100644
+--- a/plugins/opl2/opl2instrument.h
++++ b/plugins/opl2/opl2instrument.h
+@@ -27,7 +27,7 @@
+ 
+ #include "Instrument.h"
+ #include "InstrumentView.h"
+-#include "opl.h"
++#include <adplug/opl.h>
+ 
+ #include "LcdSpinBox.h"
+ #include "Knob.h"

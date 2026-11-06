@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Thu, 5 Nov 2026 23:40:02 +0200
+Subject: [PATCH] Load Qt's translations from where Qt keeps them
+
+LMMS loads Qt's own translations from QT_TRANSLATIONS_DIR, an absolute
+path baked in at build time from qmake. On Windows that is the build
+machine's C:/.../share/qt5/translations, wrong wherever MSYS2 lives
+elsewhere. Ask the running Qt for its translations directory instead.
+The definition was also spelled -D'NAME="value"', which only works
+when a shell strips the single quotes.
+
+Upstream: not submitted
+---
+ CMakeLists.txt    | 2 --
+ src/core/main.cpp | 6 +++---
+ 2 files changed, 3 insertions(+), 5 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 72a503a..de349a2 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -166,7 +166,6 @@ IF(WANT_QT5)
+ 	)
+ 	IF(EXISTS "${QT_TRANSLATIONS_DIR}")
+ 		MESSAGE("-- Found Qt translations in ${QT_TRANSLATIONS_DIR}")
+-		ADD_DEFINITIONS(-D'QT_TRANSLATIONS_DIR="${QT_TRANSLATIONS_DIR}"')
+ 	ENDIF()
+ 
+ 	FIND_PACKAGE(Qt5Test)
+@@ -183,7 +182,6 @@ ELSE()
+ 	ENDIF(WIN32)
+ 	IF(EXISTS "${QT_TRANSLATIONS_DIR}")
+ 		MESSAGE("-- Found Qt translations in ${QT_TRANSLATIONS_DIR}")
+-		ADD_DEFINITIONS(-D'QT_TRANSLATIONS_DIR="${QT_TRANSLATIONS_DIR}"')
+ 	ENDIF()
+ 	IF(NOT WIN32)
+ 		STRING(REPLACE "-DQT_DLL" "" QT_DEFINITIONS "${QT_DEFINITIONS}")
+diff --git a/src/core/main.cpp b/src/core/main.cpp
+index f04a02b..50d6e57 100644
+--- a/src/core/main.cpp
++++ b/src/core/main.cpp
+@@ -30,6 +30,7 @@
+ #include "denormals.h"
+ 
+ #include <QFileInfo>
++#include <QLibraryInfo>
+ #include <QLocale>
+ #include <QTimer>
+ #include <QTranslator>
+@@ -656,10 +657,9 @@ int main( int argc, char * * argv )
+ 	loadTranslation( pos );
+ 
+ 	// load translation for Qt-widgets/-dialogs
+-#ifdef QT_TRANSLATIONS_DIR
+ 	// load from the original path first
+-	loadTranslation(QString("qt_") + pos, QT_TRANSLATIONS_DIR);
+-#endif
++	loadTranslation(QString("qt_") + pos,
++		QLibraryInfo::location(QLibraryInfo::TranslationsPath));
+ 	// override it with bundled/custom one, if exists
+ 	loadTranslation(QString("qt_") + pos, ConfigManager::inst()->localeDir());
+ 

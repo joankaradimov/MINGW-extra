@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Thu, 5 Nov 2026 23:41:30 +0200
+Subject: [PATCH] tests: Build the suite list before the suites join it
+
+Each test suite is a global object whose constructor appends it to
+QTestSuite::m_suites, itself a global in another file. Nothing orders
+the two: MinGW runs global constructors in reverse link order, the
+suites go first, and tests.exe crashes appending to a QList that does
+not exist yet. Keep the list in a function-local static, which is
+built on first use.
+
+Upstream: not submitted
+---
+ tests/QTestSuite.cpp | 12 ++++++++----
+ tests/QTestSuite.h   |  2 +-
+ 2 files changed, 9 insertions(+), 5 deletions(-)
+
+diff --git a/tests/QTestSuite.cpp b/tests/QTestSuite.cpp
+index a5a49fd..52dd136 100644
+--- a/tests/QTestSuite.cpp
++++ b/tests/QTestSuite.cpp
+@@ -1,19 +1,23 @@
+ #include "QTestSuite.h"
+ 
+-QList<QTestSuite*> QTestSuite::m_suites;
++QList<QTestSuite*>& QTestSuite::registry()
++{
++	static QList<QTestSuite*> suites;
++	return suites;
++}
+ 
+ QTestSuite::QTestSuite(QObject *parent) : QObject(parent)
+ {
+-	m_suites << this;
++	registry() << this;
+ }
+ 
+ QTestSuite::~QTestSuite()
+ {
+-	m_suites.removeAll(this);
++	registry().removeAll(this);
+ }
+ 
+ QList<QTestSuite*> QTestSuite::suites()
+ {
+-	return m_suites;
++	return registry();
+ }
+ 
+diff --git a/tests/QTestSuite.h b/tests/QTestSuite.h
+index 05ae1fb..a6fe0a3 100644
+--- a/tests/QTestSuite.h
++++ b/tests/QTestSuite.h
+@@ -15,7 +15,7 @@ public:
+ 	static QList<QTestSuite*> suites();
+ 
+ private:
+-	static QList<QTestSuite*> m_suites;
++	static QList<QTestSuite*>& registry();
+ };
+ 
+ #endif // QTESTSUITE_H

@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Thu, 5 Nov 2026 23:40:01 +0200
+Subject: [PATCH] Compile the Windows resources natively too
+
+lmms.exe and RemoteZynAddSubFx.exe compile their .rc files with
+${WINDRES}, which only the MinGW cross-compile toolchain files set. A
+native MSYS2 build leaves it empty, and the build fails to run "".
+Fall back to the resource compiler CMake found.
+
+Upstream: not submitted
+---
+ CMakeLists.txt | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index d9bc44e..72a503a 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -523,6 +523,11 @@ IF(GIT_FOUND AND NOT CONTRIBUTORS)
+ 		TIMEOUT 1)
+ ENDIF()
+ 
++# the cross toolchain files name windres; native builds use CMake's
++IF(WIN32 AND NOT WINDRES)
++	SET(WINDRES "${CMAKE_RC_COMPILER}")
++ENDIF()
++
+ # embedded resources stuff
+ IF(CMAKE_CROSSCOMPILING)
+ 	# compile buildtools native

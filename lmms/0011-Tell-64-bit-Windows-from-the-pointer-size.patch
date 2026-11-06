@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Thu, 5 Nov 2026 23:40:02 +0200
+Subject: [PATCH] Tell 64-bit Windows from the pointer size
+
+DetectMachine takes 64-bit Windows from a WIN64 variable that only the
+MinGW cross toolchain files set. A native x86_64 build is detected as
+32-bit, and RemoteVstPlugin then returns the address of its VstTimeInfo
+to VST plugins through a 32-bit long. Treat an 8-byte pointer as 64-bit
+Windows too.
+
+Upstream: not submitted
+---
+ cmake/modules/DetectMachine.cmake | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/cmake/modules/DetectMachine.cmake b/cmake/modules/DetectMachine.cmake
+index 924b59c..2a4aa77 100644
+--- a/cmake/modules/DetectMachine.cmake
++++ b/cmake/modules/DetectMachine.cmake
+@@ -19,7 +19,7 @@ SET(LMMS_HOST_X86 FALSE)
+ SET(LMMS_HOST_X86_64 FALSE)
+ 
+ IF(WIN32)
+-	IF(WIN64)
++	IF(WIN64 OR CMAKE_SIZEOF_VOID_P EQUAL 8)
+ 		SET(IS_X86_64 TRUE)
+ 		SET(LMMS_BUILD_WIN64 TRUE)
+ 	ELSE(WIN64)

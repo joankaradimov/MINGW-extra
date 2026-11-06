@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Thu, 5 Nov 2026 23:40:00 +0200
+Subject: [PATCH] Find STK in the default prefixes
+
+FindSTK looks for Stk.h only in a fixed list of directories, one of
+them ${CMAKE_INSTALL_PREFIX}/include/stk. On MSYS2 that is /ucrt64/...,
+which CMake reads as a path on the current drive, so STK is never found
+and the Mallets instrument is left out. Search the default prefixes for
+an stk/ subdirectory too.
+
+Upstream: not submitted
+---
+ cmake/modules/FindSTK.cmake | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/cmake/modules/FindSTK.cmake b/cmake/modules/FindSTK.cmake
+index 6c2f16d..382774d 100644
+--- a/cmake/modules/FindSTK.cmake
++++ b/cmake/modules/FindSTK.cmake
+@@ -1,4 +1,4 @@
+-FIND_PATH(STK_INCLUDE_DIR Stk.h /usr/include/stk /usr/local/include/stk ${CMAKE_INSTALL_PREFIX}/include/stk ${CMAKE_FIND_ROOT_PATH}/include/stk)
++FIND_PATH(STK_INCLUDE_DIR Stk.h PATHS /usr/include/stk /usr/local/include/stk ${CMAKE_INSTALL_PREFIX}/include/stk ${CMAKE_FIND_ROOT_PATH}/include/stk PATH_SUFFIXES stk)
+ 
+ FIND_LIBRARY(STK_LIBRARY NAMES stk PATH /usr/lib /usr/local/lib ${CMAKE_INSTALL_PREFIX}/lib ${CMAKE_FIND_ROOT_PATH}/lib) 
+ 

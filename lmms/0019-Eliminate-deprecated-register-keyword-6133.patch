@@ -1,0 +1,321 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Dominic Clark <mrdomclark@gmail.com>
+Date: Wed, 18 Aug 2021 14:42:30 +0100
+Subject: [PATCH] Eliminate deprecated register keyword (#6133)
+
+Upstream: backport of ace502f1a5358f5c2104e5bafce6ef80efc4eef8, on master
+after 1.2.2
+---
+ plugins/LadspaEffect/caps/Amp.cc          | 12 ++++++------
+ plugins/LadspaEffect/caps/Cabinet.cc      |  4 ++--
+ plugins/LadspaEffect/caps/Clip.cc         |  2 +-
+ plugins/LadspaEffect/caps/Phaser.h        |  2 +-
+ plugins/LadspaEffect/caps/Preamp.cc       |  4 ++--
+ plugins/LadspaEffect/caps/Reverb.cc       |  4 ++--
+ plugins/LadspaEffect/caps/ToneStack.cc    |  4 ++--
+ plugins/LadspaEffect/caps/dsp/BiQuad.h    | 16 ++++++++--------
+ plugins/LadspaEffect/caps/dsp/Delay.h     |  6 +++---
+ plugins/LadspaEffect/caps/dsp/Sine.h      |  2 +-
+ plugins/LadspaEffect/caps/dsp/TwelveAX7.h |  2 +-
+ plugins/LadspaEffect/caps/dsp/windows.h   | 18 +++++++++---------
+ 12 files changed, 38 insertions(+), 38 deletions(-)
+
+diff --git a/plugins/LadspaEffect/caps/Amp.cc b/plugins/LadspaEffect/caps/Amp.cc
+index 10a5f13..8bf49fd 100644
+--- a/plugins/LadspaEffect/caps/Amp.cc
++++ b/plugins/LadspaEffect/caps/Amp.cc
+@@ -109,7 +109,7 @@ AmpIII::one_cycle (int frames)
+ 
+ 	for (int i = 0; i < frames; ++i)
+ 	{
+-		register sample_t a = s[i];
++		sample_t a = s[i];
+ 
+ 		a = g * tube.transfer (a * temp);
+ 		a = filter.process (a + normal);
+@@ -226,7 +226,7 @@ AmpIV::one_cycle (int frames)
+ 
+ 	for (int i = 0; i < frames; ++i)
+ 	{
+-		register sample_t a = s[i] + normal;
++		sample_t a = s[i] + normal;
+ 
+ 		a = g * tube.transfer (a * temp);
+ 		a = tone.process (a);
+@@ -382,8 +382,8 @@ AmpV::one_cycle (int frames)
+ 
+ 	for (int i = 0; i < frames; ++i)
+ 	{
+-		register sample_t a = s[i];
+-		register sample_t v = 3 - supply;
++		sample_t a = s[i];
++		sample_t v = 3 - supply;
+ 		/* alternative curve: v = v * v * .1 + .1; */
+ 		v = v * v * .06 + .46;
+ 
+@@ -535,8 +535,8 @@ AmpVTS::one_cycle (int frames)
+ 
+ 	for (int i = 0; i < frames; ++i)
+ 	{
+-		register double a = s[i];
+-		register double v = 3 - supply;
++		double a = s[i];
++		double v = 3 - supply;
+ 		v = v * v * .06 + .46;
+ 
+ 		a = tube.transfer (a);
+diff --git a/plugins/LadspaEffect/caps/Cabinet.cc b/plugins/LadspaEffect/caps/Cabinet.cc
+index e28b945..0041d8a 100644
+--- a/plugins/LadspaEffect/caps/Cabinet.cc
++++ b/plugins/LadspaEffect/caps/Cabinet.cc
+@@ -120,7 +120,7 @@ CabinetI::one_cycle (int frames)
+ 
+ 	for (int i = 0; i < frames; ++i)
+ 	{
+-		register cabinet_float out = s[i] + normal;
++		cabinet_float out = s[i] + normal;
+ 		
+ 		x[h] = out;
+ 		
+@@ -239,7 +239,7 @@ CabinetII::one_cycle (int frames)
+ 
+ 	for (int i = 0; i < frames; ++i)
+ 	{
+-		register cabinet_float out = s[i] + normal;
++		cabinet_float out = s[i] + normal;
+ 		
+ 		x[h] = out;
+ 		
+diff --git a/plugins/LadspaEffect/caps/Clip.cc b/plugins/LadspaEffect/caps/Clip.cc
+index 2034914..05a9b3f 100644
+--- a/plugins/LadspaEffect/caps/Clip.cc
++++ b/plugins/LadspaEffect/caps/Clip.cc
+@@ -94,7 +94,7 @@ Clip::one_cycle (int frames)
+ 
+ 	for (int i = 0; i < frames; ++i)
+ 	{
+-		register sample_t a = gain * s[i];
++		sample_t a = gain * s[i];
+ 
+ 		a = down.process (clip (up.upsample (a)));
+ 
+diff --git a/plugins/LadspaEffect/caps/Phaser.h b/plugins/LadspaEffect/caps/Phaser.h
+index c79b930..1929086 100644
+--- a/plugins/LadspaEffect/caps/Phaser.h
++++ b/plugins/LadspaEffect/caps/Phaser.h
+@@ -50,7 +50,7 @@ class PhaserAP
+ 
+ 		sample_t process (sample_t x)
+ 		{
+-			register sample_t y = -a * x + m;
++			sample_t y = -a * x + m;
+ 			m = a * y + x;
+ 
+ 			return y;
+diff --git a/plugins/LadspaEffect/caps/Preamp.cc b/plugins/LadspaEffect/caps/Preamp.cc
+index 3a1b903..a3568dc 100644
+--- a/plugins/LadspaEffect/caps/Preamp.cc
++++ b/plugins/LadspaEffect/caps/Preamp.cc
+@@ -62,7 +62,7 @@ PreampIII::one_cycle (int frames)
+ 
+ 	for (int i = 0; i < frames; ++i)
+ 	{
+-		register sample_t a = s[i] + normal;
++		sample_t a = s[i] + normal;
+ 
+ 		a = g * tube.transfer (a * temp);
+ 		a = filter.process (a);
+@@ -166,7 +166,7 @@ PreampIV::one_cycle (int frames)
+ 
+ 	for (int i = 0; i < frames; ++i)
+ 	{
+-		register sample_t a = tone.process (s[i] + normal);
++		sample_t a = tone.process (s[i] + normal);
+ 
+ 		a = g * tube.transfer (a * temp);
+ 
+diff --git a/plugins/LadspaEffect/caps/Reverb.cc b/plugins/LadspaEffect/caps/Reverb.cc
+index 9061daa..2d8267c 100644
+--- a/plugins/LadspaEffect/caps/Reverb.cc
++++ b/plugins/LadspaEffect/caps/Reverb.cc
+@@ -267,8 +267,8 @@ PlateStub::process (sample_t x, sample_t decay, sample_t * _xl, sample_t * _xr)
+ 	x = input.lattice[3].process (x, indiff2);
+ 
+ 	/* summation point */
+-	register sample_t xl = x + decay * tank.delay[3].get();
+-	register sample_t xr = x + decay * tank.delay[1].get();
++	sample_t xl = x + decay * tank.delay[3].get();
++	sample_t xr = x + decay * tank.delay[1].get();
+ 
+ 	/* lh */
+ 	xl = tank.mlattice[0].process (xl, dediff1);
+diff --git a/plugins/LadspaEffect/caps/ToneStack.cc b/plugins/LadspaEffect/caps/ToneStack.cc
+index 4005f18..2797475 100644
+--- a/plugins/LadspaEffect/caps/ToneStack.cc
++++ b/plugins/LadspaEffect/caps/ToneStack.cc
+@@ -82,7 +82,7 @@ ToneStack::one_cycle (int frames)
+ 
+ 	for (int i = 0; i < frames; ++i) 
+ 	{
+-		register sample_t a = s[i];
++		sample_t a = s[i];
+ 		a = tonestack.process (a + normal);
+ 		F (d, i, a, adding_gain);
+ 	}
+@@ -146,7 +146,7 @@ ToneStackLT::one_cycle (int frames)
+ 
+ 	for (int i = 0; i < frames; ++i) 
+ 	{
+-		register sample_t a = s[i];
++		sample_t a = s[i];
+ 		a = tonestack.process (a + normal);
+ 		F (d, i, a, adding_gain);
+ 	}
+diff --git a/plugins/LadspaEffect/caps/dsp/BiQuad.h b/plugins/LadspaEffect/caps/dsp/BiQuad.h
+index c562720..9b25ccd 100644
+--- a/plugins/LadspaEffect/caps/dsp/BiQuad.h
++++ b/plugins/LadspaEffect/caps/dsp/BiQuad.h
+@@ -77,9 +77,9 @@ class BiQuad
+ 
+ 		inline sample_t process (sample_t s)
+ 			{
+-				register int z = h;
++				int z = h;
+ 
+-				register sample_t r = s * a[0];
++				sample_t r = s * a[0];
+ 				
+ 				r += a[1] * x[z];
+ 				r += b[1] * y[z];
+@@ -101,9 +101,9 @@ class BiQuad
+ 		 * case */
+ 		inline sample_t process_0_1()
+ 			{
+-				register int z = h;
++				int z = h;
+ 
+-				register sample_t r = 0;
++				sample_t r = 0;
+ 				
+ 				r += a[1] * x[z];
+ 				r += b[1] * y[z];
+@@ -122,9 +122,9 @@ class BiQuad
+ 
+ 		inline sample_t process_0_2()
+ 			{
+-				register int z = h;
++				int z = h;
+ 
+-				register sample_t r = 0;
++				sample_t r = 0;
+ 				
+ 				r += b[1] * y[z];
+ 
+@@ -142,9 +142,9 @@ class BiQuad
+ 
+ 		inline sample_t process_0_3()
+ 			{
+-				register int z = h;
++				int z = h;
+ 
+-				register sample_t r = 0;
++				sample_t r = 0;
+ 				
+ 				r += b[1] * y[z];
+ 
+diff --git a/plugins/LadspaEffect/caps/dsp/Delay.h b/plugins/LadspaEffect/caps/dsp/Delay.h
+index a9aa517..ab18d89 100644
+--- a/plugins/LadspaEffect/caps/dsp/Delay.h
++++ b/plugins/LadspaEffect/caps/dsp/Delay.h
+@@ -121,11 +121,11 @@ class Delay
+ 				sample_t x2 = (*this) [n + 2];
+ 
+ 				/* sample_t (32bit) quicker than double here */
+-				register sample_t a = 
++				sample_t a = 
+ 						(3 * (x0 - x1) - x_1 + x2) * .5;
+-				register sample_t b =
++				sample_t b =
+ 						2 * x1 + x_1 - (5 * x0 + x2) * .5;
+-				register sample_t c = 
++				sample_t c = 
+ 						(x1 - x_1) * .5;
+ 
+ 				return x0 + (((a * f) + b) * f + c) * f;
+diff --git a/plugins/LadspaEffect/caps/dsp/Sine.h b/plugins/LadspaEffect/caps/dsp/Sine.h
+index a54c661..43e5f06 100644
+--- a/plugins/LadspaEffect/caps/dsp/Sine.h
++++ b/plugins/LadspaEffect/caps/dsp/Sine.h
+@@ -71,7 +71,7 @@ class Sine
+ 		/* advance and return 1 sample */
+ 		inline double get()
+ 			{
+-				register double s = b * y[z]; 
++				double s = b * y[z]; 
+ 				z ^= 1;
+ 				s -= y[z];
+ 				return y[z] = s;
+diff --git a/plugins/LadspaEffect/caps/dsp/TwelveAX7.h b/plugins/LadspaEffect/caps/dsp/TwelveAX7.h
+index a4e9d7e..58e52b3 100644
+--- a/plugins/LadspaEffect/caps/dsp/TwelveAX7.h
++++ b/plugins/LadspaEffect/caps/dsp/TwelveAX7.h
+@@ -185,7 +185,7 @@ class TwelveAX7_3
+ 					return r12AX7::v2v [r12AX7::Samples - 1];
+ 
+ 				/* linear interpolation from sampled function */
+-				register int i = lrintf (a);
++				int i = lrintf (a);
+ 				a -= i;
+ 				
+ 				return (r12AX7::v2v [i] * (1.f - a) + r12AX7::v2v [i + 1] * a);
+diff --git a/plugins/LadspaEffect/caps/dsp/windows.h b/plugins/LadspaEffect/caps/dsp/windows.h
+index 949a958..00f4be8 100644
+--- a/plugins/LadspaEffect/caps/dsp/windows.h
++++ b/plugins/LadspaEffect/caps/dsp/windows.h
+@@ -53,7 +53,7 @@ hanning (sample_t * s, int n)
+ 	/* could speed up by using DSP::Sine but we rarely use this window */
+ 	for (int i = 0; i < n; ++i)
+ 	{
+-		register double f = (double) i / n - 1;
++		double f = (double) i / n - 1;
+ 		F (s[i], .5 - .5 * cos (2 * M_PI * f));
+ 	}
+ }
+@@ -62,13 +62,13 @@ template <window_sample_func_t F>
+ void
+ blackman (sample_t * s, int n)
+ {
+-	register float w = n;
++	float w = n;
+ 
+ 	for (int i = 0; i < n; ++i)
+ 	{
+-		register float f = (float) i;
++		float f = (float) i;
+ 
+-		register double b = .42f - 
++		double b = .42f - 
+ 						.5f * cos (2.f * f * M_PI / w) + 
+ 						.08 * cos (4.f * f * M_PI / w);
+ 
+@@ -80,15 +80,15 @@ template <window_sample_func_t F>
+ void
+ blackman_harris (sample_t * s, int n)
+ {
+-	register double w1 = 2.f * M_PI / (n - 1);
+-	register double w2 = 2.f * w1;
+-	register double w3 = 3.f * w1;
++	double w1 = 2.f * M_PI / (n - 1);
++	double w2 = 2.f * w1;
++	double w3 = 3.f * w1;
+ 
+ 	for (int i = 0; i < n; ++i)
+ 	{
+-		register double f = (double) i;
++		double f = (double) i;
+ 
+-		register double bh = .35875f - 
++		double bh = .35875f - 
+ 				.48829f * cos (w1 * f) + 
+ 				.14128f * cos (w2 * f) - 
+ 				.01168f * cos (w3 * f);

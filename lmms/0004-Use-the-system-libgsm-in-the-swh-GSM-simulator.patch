@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Thu, 5 Nov 2026 23:39:59 +0200
+Subject: [PATCH] Use the system libgsm in the swh GSM simulator
+
+swh's gsm_1215 plugin compiled in a copy of libgsm 1.0.10. Link the
+libgsm library instead.
+
+Upstream: not submitted
+---
+ plugins/LadspaEffect/swh/CMakeLists.txt | 12 +++++++-----
+ plugins/LadspaEffect/swh/gsm_1215.c     |  2 +-
+ 2 files changed, 8 insertions(+), 6 deletions(-)
+
+diff --git a/plugins/LadspaEffect/swh/CMakeLists.txt b/plugins/LadspaEffect/swh/CMakeLists.txt
+index 07893c8..39acb9c 100644
+--- a/plugins/LadspaEffect/swh/CMakeLists.txt
++++ b/plugins/LadspaEffect/swh/CMakeLists.txt
+@@ -47,11 +47,13 @@ TARGET_LINK_LIBRARIES(highpass_iir_1890 iir)
+ TARGET_LINK_LIBRARIES(lowpass_iir_1891 iir)
+ TARGET_LINK_LIBRARIES(notch_iir_1894 iir)
+ 
+-FILE(GLOB GSM_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/gsm/*.c")
+-LIST(SORT GSM_SOURCES)
+-ADD_LIBRARY(gsm STATIC ${GSM_SOURCES})
+-SET_TARGET_PROPERTIES(gsm PROPERTIES COMPILE_FLAGS "${PIC_FLAGS}")
+-TARGET_LINK_LIBRARIES(gsm_1215 gsm)
++FIND_PATH(GSM_INCLUDE_DIR gsm.h PATH_SUFFIXES gsm)
++FIND_LIBRARY(GSM_LIBRARY gsm)
++IF(NOT GSM_INCLUDE_DIR OR NOT GSM_LIBRARY)
++	MESSAGE(FATAL_ERROR "libgsm is required for the swh GSM simulator")
++ENDIF()
++TARGET_INCLUDE_DIRECTORIES(gsm_1215 PRIVATE "${GSM_INCLUDE_DIR}")
++TARGET_LINK_LIBRARIES(gsm_1215 "${GSM_LIBRARY}")
+ 
+ ADD_LIBRARY(gverb STATIC gverb/gverb.c gverb/gverbdsp.c)
+ SET_TARGET_PROPERTIES(gverb PROPERTIES COMPILE_FLAGS "${PIC_FLAGS}")
+diff --git a/plugins/LadspaEffect/swh/gsm_1215.c b/plugins/LadspaEffect/swh/gsm_1215.c
+index 7c17552..86f52f4 100644
+--- a/plugins/LadspaEffect/swh/gsm_1215.c
++++ b/plugins/LadspaEffect/swh/gsm_1215.c
+@@ -29,7 +29,7 @@ static void __attribute__((constructor)) swh_init(); // forward declaration
+ 
+ #include <stdlib.h>
+ #include "ladspa-util.h"
+-#include "gsm/gsm.h"
++#include <gsm.h>
+ #include "util/biquad.h"
+ 
+ #define SCALE 32768.0f

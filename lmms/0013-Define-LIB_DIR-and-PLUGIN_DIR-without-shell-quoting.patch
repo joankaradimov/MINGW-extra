@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Thu, 5 Nov 2026 23:40:02 +0200
+Subject: [PATCH] Define LIB_DIR and PLUGIN_DIR without shell quoting
+
+src/CMakeLists.txt passes -D'LIB_DIR="../lib/"' to add_definitions().
+The single quotes are for a POSIX shell, which Make on Linux runs the
+compiler through. Ninja on Windows starts the compiler directly, the
+quotes reach it, and every core file fails with "macro names must be
+identifiers". Pass -DNAME="value" and let CMake do the quoting.
+
+Upstream: not submitted
+---
+ src/CMakeLists.txt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index c82c281..f56807a 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -50,7 +50,7 @@ ADD_CUSTOM_COMMAND(OUTPUT "${LMMS_ER_H}" COMMAND "${BIN2RES}" ARGS ${lmms_EMBEDD
+ # Paths relative to lmms executable
+ FILE(RELATIVE_PATH LIB_DIR_RELATIVE "/${BIN_DIR}" "/${LIB_DIR}")
+ FILE(RELATIVE_PATH PLUGIN_DIR_RELATIVE "/${BIN_DIR}" "/${PLUGIN_DIR}")
+-ADD_DEFINITIONS(-D'LIB_DIR="${LIB_DIR_RELATIVE}/"' -D'PLUGIN_DIR="${PLUGIN_DIR_RELATIVE}/"' ${PULSEAUDIO_DEFINITIONS} ${PORTAUDIO_DEFINITIONS})
++ADD_DEFINITIONS(-DLIB_DIR="${LIB_DIR_RELATIVE}/" -DPLUGIN_DIR="${PLUGIN_DIR_RELATIVE}/" ${PULSEAUDIO_DEFINITIONS} ${PORTAUDIO_DEFINITIONS})
+ INCLUDE_DIRECTORIES(
+ 	${JACK_INCLUDE_DIRS}
+ 	${SAMPLERATE_INCLUDE_DIRS}

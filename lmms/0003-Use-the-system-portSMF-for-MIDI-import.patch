@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Thu, 5 Nov 2026 23:39:58 +0200
+Subject: [PATCH] Use the system portSMF for MIDI import
+
+The plugin compiled in a copy of portSMF. Link the portSMF library and
+take its header from <portsmf/allegro.h> under the compiler's own
+include path; MSYS2's portSMF.pc gives its include directory as a
+literal /ucrt64/include/portsmf, which CMake on Windows cannot use.
+
+Upstream: not submitted
+---
+ plugins/MidiImport/CMakeLists.txt | 11 +++++------
+ plugins/MidiImport/MidiImport.cpp |  2 +-
+ 2 files changed, 6 insertions(+), 7 deletions(-)
+
+diff --git a/plugins/MidiImport/CMakeLists.txt b/plugins/MidiImport/CMakeLists.txt
+index 9fd6b68..28a87b3 100644
+--- a/plugins/MidiImport/CMakeLists.txt
++++ b/plugins/MidiImport/CMakeLists.txt
+@@ -1,8 +1,7 @@
+ INCLUDE(BuildPlugin)
+ 
+-BUILD_PLUGIN(midiimport MidiImport.cpp MidiImport.h
+-	portsmf/allegro.cpp portsmf/allegro.h portsmf/allegrosmfwr.cpp
+-	portsmf/allegrord.cpp portsmf/allegrowr.cpp portsmf/allegrosmfrd.cpp
+-	portsmf/mfmidi.cpp portsmf/mfmidi.h portsmf/strparse.cpp
+-	portsmf/strparse.h portsmf/algrd_internal.h portsmf/algsmfrd_internal.h
+-	portsmf/trace.h MOCFILES MidiImport.h)
++PKG_CHECK_MODULES(PORTSMF REQUIRED portSMF)
++LINK_DIRECTORIES(${PORTSMF_LIBRARY_DIRS})
++LINK_LIBRARIES(${PORTSMF_LIBRARIES})
++
++BUILD_PLUGIN(midiimport MidiImport.cpp MidiImport.h MOCFILES MidiImport.h)
+diff --git a/plugins/MidiImport/MidiImport.cpp b/plugins/MidiImport/MidiImport.cpp
+index f0c4888..2cd0e73 100644
+--- a/plugins/MidiImport/MidiImport.cpp
++++ b/plugins/MidiImport/MidiImport.cpp
+@@ -47,7 +47,7 @@
+ #include "embed.h"
+ #include "Song.h"
+ 
+-#include "portsmf/allegro.h"
++#include <portsmf/allegro.h>
+ 
+ #define makeID(_c0, _c1, _c2, _c3) \
+ 		( 0 | \

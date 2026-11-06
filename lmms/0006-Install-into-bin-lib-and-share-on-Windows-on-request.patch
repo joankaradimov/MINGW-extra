@@ -1,0 +1,144 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Thu, 5 Nov 2026 23:40:00 +0200
+Subject: [PATCH] Install into bin, lib and share on Windows on request
+
+On Windows LMMS installs as a portable tree: lmms.exe, the DLLs it
+needs copied in from the build prefix, plugins/ and data/ all in the
+install root. Installed into an MSYS2 prefix that puts lmms.exe and
+copies of Qt and twenty other DLLs straight into /ucrt64.
+
+Add WANT_PORTABLE_LAYOUT, on by default. Turned off, Windows gets the
+bin/, lib/lmms/ and share/lmms/ layout other platforms use, nothing is
+copied in from the prefix (DLLs, STK's rawwaves, Qt's translations),
+and LMMS looks for its data and for STK's rawwaves under share/ beside
+bin/. Plugins are already found through the relative PLUGIN_DIR.
+
+Upstream: not submitted
+---
+ CMakeLists.txt                    | 4 +++-
+ cmake/modules/DetectMachine.cmake | 9 +++++++--
+ cmake/nsis/CMakeLists.txt         | 2 ++
+ src/CMakeLists.txt                | 2 ++
+ src/core/ConfigManager.cpp        | 6 +++---
+ src/lmmsconfig.h.in               | 2 ++
+ 6 files changed, 19 insertions(+), 6 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b56a8c0..5a3d0c1 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -93,7 +93,9 @@ IF(LMMS_BUILD_WIN32)
+ 	SET(WANT_SNDIO OFF)
+ 	SET(WANT_SOUNDIO OFF)
+ 	SET(WANT_WINMM ON)
+-	SET(BUNDLE_QT_TRANSLATIONS ON)
++	IF(LMMS_PORTABLE_LAYOUT)
++		SET(BUNDLE_QT_TRANSLATIONS ON)
++	ENDIF()
+ 	SET(LMMS_HAVE_WINMM TRUE)
+ 	SET(STATUS_ALSA "<not supported on this platform>")
+ 	SET(STATUS_JACK "<not supported on this platform>")
+diff --git a/cmake/modules/DetectMachine.cmake b/cmake/modules/DetectMachine.cmake
+index c764b55..924b59c 100644
+--- a/cmake/modules/DetectMachine.cmake
++++ b/cmake/modules/DetectMachine.cmake
+@@ -50,16 +50,21 @@ ENDIF(CMAKE_INSTALL_LIBDIR)
+ 
+ 
+ IF(LMMS_BUILD_WIN32)
++	OPTION(WANT_PORTABLE_LAYOUT "Install lmms.exe, its plugins and data side by side" ON)
++	SET(LMMS_PORTABLE_LAYOUT ${WANT_PORTABLE_LAYOUT})
++ENDIF()
++
++IF(LMMS_PORTABLE_LAYOUT)
+ 	SET(BIN_DIR .)
+ 	SET(PLUGIN_DIR plugins)
+ 	SET(DATA_DIR data)
+ 	SET(LMMS_DATA_DIR data)
+-ELSE(LMMS_BUILD_WIN32)
++ELSE(LMMS_PORTABLE_LAYOUT)
+ 	SET(BIN_DIR bin)
+ 	SET(PLUGIN_DIR ${LIB_DIR}/lmms)
+ 	SET(DATA_DIR share)
+ 	SET(LMMS_DATA_DIR ${DATA_DIR}/lmms)
+-ENDIF(LMMS_BUILD_WIN32)
++ENDIF(LMMS_PORTABLE_LAYOUT)
+ 
+ IF(LMMS_BUILD_APPLE)
+ 	# Detect Homebrew versus Macports environment
+diff --git a/cmake/nsis/CMakeLists.txt b/cmake/nsis/CMakeLists.txt
+index eb9868b..a4137a2 100644
+--- a/cmake/nsis/CMakeLists.txt
++++ b/cmake/nsis/CMakeLists.txt
+@@ -64,6 +64,7 @@ SET(CPACK_NSIS_MUI_ICON                 "${CPACK_NSIS_MUI_ICON}" PARENT_SCOPE)
+ CONFIGURE_FILE("lmms.rc.in"             "${CMAKE_BINARY_DIR}/lmms.rc")
+ CONFIGURE_FILE("zynaddsubfx.rc.in"      "${CMAKE_BINARY_DIR}/plugins/zynaddsubfx/zynaddsubfx.rc")
+ 
++IF(LMMS_PORTABLE_LAYOUT)
+ IF(LMMS_HAVE_STK)
+ 	FILE(GLOB RAWWAVES "${MINGW_PREFIX}/share/stk/rawwaves/*.raw")
+ 	LIST(SORT RAWWAVES)
+@@ -73,3 +74,4 @@ ENDIF()
+ INSTALL(FILES "lmms.exe.manifest" DESTINATION .)
+ INSTALL(FILES "lmms.VisualElementsManifest.xml" DESTINATION .)
+ INSTALL(DIRECTORY "assets" DESTINATION .)
++ENDIF(LMMS_PORTABLE_LAYOUT)
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 1b59ee9..c82c281 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -182,6 +182,7 @@ IF(LMMS_BUILD_WIN32)
+ 
+ 	INSTALL(TARGETS lmms RUNTIME DESTINATION "${BIN_DIR}")
+ 
++	IF(LMMS_PORTABLE_LAYOUT)
+ 	IF(QT5)
+ 		INSTALL(FILES
+ 					"${MINGW_PREFIX}/bin/Qt5Core.dll"
+@@ -250,6 +251,7 @@ IF(LMMS_BUILD_WIN32)
+ 					"${MINGW_PREFIX}/lib/libsoundio.dll"
+ 				DESTINATION .)
+ 	ENDIF()
++	ENDIF(LMMS_PORTABLE_LAYOUT)
+ 
+ ELSE(LMMS_BUILD_WIN32)
+ 	IF(NOT LMMS_BUILD_APPLE)
+diff --git a/src/core/ConfigManager.cpp b/src/core/ConfigManager.cpp
+index 2ed0f83..68f84c9 100644
+--- a/src/core/ConfigManager.cpp
++++ b/src/core/ConfigManager.cpp
+@@ -112,7 +112,7 @@ ConfigManager::ConfigManager() :
+ 		cmakeCache.close();
+ 	}
+ 
+-#ifdef LMMS_BUILD_WIN32
++#ifdef LMMS_PORTABLE_LAYOUT
+ 	QDir::addSearchPath("data", qApp->applicationDirPath() + "/data/");
+ #else
+ 	QDir::addSearchPath("data", qApp->applicationDirPath().section('/', 0, -2) + "/share/lmms/");
+@@ -546,9 +546,9 @@ void ConfigManager::loadConfigFile( const QString & configFile )
+ 	if( m_stkDir.isEmpty() || m_stkDir == QDir::separator() || m_stkDir == "/" ||
+ 			!QDir( m_stkDir ).exists() )
+ 	{
+-#if defined(LMMS_BUILD_WIN32)
++#if defined(LMMS_PORTABLE_LAYOUT)
+ 		m_stkDir = m_dataDir + "stk/rawwaves/";
+-#elif defined(LMMS_BUILD_APPLE)
++#elif defined(LMMS_BUILD_APPLE) || defined(LMMS_BUILD_WIN32)
+ 		m_stkDir = qApp->applicationDirPath() + "/../share/stk/rawwaves/";
+ #else
+ 		if ( qApp->applicationDirPath().startsWith("/tmp/") )
+diff --git a/src/lmmsconfig.h.in b/src/lmmsconfig.h.in
+index 7e37be8..921ba1e 100644
+--- a/src/lmmsconfig.h.in
++++ b/src/lmmsconfig.h.in
+@@ -6,6 +6,8 @@
+ #cmakedefine LMMS_BUILD_FREEBSD
+ #cmakedefine LMMS_BUILD_HAIKU
+ 
++#cmakedefine LMMS_PORTABLE_LAYOUT
++
+ #cmakedefine LMMS_HOST_X86
+ #cmakedefine LMMS_HOST_X86_64
+ 

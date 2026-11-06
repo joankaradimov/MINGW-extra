@@ -1,0 +1,185 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=lmms
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=1.2.2
+pkgrel=1
+pkgdesc="Free cross-platform music production software (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://lmms.io/'
+license=('spdx:GPL-2.0-or-later')
+msys2_repository_url='https://github.com/LMMS/lmms'
+msys2_references=(
+  'archlinux: lmms'
+)
+depends=("${MINGW_PACKAGE_PREFIX}-adplug"
+         "${MINGW_PACKAGE_PREFIX}-cc-libs"
+         "${MINGW_PACKAGE_PREFIX}-fftw"
+         "${MINGW_PACKAGE_PREFIX}-fltk"
+         "${MINGW_PACKAGE_PREFIX}-fluidsynth"
+         "${MINGW_PACKAGE_PREFIX}-gsm"
+         "${MINGW_PACKAGE_PREFIX}-lame"
+         "${MINGW_PACKAGE_PREFIX}-libgig"
+         "${MINGW_PACKAGE_PREFIX}-libogg"
+         "${MINGW_PACKAGE_PREFIX}-libsamplerate"
+         "${MINGW_PACKAGE_PREFIX}-libsndfile"
+         "${MINGW_PACKAGE_PREFIX}-libvorbis"
+         "${MINGW_PACKAGE_PREFIX}-portaudio"
+         "${MINGW_PACKAGE_PREFIX}-portsmf"
+         "${MINGW_PACKAGE_PREFIX}-qt5-base"
+         "${MINGW_PACKAGE_PREFIX}-resid"
+         "${MINGW_PACKAGE_PREFIX}-SDL"
+         "${MINGW_PACKAGE_PREFIX}-stk"
+         "${MINGW_PACKAGE_PREFIX}-zlib")
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-cmake"
+             "${MINGW_PACKAGE_PREFIX}-ninja"
+             "${MINGW_PACKAGE_PREFIX}-pkgconf"
+             "${MINGW_PACKAGE_PREFIX}-qt5-tools")
+optdepends=("${MINGW_PACKAGE_PREFIX}-qt5-translations: translated Qt dialogs")
+# Left in the source, as LMMS ships them: its own forks of ZynAddSubFX,
+# Calf (veal), CMT and TAP; the swh and C* (caps) LADSPA suites, which
+# LMMS builds with its own CMake files; Blargg's Gb_Apu in papu, which
+# no library exports; adplug's GM patch table (opl2/mididata.h), which
+# adplug does not install; and Soundpipe's reverb in ReverbSC.
+source=("https://github.com/LMMS/lmms/releases/download/v${pkgver}/${_realname}_${pkgver}.tar.xz"
+        "0001-Use-the-system-adplug-for-the-OPL2-instrument.patch"
+        "0002-Use-the-system-reSID-for-the-SID-instrument.patch"
+        "0003-Use-the-system-portSMF-for-MIDI-import.patch"
+        "0004-Use-the-system-libgsm-in-the-swh-GSM-simulator.patch"
+        "0005-Allocate-with-the-C-library-instead-of-rpmalloc.patch"
+        "0006-Install-into-bin-lib-and-share-on-Windows-on-request.patch"
+        "0007-Build-with-CMake-4.patch"
+        "0008-Find-STK-in-the-default-prefixes.patch"
+        "0009-Include-windows.h-for-ZynAddSubFX-s-window-icon.patch"
+        "0010-Compile-the-Windows-resources-natively-too.patch"
+        "0011-Tell-64-bit-Windows-from-the-pointer-size.patch"
+        "0012-Load-Qt-s-translations-from-where-Qt-keeps-them.patch"
+        "0013-Define-LIB_DIR-and-PLUGIN_DIR-without-shell-quoting.patch"
+        "0014-calf-Do-not-name-a-parameter-_errno.patch"
+        "0015-Strip-plugins-after-linking-only-when-STRIP-is-set.patch"
+        "0016-stk-Ask-MinGW-s-math.h-for-the-M_-constants.patch"
+        "0017-tests-Build-the-suite-list-before-the-suites-join-it.patch"
+        "0018-tests-Connect-to-the-dataChanged-that-Qt-5-builds-ha.patch"
+        "0019-Eliminate-deprecated-register-keyword-6133.patch"
+        "test-ladspa.c"
+        "test-project.mmp"
+        "test-wavpeak.c")
+noextract=("${_realname}_${pkgver}.tar.xz")
+sha256sums=('b185507fb64ecfd8e31145135b58ab244b637f9efc09c4176caf70aa3cbaae1e'
+            'fd7911ba0abed9e7bb82b69599fef627ede7a50a4173e49b26fa8d6c75aef6cb'
+            '8f6bbe889d5cee2e2a72e4a990a1f2e9d72c74ba9bdb23d548d6c2d76b1419d7'
+            '9404d78aa9dfce769fdcb9d958743a1128153a152a4d67f26d2ec1305ff57b81'
+            'b2c0115d2e970c0eea403076972c196d78933d934def4f7ec788a9cb29ff05b6'
+            'a43f156b76fe1749fc0087792eebfa06ea7997bec4f2283db58701b301bd436c'
+            '7728faea258c3f999ecc6228ba7fba6b2ff80349660f68a9f7046296a23aae93'
+            '3cdc225ebbebae0441cf8f0a876aa7b700483063b71f88a1894249666fddf98b'
+            'bc9759d920a03450c8a10723a74f1886b12efb4257a9dafb4176960ea57b923d'
+            '6ac7501bd0d721c6bda2ea0a21dd01b0c8dfe36067778016fd38ceba196c4d4d'
+            '58028895f26207c013cc597ee8d11fbbbb25440dbfb4a0a0e1be3dd2f8e3374b'
+            '864c6aa0cb347b7d886b5752df1ca86ee05e998754171c0015740563d1dc0a49'
+            '16e21b1c6ce43f1501a515b797f4f86bc1c7d88fcf1cf181fa1e0c39636110ef'
+            '1f54f1792b5345f62e0f6131fe56fc211cde8711553e780fdd5bd44e458fb341'
+            'db1b2b843b01fea63b273c5bc05c197456334c227fd4d292f44216115e2fdf8b'
+            '935dd6953b92b990b9d549ce96b20f161511510e37fa63c3f499eae615707d78'
+            '9b16208ead5250f260d261b2a31266e39a2a827d6e097eeb7338d6c79c0a8e9e'
+            'd8071c444ebea751b926e1848e0f4e640284cf61db1a8d58a239645c83f634f8'
+            '632deb4ef431fd6ff81a37f99dffdeadb6f2a0b7e52c1294e702b86ae2b1f39b'
+            'e1feff342a43ae8874e86407da95bfd8954e051d76bf5b6e3e5da931f3b1a3b0'
+            'a2f1eb5bf9ee8ab35bac317a8da40444ca42eb9059630423555d3fb8e9980d34'
+            '9dc0d235d270575b0111fac95016174719a27ab509513d81941864cbf93b6c89'
+            '71df09b6beb562b211e313abc0fb3e4b92a0070bada97425419ebcf3e298700f')
+
+prepare() {
+  # The bundled Carla holds symlinks bsdtar cannot create here, and
+  # WANT_CARLA=OFF leaves it unused.
+  bsdtar -xf "${_realname}_${pkgver}.tar.xz" \
+    --exclude "${_realname}/plugins/carlabase/carla"
+  cd "${_realname}"
+
+  local _p
+  for _p in "${srcdir}"/0*.patch; do
+    patch -Np1 -i "${_p}"
+  done
+
+  # The copies the patches above replace with system libraries
+  rm -r src/3rdparty/rpmalloc \
+    plugins/MidiImport/portsmf \
+    plugins/LadspaEffect/swh/gsm
+  rm plugins/opl2/{fmopl.c,fmopl.h,opl.h,temuopl.cpp,temuopl.h}
+  rm plugins/sid/{envelope,extfilt,filter,pot,sid,voice,wave}.{cc,h} \
+    plugins/sid/{siddefs.h,spline.h,version.cc,wave6581_*.cc,wave8580_*.cc}
+}
+
+build() {
+  declare -a extra_config
+  if check_option "debug" "n"; then
+    extra_config+=("-DCMAKE_BUILD_TYPE=Release")
+  else
+    extra_config+=("-DCMAKE_BUILD_TYPE=Debug")
+  fi
+
+  # LMMS_BUILD_MSYS: upstream's switch for a native MSYS2 build; it skips
+  # the 32-bit VST host, which needs a second, 32-bit toolchain.
+  # WANT_CARLA=OFF: there is no Carla package to build against.
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
+    cmake \
+      -GNinja \
+      -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
+      "${extra_config[@]}" \
+      -DWANT_QT5=ON \
+      -DWANT_PORTABLE_LAYOUT=OFF \
+      -DLMMS_BUILD_MSYS=ON \
+      -DWANT_CARLA=OFF \
+      -S "${_realname}" \
+      -B "build-${MSYSTEM}"
+
+  cmake --build "build-${MSYSTEM}"
+}
+
+check() {
+  cmake --build "build-${MSYSTEM}" --target tests
+  QT_FORCE_STDERR_LOGGING=1 "build-${MSYSTEM}"/tests/tests.exe
+
+  local _stage="${srcdir}/stage-${MSYSTEM}"
+  rm -rf "${_stage}" "${srcdir}/check-${MSYSTEM}"
+  DESTDIR="${_stage}" cmake --install "build-${MSYSTEM}" > /dev/null
+  mkdir "${srcdir}/check-${MSYSTEM}" && cd "${srcdir}/check-${MSYSTEM}"
+
+  cc -O2 -o wavpeak.exe "${srcdir}/test-wavpeak.c"
+  cc -O2 -I"${srcdir}/${_realname}/include" -o ladspa.exe "${srcdir}/test-ladspa.c"
+
+  # Every LADSPA library LMMS installs loads, and each plugin in it runs
+  ./ladspa.exe "${_stage}${MINGW_PREFIX}"/lib/lmms/ladspa/*.dll
+
+  # Each instrument that sounds with default settings renders sound
+  # (Vibed's strings default to off). The staged lmms.exe finds its
+  # plugins and data relative to itself. Qt takes the profile from Windows,
+  # not USERPROFILE, so the configuration names every directory LMMS would
+  # otherwise put there, and points STK at the installed rawwaves.
+  local _w="$(cygpath -m "${PWD}")/work"
+  cat > lmmsrc.xml <<EOF
+<?xml version="1.0"?>
+<!DOCTYPE lmms-config-file>
+<lmms version="${pkgver}">
+  <paths workingdir="${_w}/" laddir="${_w}/plugins/ladspa/" vstdir="${_w}/plugins/vst/" gigdir="${_w}/samples/gig/" sf2dir="${_w}/samples/soundfonts/" stkdir="$(cygpath -m "${MINGW_PREFIX}/share/stk/rawwaves")/"/>
+</lmms>
+EOF
+  local _i
+  for _i in OPL2 bitinvader kicker lb302 malletsstk monstro nes organic \
+      papu sid tripleoscillator watsyn zynaddsubfx; do
+    sed "s/@INSTRUMENT@/${_i}/g" "${srcdir}/test-project.mmp" > "${_i}.mmp"
+    "${_stage}${MINGW_PREFIX}/bin/lmms.exe" -c lmmsrc.xml \
+      render "${_i}.mmp" -f wav -o "${_i}.wav"
+    ./wavpeak.exe "${_i}.wav"
+  done
+}
+
+package() {
+  DESTDIR="${pkgdir}" cmake --install "build-${MSYSTEM}"
+
+  install -Dm644 "${_realname}/LICENSE.txt" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/LICENSE.txt"
+}

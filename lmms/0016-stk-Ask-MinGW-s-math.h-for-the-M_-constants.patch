@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Thu, 5 Nov 2026 23:40:03 +0200
+Subject: [PATCH] stk: Ask MinGW's math.h for the M_ constants
+
+STK's BiQuad.h uses M_SQRT1_2. LMMS compiles with -std=c++0x, and in
+strict mode MinGW's math.h defines the M_ constants only when
+_USE_MATH_DEFINES is set, so the Mallets plugin does not compile.
+
+Upstream: not submitted
+---
+ plugins/stk/mallets/CMakeLists.txt | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/plugins/stk/mallets/CMakeLists.txt b/plugins/stk/mallets/CMakeLists.txt
+index 5be9cd1..2127ec2 100644
+--- a/plugins/stk/mallets/CMakeLists.txt
++++ b/plugins/stk/mallets/CMakeLists.txt
+@@ -2,4 +2,7 @@ INCLUDE(BuildPlugin)
+ INCLUDE_DIRECTORIES("${STK_INCLUDE_DIR}")
+ LINK_LIBRARIES(${STK_LIBRARY})
+ SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fexceptions")
++IF(LMMS_BUILD_WIN32)
++	ADD_DEFINITIONS(-D_USE_MATH_DEFINES)
++ENDIF()
+ BUILD_PLUGIN(malletsstk mallets.cpp mallets.h MOCFILES mallets.h EMBEDDED_RESOURCES "${CMAKE_CURRENT_SOURCE_DIR}/*.png")

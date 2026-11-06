@@ -1,0 +1,94 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Thu, 5 Nov 2026 23:40:00 +0200
+Subject: [PATCH] Build with CMake 4
+
+CMake 4 refuses to set CMP0026 and CMP0050 to OLD, and drops support
+for projects that require less than 3.5. Require 3.5, read bin2res's
+path from its target instead of the LOCATION property, and give the
+wine build of RemoteVstPlugin its source as an argument instead of
+through add_custom_command(SOURCE).
+
+Arch's version builds bin2res with add_executable() on Windows too,
+which a cross build cannot run; build it with the host g++ only when
+cross-compiling.
+
+Upstream: adapted from Arch Linux's cmake-4.patch for lmms 1.2.2-29
+---
+ CMakeLists.txt                           | 20 +++++---------------
+ plugins/vst_base/CMakeLists.txt          |  3 +--
+ src/3rdparty/qt5-x11embed/CMakeLists.txt |  2 +-
+ 3 files changed, 7 insertions(+), 18 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 5a3d0c1..d9bc44e 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,19 +1,9 @@
+-CMAKE_MINIMUM_REQUIRED(VERSION 2.8.7)
++CMAKE_MINIMUM_REQUIRED(VERSION 3.5)
+ 
+ PROJECT(lmms)
+ 
+ SET(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules" ${CMAKE_MODULE_PATH})
+ 
+-IF(COMMAND CMAKE_POLICY)
+-	CMAKE_POLICY(SET CMP0005 NEW)
+-	CMAKE_POLICY(SET CMP0003 NEW)
+-	IF (CMAKE_MAJOR_VERSION GREATER 2)
+-		CMAKE_POLICY(SET CMP0026 OLD)
+-		CMAKE_POLICY(SET CMP0045 NEW)
+-		CMAKE_POLICY(SET CMP0050 OLD)
+-	ENDIF()
+-ENDIF(COMMAND CMAKE_POLICY)
+-
+ INCLUDE(AddFileDependencies)
+ INCLUDE(CheckIncludeFiles)
+ INCLUDE(FindPkgConfig)
+@@ -534,15 +524,15 @@ IF(GIT_FOUND AND NOT CONTRIBUTORS)
+ ENDIF()
+ 
+ # embedded resources stuff
+-IF(WIN32 OR WIN64)
++IF(CMAKE_CROSSCOMPILING)
+ 	# compile buildtools native
+ 	SET(BIN2RES_CPP "${CMAKE_SOURCE_DIR}/buildtools/bin2res.cpp")
+ 	SET(BIN2RES "${CMAKE_BINARY_DIR}/bin2res")
+ 	ADD_CUSTOM_TARGET(bin2res COMMAND g++ "\"${BIN2RES_CPP}\"" -o "\"${BIN2RES}\"" DEPENDS "${BIN2RES_CPP}")
+-ELSE(WIN32 OR WIN64)
++ELSE()
+ 	ADD_EXECUTABLE(bin2res buildtools/bin2res.cpp)
+-	GET_TARGET_PROPERTY(BIN2RES bin2res LOCATION)
+-ENDIF(WIN32 OR WIN64)
++	SET(BIN2RES bin2res)
++ENDIF()
+ 
+ # we somehow have to make LMMS-binary depend on MOC-files
+ ADD_FILE_DEPENDENCIES("${CMAKE_BINARY_DIR}/lmmsconfig.h")
+diff --git a/plugins/vst_base/CMakeLists.txt b/plugins/vst_base/CMakeLists.txt
+index 441b961..98288ec 100644
+--- a/plugins/vst_base/CMakeLists.txt
++++ b/plugins/vst_base/CMakeLists.txt
+@@ -78,11 +78,10 @@ ENDIF()
+ set(ENV{PATH} "$ENV{PATH}:${WINE_BINDIR}")
+ 
+ ADD_CUSTOM_COMMAND(
+-	SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/RemoteVstPlugin.cpp"
+ 	COMMAND export
+ 		ARGS "PATH=$PATH:${WINE_BINDIR}"
+ 	COMMAND ${WINE_CXX}
+-	ARGS ${WINE_CXX_ARGS}
++	ARGS ${WINE_CXX_ARGS} "${CMAKE_CURRENT_SOURCE_DIR}/RemoteVstPlugin.cpp"
+ 	# Ensure correct file extension
+ 	COMMAND sh -c "mv ../RemoteVstPlugin.exe ../RemoteVstPlugin || true"
+ 	TARGET vstbase
+diff --git a/src/3rdparty/qt5-x11embed/CMakeLists.txt b/src/3rdparty/qt5-x11embed/CMakeLists.txt
+index 1c7cc05..eb5a9a6 100644
+--- a/src/3rdparty/qt5-x11embed/CMakeLists.txt
++++ b/src/3rdparty/qt5-x11embed/CMakeLists.txt
+@@ -1,4 +1,4 @@
+-cmake_minimum_required(VERSION 2.8.12 FATAL_ERROR)
++cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+ project(qt5-x11embed)
+ 
+ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/ECM/find-modules")
