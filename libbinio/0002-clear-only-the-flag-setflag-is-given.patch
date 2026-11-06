@@ -1,0 +1,22 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Clear only the flag setFlag() is given
+
+setFlag(f, false) masks the flags with !f, which is 0 for any flag, so
+clearing one flag clears them all. Turning off BigEndian on a
+little-endian stream also turns off FloatIEEE, and every readFloat()
+and writeFloat() after that fails with Unsupported.
+
+Upstream: not submitted
+---
+diff --git a/src/binio.cpp b/src/binio.cpp
+--- a/src/binio.cpp
++++ b/src/binio.cpp
+@@ -89,7 +89,7 @@
+   if(set)
+     my_flags |= f;
+   else
+-    my_flags &= !f;
++    my_flags &= ~f;
+ }
+ 
+ bool binio::getFlag(Flag f)

@@ -1,0 +1,25 @@
+From 0db79bb3684ce3ddcc9c68d0f1d8b6f1770ecf8e Mon Sep 17 00:00:00 2001
+From: Stian Sebastian Skjelstad <stian.skjelstad@gmail.com>
+Date: Mon, 5 Feb 2024 10:36:50 +0100
+Subject: [PATCH] When compiling with mingw, LD needs parameter "-no-undefined"
+ to create shared library (DLL) (#18)
+
+Co-authored-by: Martin Hauke <mardnh@gmx.de>
+
+Upstream: backport of 0db79bb3684ce3ddcc9c68d0f1d8b6f1770ecf8e, merged after 1.5
+---
+ src/Makefile.am | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/Makefile.am b/src/Makefile.am
+index cb2acd8..a8cca18 100644
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -3,6 +3,7 @@ lib_LTLIBRARIES = libbinio.la
+ libbinio_la_SOURCES = binio.cpp binfile.cpp binwrap.cpp binstr.cpp
+ 
+ libbinio_la_LDFLAGS = -version-info 1:0:0
++libbinio_la_LDFLAGS += -no-undefined # mingw requires this when making shared DLL files
+ 
+ pkginclude_HEADERS = binio.h binfile.h binwrap.h binstr.h
+ 

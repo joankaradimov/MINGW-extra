@@ -1,0 +1,40 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Keep writeFloat()'s buffers alive until they are written
+
+writeFloat() points 'out' at outf, outd or buf, which are declared
+inside the if/else that converts the value, and then writes the bytes
+after that block has ended. The variables are dead by then. GCC 16 at
+-O2 reuses their stack slots, and a 1.5 written big-endian reads back
+as 1.1e-43. Declare them at the top of the function.
+
+Upstream: not submitted
+---
+diff --git a/src/binio.cpp b/src/binio.cpp
+--- a/src/binio.cpp
++++ b/src/binio.cpp
+@@ -396,11 +396,14 @@
+     unsigned int	i, size;
+     Byte		*out;
+     bool		swap;
++    float		outf;
++    double		outd;
++    Byte		buf[8];
+ 
+     if(system_flags & FloatIEEE) {
+       // compatible system, let the hardware do the conversion
+-      float	outf = f;
+-      double	outd = f;
++      outf = f;
++      outd = f;
+ 
+       // Hardware could be big or little endian, convert appropriately
+       swap = getFlag(BigEndian) ^ (system_flags & BigEndian);
+@@ -413,8 +416,6 @@
+     } else {
+ #if BINIO_WITH_MATH
+       // incompatible system, do the conversion manually
+-      Byte	buf[8];
+-
+       // Our own value is always big endian, just check whether we have to
+       // convert for a different stream format.
+       swap = !getFlag(BigEndian);

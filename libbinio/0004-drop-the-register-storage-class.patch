@@ -1,0 +1,20 @@
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Subject: [PATCH] Drop the register storage class
+
+C++17 removed 'register', and clang rejects it outright.
+
+Upstream: the register hunk of e2f8d50c53102c618d675c3310e09a0e0bdf49cd,
+merged after 1.5; the rest of that commit does not apply to 1.5
+---
+diff --git a/src/binio.cpp b/src/binio.cpp
+--- a/src/binio.cpp
++++ b/src/binio.cpp
+@@ -490,7 +490,7 @@
+ void binostream::float2ieee_single(Float num, Byte *bytes)
+ {
+   long		sign;
+-  register long	bits;
++  long		bits;
+ 
+   if (num < 0) {	/* Can't distinguish a negative zero */
+     sign = 0x80000000;

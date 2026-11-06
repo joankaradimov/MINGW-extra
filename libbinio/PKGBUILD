@@ -1,0 +1,77 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=libbinio
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=1.5
+pkgrel=1
+pkgdesc="Binary I/O stream class library (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://adplug.github.io/libbinio/'
+license=('spdx:LGPL-2.1-or-later')
+msys2_repository_url='https://github.com/adplug/libbinio'
+msys2_references=(
+  'aur: libbinio'
+)
+depends=("${MINGW_PACKAGE_PREFIX}-cc-libs")
+makedepends=("${MINGW_PACKAGE_PREFIX}-autotools"
+             "${MINGW_PACKAGE_PREFIX}-cc")
+checkdepends=("${MINGW_PACKAGE_PREFIX}-pkgconf")
+source=("https://github.com/adplug/${_realname}/releases/download/${_realname}-${pkgver}/${_realname}-${pkgver}.tar.bz2"
+        "0001-link-with-no-undefined.patch"
+        "0002-clear-only-the-flag-setflag-is-given.patch"
+        "0003-keep-writefloat-buffers-alive-until-written.patch"
+        "0004-drop-the-register-storage-class.patch"
+        "test-binio.cpp")
+sha256sums=('398b2468e7838d2274d1f62dbc112e7e043433812f7ae63ef29f5cb31dc6defd'
+            'ff18ba1ed0b30af233fd691285cf3362a3c0b84fa3f943379d46e0d138d9a515'
+            '074f3e5c85918d0e5a9973a62e779bad8ff30087d5bef05b418c2989c9596c16'
+            'c967034f3dc021a74fa50d6594c0dc61a3604bf8421247fe28fc1505137610cc'
+            '479810040db0ba0e8794ef06983aa34d22183d58f0ca50eeccb1b585578496d1'
+            '98d9c0e730548fecda5deacb1d3f4749d8a56fe5ef28bf524d7fcb7fa6f17109')
+
+prepare() {
+  cd "${_realname}-${pkgver}"
+
+  local _p
+  for _p in "${srcdir}"/0*.patch; do
+    patch -Np1 -i "${_p}"
+  done
+  autoreconf -fi
+}
+
+build() {
+  mkdir -p "build-${MSYSTEM}" && cd "build-${MSYSTEM}"
+
+  ../"${_realname}-${pkgver}"/configure \
+    --prefix="${MINGW_PREFIX}" \
+    --build="${MINGW_CHOST}" \
+    --host="${MINGW_CHOST}" \
+    --target="${MINGW_CHOST}" \
+    --enable-static \
+    --enable-shared
+
+  make
+}
+
+check() {
+  local _stage="${srcdir}/stage-${MSYSTEM}"
+  rm -rf "${_stage}"
+  make -C "build-${MSYSTEM}" DESTDIR="${_stage}" install
+
+  cd "build-${MSYSTEM}"
+  c++ -Wall -Werror -o test-binio.exe "${srcdir}/test-binio.cpp" \
+    $(PKG_CONFIG_SYSROOT_DIR="${_stage}" \
+      PKG_CONFIG_PATH="${_stage}${MINGW_PREFIX}/lib/pkgconfig" \
+      pkg-config --cflags --libs libbinio)
+  PATH="${_stage}${MINGW_PREFIX}/bin:${PATH}" ./test-binio.exe
+}
+
+package() {
+  cd "build-${MSYSTEM}"
+  make install DESTDIR="${pkgdir}"
+
+  install -Dm644 "../${_realname}-${pkgver}/COPYING" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/COPYING"
+}
