@@ -1,0 +1,78 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=dr_libs
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=r2696.35b5c39
+_commit='35b5c392cc15456736c440a68dbe073178bbffe0'
+pkgrel=1
+pkgdesc="Single-file audio decoding libraries: dr_wav, dr_flac and dr_mp3 (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://github.com/mackron/dr_libs'
+license=('spdx:Unlicense OR MIT-0')
+msys2_repository_url='https://github.com/mackron/dr_libs'
+msys2_references=(
+  'aur: dr_libs-git'
+)
+checkdepends=("${MINGW_PACKAGE_PREFIX}-cc"
+              "${MINGW_PACKAGE_PREFIX}-cmake"
+              "${MINGW_PACKAGE_PREFIX}-ninja"
+              "${MINGW_PACKAGE_PREFIX}-pkgconf"
+              "${MINGW_PACKAGE_PREFIX}-flac"
+              "${MINGW_PACKAGE_PREFIX}-lame"
+              "${MINGW_PACKAGE_PREFIX}-libsndfile"
+              "${MINGW_PACKAGE_PREFIX}-mpg123")
+source=("${_realname}-${_commit}.tar.gz::https://github.com/mackron/dr_libs/archive/${_commit}.tar.gz")
+sha256sums=('d46fa0a831a65b16fcf2b169e6b739c66536437ee78049893788582eb93e39de')
+
+check() {
+  # Upstream's dr_libs_test decodes and seeks through each file with dr_wav,
+  # dr_flac and dr_mp3 and compares every sample with libsndfile, libFLAC and
+  # mpg123.
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
+    cmake \
+      -GNinja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DDR_LIBS_BUILD_TESTS=ON \
+      -DDR_LIBS_WARNINGS_AS_ERRORS=ON \
+      -S "${_realname}-${_commit}" \
+      -B "check-${MSYSTEM}"
+  cmake --build "check-${MSYSTEM}"
+
+  local _corpus="${srcdir}/corpus-${MSYSTEM}"
+  rm -rf "${_corpus}"
+  mkdir -p "${_corpus}"/{wav,flac,mp3}
+  # One second of 16-bit stereo noise at 44.1 kHz, then its conversions.
+  { printf 'RIFF\x24\xb1\x02\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x02\x00'
+    printf '\x44\xac\x00\x00\x10\xb1\x02\x00\x04\x00\x10\x00data\x00\xb1\x02\x00'
+    head -c 176384 /dev/urandom; } > "${_corpus}/wav/s16.wav"
+  sndfile-convert -pcm24 "${_corpus}/wav/s16.wav" "${_corpus}/wav/s24.wav"
+  sndfile-convert -float32 "${_corpus}/wav/s16.wav" "${_corpus}/wav/f32.wav"
+  sndfile-convert -pcm16 "${_corpus}/wav/s16.wav" "${_corpus}/flac/s16.flac"
+  sndfile-convert -pcm24 "${_corpus}/wav/s16.wav" "${_corpus}/flac/s24.flac"
+  lame --quiet -b 192 "${_corpus}/wav/s16.wav" "${_corpus}/mp3/s16.mp3"
+
+  # It reads tests/exceptions.txt relative to the working directory.
+  cd "${_realname}-${_commit}"
+  "${srcdir}/check-${MSYSTEM}/dr_libs_test.exe" \
+    "${_corpus}/wav" "${_corpus}/flac" "${_corpus}/mp3"
+}
+
+package() {
+  cd "${_realname}-${_commit}"
+
+  install -Dm644 dr_flac.h dr_mp3.h dr_wav.h -t "${pkgdir}${MINGW_PREFIX}/include/${_realname}"
+  install -Dm644 LICENSE -t "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}"
+
+  cat > "${srcdir}/${_realname}.pc" <<-EOF
+	prefix=${MINGW_PREFIX}
+	includedir=\${prefix}/include/${_realname}
+
+	Name: ${_realname}
+	Description: Single-file audio decoding libraries
+	Version: ${pkgver}
+	Cflags: -I\${includedir}
+	EOF
+  install -Dm644 "${srcdir}/${_realname}.pc" -t "${pkgdir}${MINGW_PREFIX}/lib/pkgconfig"
+}
