@@ -1,0 +1,24 @@
+Remove the bank the preset test saves
+
+The "preset handling" test writes Effects/saved.rpl with ysfx_save_bank()
+and never deletes it, so the scoped Effects directory cannot be removed
+afterwards. With Catch 3 the serialization, integration and parse tests
+run later and each fails creating Effects with "mkdir: File exists". A
+scoped file declared before the save deletes it with the others.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/tests/ysfx_test_preset.cpp b/tests/ysfx_test_preset.cpp
+index a851cc7..3f3286f 100644
+--- a/tests/ysfx_test_preset.cpp
++++ b/tests/ysfx_test_preset.cpp
+@@ -606,6 +606,8 @@ TEST_CASE("preset handling", "[preset]")
+         
+         scoped_new_dir dir_fx("${root}/Effects");
+         scoped_new_txt file_rpl("${root}/Effects/test.rpl", rpl_text);
++        // ysfx_save_bank() below overwrites it; this removes it afterwards.
++        scoped_new_txt file_saved("${root}/Effects/saved.rpl", "");
+ 
+         ysfx_bank_u bank{ysfx_load_bank(file_rpl.m_path.c_str())};
+         std::string stored_bank = ysfx_save_bank_to_rpl_text(bank.get());

@@ -1,0 +1,95 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=ysfx
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=0.0.47
+pkgrel=1
+pkgdesc="Hosting library for JSFX audio effects (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://github.com/JoepVanlier/ysfx'
+license=('spdx:Apache-2.0 AND Zlib AND ISC')
+msys2_repository_url='https://github.com/JoepVanlier/ysfx'
+msys2_references=(
+  'aur: ysfx-saike-mod-git'
+)
+depends=("${MINGW_PACKAGE_PREFIX}-cc-libs")
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-cmake"
+             "${MINGW_PACKAGE_PREFIX}-ninja"
+             "${MINGW_PACKAGE_PREFIX}-pkgconf"
+             "${MINGW_PACKAGE_PREFIX}-dr_libs"
+             "${MINGW_PACKAGE_PREFIX}-stb")
+checkdepends=("${MINGW_PACKAGE_PREFIX}-catch"
+              "${MINGW_PACKAGE_PREFIX}-libsndfile")
+source=("${_realname}-${pkgver}.tar.gz::https://github.com/JoepVanlier/ysfx/archive/refs/tags/v${pkgver}.tar.gz"
+        "0001-take-dr-libs-and-stb-from-the-system.patch"
+        "0002-build-ysfx-as-a-shared-library.patch"
+        "0003-run-the-tests-on-the-system-catch2.patch"
+        "0004-remove-the-saved-bank-in-the-preset-test.patch")
+sha256sums=('3635965b6d4ab99510ddd3cb2497665bd5f697b7f3cd064eae117928b0cd2e04'
+            '8980e83095a5db51a95986d4e328b5435043309cec2d7f4d58312c769cafe413'
+            'c035ce3a748a5db7d8c8fc97c0d2d6ebf3de6380664fd5f66e3efb718c302227'
+            '8a2362d47f2054a08da01aa13dde7246b5eeb74126384f23de8ba957c6b89282'
+            'ff126f849ed1a22b14f982b2b78aba4c139efaecf821374a8a9dc306c1c49c1a')
+
+prepare() {
+  cd "${_realname}-${pkgver}"
+
+  patch -Np1 -i "${srcdir}/0001-take-dr-libs-and-stb-from-the-system.patch"
+  patch -Np1 -i "${srcdir}/0002-build-ysfx-as-a-shared-library.patch"
+  patch -Np1 -i "${srcdir}/0003-run-the-tests-on-the-system-catch2.patch"
+  patch -Np1 -i "${srcdir}/0004-remove-the-saved-bank-in-the-preset-test.patch"
+
+  # WDL (with EEL2 and LICE) stays: it is Cockos' source drop, not a library.
+  rm -r thirdparty/{dr_libs,stb,json,clap-juce-extensions}
+}
+
+_configure() {
+  local _builddir="$1"; shift
+
+  declare -a extra_config
+  if check_option "debug" "n"; then
+    extra_config+=("-DCMAKE_BUILD_TYPE=Release")
+  else
+    extra_config+=("-DCMAKE_BUILD_TYPE=Debug")
+  fi
+
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
+    cmake \
+      -GNinja \
+      -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
+      "${extra_config[@]}" \
+      -DBUILD_SHARED_LIBS=ON \
+      -DYSFX_PLUGIN=OFF \
+      "$@" \
+      -S "${_realname}-${pkgver}" \
+      -B "${_builddir}"
+}
+
+build() {
+  _configure "build-${MSYSTEM}" -DYSFX_TOOLS=ON -DYSFX_TESTS=OFF
+  cmake --build "build-${MSYSTEM}"
+}
+
+check() {
+  _configure "check-${MSYSTEM}" -DYSFX_TOOLS=OFF -DYSFX_TESTS=ON
+  cmake --build "check-${MSYSTEM}" --target ysfx_tests
+
+  # The tests create their files under the working directory.
+  cd "check-${MSYSTEM}"
+  ./ysfx_tests.exe
+}
+
+package() {
+  DESTDIR="${pkgdir}" cmake --install "build-${MSYSTEM}"
+
+  cd "${_realname}-${pkgver}"
+  local _licdir="${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}"
+  install -Dm644 LICENSE "${_licdir}/LICENSE"
+  install -Dm644 thirdparty/WDL/LICENSE.txt "${_licdir}/WDL/LICENSE.txt"
+  install -Dm644 sources/eel2-gas/LICENSE.txt "${_licdir}/eel2-gas/LICENSE.txt"
+  install -dm755 "${_licdir}/Base64"
+  sed -n '1,/\*\//p' sources/base64/Base64.hpp > "${_licdir}/Base64/LICENSE"
+}

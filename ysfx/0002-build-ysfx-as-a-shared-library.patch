@@ -1,0 +1,37 @@
+Build ysfx as a shared library when BUILD_SHARED_LIBS is on
+
+The ysfx target is hard-coded STATIC and installed as an archive only.
+Leave the type to BUILD_SHARED_LIBS, install the DLL to the bin directory
+and the import library to lib, and define YSFX_DLL_BUILD for the code in
+ysfx-private, which ysfx.h already turns into __declspec(dllexport) on
+Windows; the DLL then exports exactly the YSFX_API functions.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/cmake.ysfx.txt b/cmake.ysfx.txt
+index a6a4bae..9307770 100644
+--- a/cmake.ysfx.txt
++++ b/cmake.ysfx.txt
+@@ -106,8 +106,12 @@ endif()
+ #    A ysfx target which gives access to the public interface.
+ #    This target is adequate for normal use.
+ # ------------------------------------------------------------------------------
+-add_library(ysfx STATIC)
++add_library(ysfx)
+ target_include_directories(ysfx PUBLIC "include")
++if(BUILD_SHARED_LIBS)
++    # ysfx-private holds the code; YSFX_API exports from it on Windows.
++    target_compile_definitions(ysfx-private PRIVATE "YSFX_DLL_BUILD")
++endif()
+ target_link_libraries(ysfx PRIVATE
+     ysfx-private
+     eel2
+@@ -148,5 +152,7 @@ endif()
+ # install
+ install(
+     TARGETS ysfx
++    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
++    LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+     PUBLIC_HEADER DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")

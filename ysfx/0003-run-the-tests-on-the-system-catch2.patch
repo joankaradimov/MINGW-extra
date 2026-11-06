@@ -1,0 +1,44 @@
+Run the unit tests on the system Catch2 3
+
+cmake.tests.txt downloads Catch 2.13.7 with FetchContent at configure time.
+Use find_package(Catch2 3) instead, and generate a <catch.hpp> for the
+tests that includes catch2/catch_all.hpp and brings Catch::Approx into the
+global namespace, where Catch 2 declared it. ysfx_test_main.cpp keeps its
+own Catch::Session runner, so the tests link Catch2::Catch2.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/cmake.tests.txt b/cmake.tests.txt
+index 83fa311..7ce7bfb 100644
+--- a/cmake.tests.txt
++++ b/cmake.tests.txt
+@@ -50,21 +50,17 @@ ysfx_check_sndfile_works(YSFX_TESTS_HAVE_SNDFILE)
+ # catch
+ # ------------------------------------------------------------------------------
+ 
+-include(FetchContent)
++find_package(Catch2 3 REQUIRED)
+ 
+-FetchContent_Declare(catch
+-    URL "https://github.com/catchorg/Catch2/archive/refs/tags/v2.13.7.tar.gz"
+-    URL_HASH "SHA512=1c3cbdecc6a3b59360a97789c4784d79d027e1b63bdc42b0e152c3272f7bad647fcd1490aa5caf67f968a6311dc9624b5a70d5eb3fbc1d5179d520e09b76c9ed")
+-
+-FetchContent_GetProperties(catch)
+-if(NOT catch_POPULATED)
+-  FetchContent_Populate(catch)
+-endif()
++# The tests are written for Catch 2: give them its <catch.hpp> and a global
++# Approx on top of Catch 3.
++file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/catch2-compat/catch.hpp"
++    "#pragma once\n#include <catch2/catch_all.hpp>\nusing Catch::Approx;\n")
+ 
+ add_library(catch INTERFACE)
+-target_include_directories(catch INTERFACE "${catch_SOURCE_DIR}/single_include/catch2")
++target_include_directories(catch INTERFACE "${CMAKE_CURRENT_BINARY_DIR}/catch2-compat")
++target_link_libraries(catch INTERFACE Catch2::Catch2)
+ 
+-list(APPEND CMAKE_MODULE_PATH "${catch_SOURCE_DIR}/contrib")
+ include(Catch)
+ 
+ # tests

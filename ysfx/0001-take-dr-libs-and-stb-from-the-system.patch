@@ -1,0 +1,44 @@
+Take dr_libs and stb from the system
+
+ysfx builds against its own copies of dr_libs (a git submodule, empty in
+the release tarball), stb and nlohmann/json in thirdparty/. Find dr_libs
+and stb through pkg-config instead. json.hpp is only used by the plugin
+editor, so the json target now exists only with YSFX_PLUGIN, and comes from
+find_package(nlohmann_json).
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/cmake.deps.txt b/cmake.deps.txt
+index f5b38d9..5e41610 100644
+--- a/cmake.deps.txt
++++ b/cmake.deps.txt
+@@ -68,18 +68,24 @@ endif()
+ 
+ # dr_libs
+ # ------------------------------------------------------------------------------
++find_package(PkgConfig REQUIRED)
++pkg_check_modules(DrLibs REQUIRED IMPORTED_TARGET dr_libs)
+ add_library(dr_libs INTERFACE)
+-target_include_directories(dr_libs INTERFACE "thirdparty/dr_libs")
++target_link_libraries(dr_libs INTERFACE PkgConfig::DrLibs)
+ 
+ # stb
+ # ------------------------------------------------------------------------------
++pkg_check_modules(Stb REQUIRED IMPORTED_TARGET stb)
+ add_library(stb INTERFACE)
+-target_include_directories(stb INTERFACE "thirdparty/stb")
++target_link_libraries(stb INTERFACE PkgConfig::Stb)
+ 
+ # json
+ # ------------------------------------------------------------------------------
+-add_library(json INTERFACE)
+-target_include_directories(json INTERFACE "thirdparty/json")
++if(YSFX_PLUGIN)
++    find_package(nlohmann_json 3 REQUIRED)
++    add_library(json INTERFACE)
++    target_link_libraries(json INTERFACE nlohmann_json::nlohmann_json)
++endif()
+ 
+ # fts
+ # ------------------------------------------------------------------------------
