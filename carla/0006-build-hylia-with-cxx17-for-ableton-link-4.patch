@@ -1,0 +1,22 @@
+Build hylia with C++17 for Ableton Link 4
+
+Carla's hylia wraps a copy of Ableton Link 3.0, which compiles as C++11
+with the rest of Carla. Link 4, packaged on its own, uses std::optional
+and needs C++17.
+
+Upstream: not submitted (upstream bundles Link 3.0)
+Applies-to: all environments
+
+diff --git a/source/modules/hylia/Makefile b/source/modules/hylia/Makefile
+index ad3f918..f5816b8 100644
+--- a/source/modules/hylia/Makefile
++++ b/source/modules/hylia/Makefile
+@@ -11,6 +11,8 @@ include ../Makefile.mk
+ # ---------------------------------------------------------------------------------------------------------------------
+ 
+ BUILD_CXX_FLAGS += $(HYLIA_FLAGS) -I$(CWD) -I$(CWD)/modules -Ilink
++# Ableton Link 4 needs C++17
++BUILD_CXX_FLAGS += -std=gnu++17
+ BUILD_CXX_FLAGS += -Wno-missing-field-initializers -Wno-multichar -Wno-uninitialized -Wno-unknown-pragmas
+ # -Wno-unused-parameter
+ # -Wno-unused-variable

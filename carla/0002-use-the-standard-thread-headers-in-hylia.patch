@@ -1,0 +1,27 @@
+Use the standard thread headers in hylia
+
+AudioEngine.hpp includes mingw-std-threads on Windows. Its shared_mutex
+header no longer compiles with GCC 16 (it names members a shared_lock does
+not have), and MinGW-w64's GCC and Clang both provide std::thread,
+std::mutex and std::condition_variable, so include those instead.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/source/modules/hylia/link/AudioEngine.hpp b/source/modules/hylia/link/AudioEngine.hpp
+index f7374e6..6505e6c 100644
+--- a/source/modules/hylia/link/AudioEngine.hpp
++++ b/source/modules/hylia/link/AudioEngine.hpp
+@@ -21,9 +21,9 @@
+ 
+ #ifdef LINK_PLATFORM_WINDOWS
+ #define _USE_MATH_DEFINES
+-#include "mingw-std-threads/mingw.condition_variable.h"
+-#include "mingw-std-threads/mingw.mutex.h"
+-#include "mingw-std-threads/mingw.thread.h"
++#include <condition_variable>
++#include <mutex>
++#include <thread>
+ #if __BIG_ENDIAN__
+ # define htonll(x) (x)
+ # define ntohll(x) (x)

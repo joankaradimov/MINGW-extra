@@ -1,0 +1,56 @@
+Follow the slider API of ysfx 0.0.47
+
+Carla bundles jpcima's ysfx; the maintained fork by Joep Vanlier raises
+ysfx_max_sliders from 64 to 256 and changes three functions Carla calls:
+ysfx_slider_set_value() takes a notify flag, and the slider change and
+automation masks are fetched per group of 64. Pass notify = true, which is
+what the old function always did, and walk the four groups when reading
+the masks, so the 64-bit shift stays within one group.
+
+Upstream: not submitted (upstream uses jpcima's ysfx)
+Applies-to: all environments
+
+diff --git a/source/backend/plugin/CarlaPluginJSFX.cpp b/source/backend/plugin/CarlaPluginJSFX.cpp
+index b4f9918..830b33c 100644
+--- a/source/backend/plugin/CarlaPluginJSFX.cpp
++++ b/source/backend/plugin/CarlaPluginJSFX.cpp
+@@ -234,7 +234,7 @@ public:
+         CARLA_SAFE_ASSERT_RETURN(parameterId < pData->param.count,);
+ 
+         const uint32_t rindex = static_cast<uint32_t>(pData->param.data[parameterId].rindex);
+-        ysfx_slider_set_value(fEffect, rindex, value);
++        ysfx_slider_set_value(fEffect, rindex, value, true);
+ 
+         CarlaPlugin::setParameterValue(parameterId, value, sendGui, sendOsc, sendCallback);
+     }
+@@ -245,7 +245,7 @@ public:
+         CARLA_SAFE_ASSERT_RETURN(parameterId < pData->param.count,);
+ 
+         const uint32_t rindex = static_cast<uint32_t>(pData->param.data[parameterId].rindex);
+-        ysfx_slider_set_value(fEffect, rindex, value);
++        ysfx_slider_set_value(fEffect, rindex, value, true);
+ 
+         CarlaPlugin::setParameterValueRT(parameterId, value, frameOffset, sendCallbackLater);
+     }
+@@ -869,15 +869,17 @@ public:
+         // --------------------------------------------------------------------------------------------------------
+         // Control Output
+ 
++        for (uint8_t group = 0; group < ysfx_max_sliders / 64; ++group)
+         {
+-            uint64_t changes = ysfx_fetch_slider_changes(fEffect);
+-            uint64_t automations = ysfx_fetch_slider_automations(fEffect);
++            uint64_t changes = ysfx_fetch_slider_changes(fEffect, group);
++            uint64_t automations = ysfx_fetch_slider_automations(fEffect, group);
+ 
+             if ((changes|automations) != 0)
+             {
+-                for (uint32_t rindex = 0; rindex < ysfx_max_sliders; ++rindex)
++                for (uint32_t bit = 0; bit < 64; ++bit)
+                 {
+-                    uint64_t mask = (uint64_t)1 << rindex;
++                    const uint32_t rindex = group * 64u + bit;
++                    uint64_t mask = (uint64_t)1 << bit;
+ 
+                     //TODO: automations and changes are handled identically
+                     // refer to `sliderchange` vs `slider_automate`

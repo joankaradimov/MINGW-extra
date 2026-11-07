@@ -1,0 +1,200 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=carla
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=2.5.10
+pkgrel=1
+pkgdesc="Audio plugin host (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://kx.studio/Applications:Carla'
+# GPL-3.0-only: the JUCE 7 modules Carla compiles in on Windows.
+license=('spdx:GPL-2.0-or-later AND GPL-3.0-only AND LGPL-2.1-or-later AND ISC AND MIT')
+msys2_repository_url='https://github.com/falkTX/Carla'
+msys2_references=(
+  'archlinux: carla'
+)
+depends=("${MINGW_PACKAGE_PREFIX}-cc-libs"
+         "${MINGW_PACKAGE_PREFIX}-fluidsynth"
+         "${MINGW_PACKAGE_PREFIX}-liblo"
+         "${MINGW_PACKAGE_PREFIX}-libsndfile"
+         "${MINGW_PACKAGE_PREFIX}-python"
+         "${MINGW_PACKAGE_PREFIX}-python-pyliblo3"
+         "${MINGW_PACKAGE_PREFIX}-python-pyqt5"
+         "${MINGW_PACKAGE_PREFIX}-qt5-base"
+         "${MINGW_PACKAGE_PREFIX}-qt5-svg"
+         "${MINGW_PACKAGE_PREFIX}-SDL2"
+         "${MINGW_PACKAGE_PREFIX}-serd"
+         "${MINGW_PACKAGE_PREFIX}-sord"
+         "${MINGW_PACKAGE_PREFIX}-sratom"
+         "${MINGW_PACKAGE_PREFIX}-ysfx"
+         "${MINGW_PACKAGE_PREFIX}-zita-resampler")
+makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+             "${MINGW_PACKAGE_PREFIX}-pkgconf"
+             "${MINGW_PACKAGE_PREFIX}-ableton-link"
+             "${MINGW_PACKAGE_PREFIX}-asiosdk"
+             "make")
+optdepends=("${MINGW_PACKAGE_PREFIX}-jack2: JACK audio driver and carla-jack-*"
+            "${MINGW_PACKAGE_PREFIX}-python-rdflib: LADSPA RDF metadata")
+source=("${_realname}-${pkgver}.tar.gz::https://github.com/falkTX/Carla/archive/v${pkgver}/${_realname}-${pkgver}.tar.gz"
+        "0001-allow-a-shared-windows-build.patch"
+        "0002-use-the-standard-thread-headers-in-hylia.patch"
+        "0003-link-the-system-zita-resampler.patch"
+        "0004-link-the-system-ysfx.patch"
+        "0005-follow-the-slider-api-of-ysfx-0.0.47.patch"
+        "0006-build-hylia-with-cxx17-for-ableton-link-4.patch"
+        "0007-take-the-asio-sdk-headers-from-asiosdk-flags.patch"
+        "0008-build-lilv-on-the-system-serd-sord-and-sratom.patch"
+        "0009-install-the-plugin-bundles-without-copies-on-windows.patch"
+        "0010-find-binaries-and-resources-from-the-plugin-bundles-on-windows.patch"
+        "0011-derive-pkg-config-dirs-from-the-prefix.patch"
+        "0012-normalise-path-separators-in-getpaths.patch"
+        "0013-build-with-clang-on-mingw.patch"
+        "carla-ui-launcher.c"
+        "carla.cmd.in"
+        "test-carla-engine.py")
+noextract=("${_realname}-${pkgver}.tar.gz")
+sha256sums=('ae2835b12081f7271a6b0b25d34b87d36b022c40370028ca4a10f90fcedfa661'
+            'd38394f543f59ccd506e76c47fb5e953c9f18098a25958b3a49cabf0900946ff'
+            '2ebb2e45314df68417af51668d098af6d02ba12b030d6567fe41a77406c33eb1'
+            'b37eba7e7cc436e0c453a35b6ac1f26fef92aba491db0853a6baf40756b5ddb7'
+            'c87fe6cd8bf2d85b1ae92d11e21b09bb84a9158182fdc3283051b12b11908c7d'
+            'c03dfff60bfb59e0792eecade81935052fd656257b2d5889e0bc6323423254c2'
+            '56efe3dab35042c7713935548aef95ad026237d7739bc92345302ea5f849a98a'
+            'df1ccff0cb5f887b847e682a006e82ed3f15cac5ac68b06ec62de7a586f7747d'
+            'c1949348af1e7d4731b09748e4c4945b959d53d8d591152d11e5d33213beb6d4'
+            'a0f2a4cf1c58c1bc08d56616b60c9f82450cbed8befdab996f65a1ffe12e74b2'
+            '3f8e9c5126d6b31eec5e1cb938c6c9e17d14768c3b262322bdef4dcad70cacfa'
+            '631dbcf3ba22092bd6eac8544856f118cf9af58e9789f0c18b193dd8d23afab6'
+            '2cbc1425d39a1082dcb24e510b76dea015d9070ddb8699ea58578ab5fdf5e7f6'
+            '903819b18ec24802ebab3fefde83d8a35b186114fb5e195ba0574cb4c1218bbf'
+            'caa87423d0be0aa662b43cb9500eaa7701e74a4ea6e21a44ddd58242f5960831'
+            '1dcdef82fb2c5e3c2e7285d8acab9771e6712c0540449340aa0a2013bcfe7763'
+            '10887c3bd03220066f4596d6b0a0b9d05315f4d0834e79f4abe0aee1b04a34f7')
+
+apply_patch_with_msg() {
+  for _patch in "$@"; do
+    msg2 "Applying ${_patch}"
+    patch -Np1 -i "${srcdir}/${_patch}"
+  done
+}
+
+prepare() {
+  # bin/carla.lv2/resources links to a directory the build creates; tar
+  # copies the tarball's other symlinks, which MSYS2 cannot create.
+  rm -rf "Carla-${pkgver}"
+  tar --exclude="Carla-${pkgver}/bin/carla.lv2/resources" -xzf "${_realname}-${pkgver}.tar.gz"
+  cd "Carla-${pkgver}"
+
+  apply_patch_with_msg \
+    0001-allow-a-shared-windows-build.patch \
+    0002-use-the-standard-thread-headers-in-hylia.patch \
+    0003-link-the-system-zita-resampler.patch \
+    0004-link-the-system-ysfx.patch \
+    0005-follow-the-slider-api-of-ysfx-0.0.47.patch \
+    0006-build-hylia-with-cxx17-for-ableton-link-4.patch \
+    0007-take-the-asio-sdk-headers-from-asiosdk-flags.patch \
+    0008-build-lilv-on-the-system-serd-sord-and-sratom.patch \
+    0009-install-the-plugin-bundles-without-copies-on-windows.patch \
+    0010-find-binaries-and-resources-from-the-plugin-bundles-on-windows.patch \
+    0011-derive-pkg-config-dirs-from-the-prefix.patch \
+    0012-normalise-path-separators-in-getpaths.patch
+
+  # Its JUCE hunks have CRLF lines, as the files they change do.
+  msg2 "Applying 0013-build-with-clang-on-mingw.patch"
+  patch -Np1 --binary -i "${srcdir}/0013-build-with-clang-on-mingw.patch"
+
+  # Copies of packaged libraries, and code the Windows build does not use
+  # (RtAudio, JUCE's LV2 host). Carla's own forks stay part of its source:
+  # its JUCE 7 modules, water, DPF, sfzero, and lilv, whose API differs from
+  # upstream lilv.
+  rm -r source/modules/{ysfx,zita-resampler,rtaudio,rtmidi,mingw-std-threads,rtaudio.diff} \
+    source/modules/hylia/link/{ableton,asio,asio.hpp} \
+    source/modules/lilv/{serd-0.24.0,sord-0.16.0,sratom-0.6.0,serd.c,sord.c,sratom.c} \
+    source/modules/lilv/config/{serd,sord,sratom}_config.h \
+    source/includes/{serd,sord,sratom} \
+    source/modules/juce_audio_processors/format_types/LV2_SDK
+}
+
+_make() {
+  local _debug=false
+  check_option "debug" "y" && _debug=true
+
+  make \
+    WINDOWS_SHARED=true \
+    ASIOSDK_FLAGS="-I${MINGW_PREFIX}/include/asiosdk/common" \
+    SKIP_STRIPPING=true \
+    DEBUG=${_debug} \
+    "$@"
+}
+
+build() {
+  rm -rf "build-${MSYSTEM}"
+  cp -r "Carla-${pkgver}" "build-${MSYSTEM}"
+  cd "build-${MSYSTEM}"
+
+  _make
+
+  ${CC} ${CFLAGS} ${LDFLAGS} -municode -mwindows \
+    "${srcdir}/carla-ui-launcher.c" -o carla-ui-launcher.exe
+}
+
+check() {
+  cd "build-${MSYSTEM}"
+  local _stage="${srcdir}/stage-${MSYSTEM}"
+  local _scratch="${srcdir}/scratch-${MSYSTEM}"
+  rm -rf "${_stage}" "${_scratch}"
+  mkdir -p "${_scratch}"
+  _make DESTDIR="${_stage}" PREFIX="${MINGW_PREFIX}" install
+  local _prefix="${_stage}${MINGW_PREFIX}"
+
+  # The engine with internal, JSFX, LV2 and VST2 plugins.
+  "${MINGW_PREFIX}/bin/python" "${srcdir}/test-carla-engine.py" "${_prefix}" "${_scratch}"
+
+  # Upstream's header tests, built against the installed headers and
+  # libraries through Carla's pkg-config files. Not C89: the headers use //
+  # comments and long long. Not run: they open every audio device on the
+  # machine, and an ASIO driver may crash without its hardware.
+  local _pkgflags _std _cxxstds=(c++98 c++11 c++17)
+  # libc++ declares std::shared_ptr in C++98 too, where the headers define
+  # their own.
+  [[ ${MSYSTEM} == CLANG* ]] && _cxxstds=(c++11 c++17)
+  _pkgflags=$(PKG_CONFIG_PATH="${_prefix}/lib/pkgconfig" \
+    pkg-config --define-prefix --cflags --libs carla-standalone carla-utils)
+  for _std in c99 c11; do
+    ${CC} -std=${_std} -pedantic -Wall -Wextra -Werror source/tests/ansi-pedantic-test.c \
+      ${_pkgflags} -o "${_scratch}/ansi-${_std}.exe"
+  done
+  for _std in "${_cxxstds[@]}"; do
+    ${CXX} -std=${_std} -Wall -Wextra -Werror source/tests/ansi-pedantic-test.cpp \
+      ${_pkgflags} -o "${_scratch}/ansi-${_std}.exe"
+  done
+}
+
+package() {
+  cd "build-${MSYSTEM}"
+  _make DESTDIR="${pkgdir}" PREFIX="${MINGW_PREFIX}" install
+
+  # Carla starts these UIs as <name>.exe on Windows; each one runs the
+  # Python script of that name.
+  local _ui
+  for _ui in carla-plugin carla-plugin-patchbay bigmeter-ui midipattern-ui notes-ui xycontroller-ui; do
+    install -Dm755 carla-ui-launcher.exe "${pkgdir}${MINGW_PREFIX}/share/carla/resources/${_ui}.exe"
+  done
+
+  # cmd.exe launchers beside upstream's sh ones.
+  local _app
+  for _app in carla carla-control carla-jack-multi carla-jack-single carla-patchbay carla-rack; do
+    sed -e 's/\r$//' -e "s|@SCRIPT@|${_app}|" -e 's|@APPNAME@|--with-appname=%~n0 |' -e 's/$/\r/' \
+      "${srcdir}/carla.cmd.in" > "${pkgdir}${MINGW_PREFIX}/bin/${_app}.cmd"
+  done
+  for _app in database settings; do
+    sed -e 's/\r$//' -e "s|@SCRIPT@|carla_${_app}.py|" -e 's|@APPNAME@||' -e 's/$/\r/' \
+      "${srcdir}/carla.cmd.in" > "${pkgdir}${MINGW_PREFIX}/bin/carla-${_app}.cmd"
+  done
+
+  local _licdir="${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}"
+  install -Dm644 doc/GPL.txt doc/LGPL.txt -t "${_licdir}"
+  install -Dm644 source/modules/sfzero/LICENSE "${_licdir}/sfzero/LICENSE"
+}

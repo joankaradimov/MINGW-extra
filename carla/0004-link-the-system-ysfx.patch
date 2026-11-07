@@ -1,0 +1,148 @@
+Link the system ysfx
+
+Carla compiles its own copy of ysfx, with WDL and dr_libs, into ysfx.a.
+Link -lysfx instead, through YSFX_LIBS, and include <ysfx.h>.
+
+Upstream: not submitted (upstream bundles its dependencies)
+Applies-to: all environments
+
+diff --git a/Makefile b/Makefile
+index e151b3b..94f507f 100644
+--- a/Makefile
++++ b/Makefile
+@@ -89,7 +89,6 @@ ifeq ($(USING_RTAUDIO),true)
+ 3RD_LIBS += $(MODULEDIR)/rtmidi.a
+ endif
+ 
+-3RD_LIBS += $(MODULEDIR)/ysfx.a
+ 
+ ALL_LIBS += $(3RD_LIBS)
+ 
+diff --git a/source/Makefile.deps.mk b/source/Makefile.deps.mk
+index 49d6e8e..c151d14 100644
+--- a/source/Makefile.deps.mk
++++ b/source/Makefile.deps.mk
+@@ -652,6 +652,7 @@ endif
+ # ---------------------------------------------------------------------------------------------------------------------
+ 
+ ZITA_RESAMPLER_LIBS = -lzita-resampler
++YSFX_LIBS           = -lysfx
+ 
+ AUDIO_DECODER_LIBS  = $(FFMPEG_LIBS)
+ AUDIO_DECODER_LIBS += $(SNDFILE_LIBS)
+diff --git a/source/backend/Makefile b/source/backend/Makefile
+index 645018f..f5a6679 100644
+--- a/source/backend/Makefile
++++ b/source/backend/Makefile
+@@ -69,7 +69,6 @@ STANDALONE_LIBS += $(MODULEDIR)/rtaudio.a
+ STANDALONE_LIBS += $(MODULEDIR)/rtmidi.a
+ endif
+ 
+-STANDALONE_LIBS += $(MODULEDIR)/ysfx.a
+ 
+ # ---------------------------------------------------------------------------------------------------------------------
+ 
+@@ -106,7 +105,7 @@ STANDALONE_LINK_FLAGS += $(RTAUDIO_LIBS)
+ STANDALONE_LINK_FLAGS += $(RTMIDI_LIBS)
+ endif
+ 
+-STANDALONE_LINK_FLAGS += $(YSFX_GRAPHICS_LIBS)
++STANDALONE_LINK_FLAGS += $(YSFX_LIBS)
+ 
+ ifeq ($(JACKBRIDGE_DIRECT),true)
+ STANDALONE_LINK_FLAGS += $(JACK_LIBS)
+diff --git a/source/backend/utils/Makefile b/source/backend/utils/Makefile
+index b776ab0..a8b023f 100644
+--- a/source/backend/utils/Makefile
++++ b/source/backend/utils/Makefile
+@@ -30,7 +30,6 @@ TARGETS = $(BINDIR)/libcarla_utils$(LIB_EXT)
+ LIBS  = $(MODULEDIR)/jackbridge.a
+ LIBS += $(MODULEDIR)/lilv.a
+ LIBS += $(MODULEDIR)/water.files.a
+-LIBS += $(MODULEDIR)/ysfx.a
+ 
+ ifeq ($(USING_JUCE),true)
+ LIBS += $(MODULEDIR)/carla_juce.a
+@@ -47,7 +46,7 @@ endif
+ LINK_FLAGS += $(JACKBRIDGE_LIBS)
+ LINK_FLAGS += $(LILV_LIBS)
+ LINK_FLAGS += $(WATER_LIBS)
+-LINK_FLAGS += $(YSFX_GRAPHICS_LIBS)
++LINK_FLAGS += $(YSFX_LIBS)
+ 
+ ifeq ($(HAVE_X11),true)
+ LINK_FLAGS += $(X11_LIBS)
+diff --git a/source/bridges-plugin/Makefile b/source/bridges-plugin/Makefile
+index fcbc494..d4dbc91 100644
+--- a/source/bridges-plugin/Makefile
++++ b/source/bridges-plugin/Makefile
+@@ -157,8 +157,7 @@ LIBS_win64   += $(MODULEDIR)/juce_gui_extra.win64.a
+ LINK_FLAGS   += $(JUCE_GUI_EXTRA_LIBS)
+ endif
+ 
+-LIBS_native += $(MODULEDIR)/ysfx.a
+-LINK_FLAGS  += $(YSFX_GRAPHICS_LIBS)
++LINK_FLAGS  += $(YSFX_LIBS)
+ 
+ ifeq ($(JACKBRIDGE_DIRECT),true)
+ LINK_FLAGS += $(JACK_LIBS)
+diff --git a/source/discovery/Makefile b/source/discovery/Makefile
+index b09394d..baa2ae0 100644
+--- a/source/discovery/Makefile
++++ b/source/discovery/Makefile
+@@ -155,8 +155,7 @@ LIBS_win64   += $(MODULEDIR)/juce_gui_extra.win64.a
+ LINK_FLAGS   += $(JUCE_GUI_EXTRA_LIBS)
+ endif # USING_JUCE
+ 
+-LIBS_native  += $(MODULEDIR)/ysfx.a
+-LINK_FLAGS   += $(YSFX_GRAPHICS_LIBS)
++LINK_FLAGS   += $(YSFX_LIBS)
+ 
+ # ---------------------------------------------------------------------------------------------------------------------
+ 
+diff --git a/source/plugin/Makefile b/source/plugin/Makefile
+index bd14941..b0e6cb7 100644
+--- a/source/plugin/Makefile
++++ b/source/plugin/Makefile
+@@ -95,7 +95,6 @@ LIBS_juce += $(MODULEDIR)/juce_gui_basics.a
+ LIBS_juce += $(MODULEDIR)/juce_gui_extra.a
+ endif
+ 
+-LIBS += $(MODULEDIR)/ysfx.a
+ 
+ # ---------------------------------------------------------------------------------------------------------------------
+ # Link flags
+@@ -105,6 +104,7 @@ NATIVE_LINK_FLAGS += $(LINK_FLAGS)
+ NATIVE_LINK_FLAGS += $(JACKBRIDGE_LIBS)
+ NATIVE_LINK_FLAGS += $(LILV_LIBS)
+ NATIVE_LINK_FLAGS += $(ZITA_RESAMPLER_LIBS)
++NATIVE_LINK_FLAGS += $(YSFX_LIBS)
+ NATIVE_LINK_FLAGS += $(RTMEMPOOL_LIBS)
+ NATIVE_LINK_FLAGS += $(WATER_LIBS)
+ NATIVE_LINK_FLAGS += $(NATIVE_PLUGINS_LIBS)
+diff --git a/source/tests/Makefile b/source/tests/Makefile
+index 0a5ce89..3fc026d 100644
+--- a/source/tests/Makefile
++++ b/source/tests/Makefile
+@@ -142,7 +142,7 @@ carla-engine-sdl$(APP_EXT): $(OBJDIR)/carla-engine-sdl.c.o $(OBJDIR)/carla-engin
+ 		$(MODULEDIR)/audio_decoder.a \
+ 		$(MODULEDIR)/rtmempool.a \
+ 		$(MODULEDIR)/water.a \
+-		$(MODULEDIR)/ysfx.a \
++		$(YSFX_LIBS) \
+ 		$(ZITA_RESAMPLER_LIBS) \
+ 		$(SDL_LIBS) --preload-file foolme.mp3 -sALLOW_MEMORY_GROWTH \
+ 		-o $@
+diff --git a/source/utils/CarlaJsfxUtils.hpp b/source/utils/CarlaJsfxUtils.hpp
+index a8cc5f8..fcd0a05 100644
+--- a/source/utils/CarlaJsfxUtils.hpp
++++ b/source/utils/CarlaJsfxUtils.hpp
+@@ -30,7 +30,7 @@
+ #ifdef YSFX_API
+ # error YSFX_API is not private
+ #endif
+-#include "ysfx/include/ysfx.h"
++#include <ysfx.h>
+ 
+ #include <memory>
+ 

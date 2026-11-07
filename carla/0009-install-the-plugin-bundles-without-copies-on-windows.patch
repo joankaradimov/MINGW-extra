@@ -1,0 +1,85 @@
+Install the plugin bundles without copies on Windows
+
+make install links every file of lib/carla into lib/lv2/carla.lv2 and
+lib/vst/carla.vst, and links share/carla/resources and lib/carla/styles
+into both bundles and resources into lib/carla. Without symlinks, MSYS2's
+ln copies them, adding about 170 MB. Skip those links on Windows; the
+plugins find the files where they are installed (next patch). The link to
+lib/carla/jack, which exists only on Linux, is now made only there.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/Makefile b/Makefile
+index 94f507f..7298acd 100644
+--- a/Makefile
++++ b/Makefile
+@@ -751,9 +751,11 @@ endif
+ 		source/frontend/translations/carla_$(l).qm \
+ 		$(DESTDIR)$(DATADIR)/carla/resources/translations/;)
+ 
++ifneq ($(WINDOWS),true)
+ 	# Link resources for internal plugin
+ 	rm -rf $(DESTDIR)$(LIBDIR)/carla/resources
+ 	$(LINK) ../../share/carla/resources $(DESTDIR)$(LIBDIR)/carla/resources
++endif
+ endif # HAVE_PYQT
+ 
+ 	# -------------------------------------------------------------------------------------------------------------
+@@ -767,11 +769,13 @@ ifeq ($(CAN_GENERATE_LV2_TTL),true)
+ 		bin/carla.lv2/*.ttl \
+ 		$(DESTDIR)$(LIBDIR)/lv2/carla.lv2
+ 
++ifneq ($(WINDOWS),true)
+ 	# Link binaries for lv2 plugin
+ 	@for i in `find $(DESTDIR)$(LIBDIR)/carla/ -maxdepth 1 -type f -exec basename {} ';'`; do \
+ 		$(LINK) ../../carla/$$i $(DESTDIR)$(LIBDIR)/lv2/carla.lv2/$$i; \
+ 	done
+ 	rm -f $(DESTDIR)$(LIBDIR)/lv2/carla.lv2/libcarla_standalone2.*
++endif
+ 
+ ifeq ($(LINUX),true)
+ 	# Link jack app bridge
+@@ -781,6 +785,7 @@ endif
+ endif # CAN_GENERATE_LV2_TTL
+ 
+ ifeq ($(HAVE_PYQT),true)
++ifneq ($(WINDOWS),true)
+ 	# Link resources for lv2 plugin
+ 	rm -rf $(DESTDIR)$(LIBDIR)/lv2/carla.lv2/resources
+ 	$(LINK) ../../../share/carla/resources $(DESTDIR)$(LIBDIR)/lv2/carla.lv2/resources
+@@ -788,6 +793,7 @@ ifeq ($(HAVE_PYQT),true)
+ 	# Link styles for lv2 plugin
+ 	rm -rf $(DESTDIR)$(LIBDIR)/lv2/carla.lv2/styles
+ 	$(LINK) ../../carla/styles $(DESTDIR)$(LIBDIR)/lv2/carla.lv2/styles
++endif
+ endif
+ 
+ 	# -------------------------------------------------------------------------------------------------------------
+@@ -802,15 +808,18 @@ ifeq ($(HAVE_PYQT),true)
+ 		bin/CarlaPatchbay*.* \
+ 		$(DESTDIR)$(LIBDIR)/vst/carla.vst
+ 
++ifneq ($(WINDOWS),true)
+ 	# Link binaries for vst plugin
+ 	@for i in `find $(DESTDIR)$(LIBDIR)/carla/ -maxdepth 1 -type f -exec basename {} ';'`; do \
+ 		$(LINK) ../../carla/$$i $(DESTDIR)$(LIBDIR)/vst/carla.vst/$$i; \
+ 	done
+ 	rm -f $(DESTDIR)$(LIBDIR)/vst/carla.vst/libcarla_standalone2.*
+ 
++ifeq ($(LINUX),true)
+ 	# Link jack app bridge
+ 	rm -rf $(DESTDIR)$(LIBDIR)/vst/carla.vst/jack
+ 	$(LINK) ../../carla/jack $(DESTDIR)$(LIBDIR)/vst/carla.vst/jack
++endif
+ 
+ 	# Link resources for vst plugin
+ 	rm -rf $(DESTDIR)$(LIBDIR)/vst/carla.vst/resources
+@@ -820,6 +829,7 @@ ifeq ($(HAVE_PYQT),true)
+ 	rm -rf $(DESTDIR)$(LIBDIR)/vst/carla.vst/styles
+ 	$(LINK) ../../carla/styles $(DESTDIR)$(LIBDIR)/vst/carla.vst/styles
+ endif
++endif
+ endif
+ 
+ 	# -------------------------------------------------------------------------------------------------------------

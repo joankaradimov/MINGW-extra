@@ -1,0 +1,131 @@
+Build with Clang on MinGW
+
+Clang's MinGW target is x86_64-w64-windows-gnu, which Makefile.deps.mk
+took for GNU Hurd, as it looked for "gnu" before "windows". Look for
+"windows" first.
+
+Clang has no -posix. In MinGW GCC it only defines _POSIX_SOURCE, so define
+that instead. lld rejects the DESCRIPTION statement in the plugins' .def
+files, which GNU ld ignores; drop it.
+
+Carla's JUCE 7 uses std::alignment_of without including <type_traits>,
+which libc++ does not include through other standard headers; add it to
+juce_StandardHeader.h. AudioPluginInstance also has a constructor that
+cannot compile: it passes a short[][2] to AudioProcessor, which has no such
+constructor. GCC lets it pass as an unused template, Clang does not.
+Inherit AudioProcessor's constructors instead, as JUCE did in 44c552c614.
+
+The JUCE files have CRLF lines, and so do their hunks: apply with --binary.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/source/Makefile.deps.mk b/source/Makefile.deps.mk
+index 95e1a13..bc55139 100644
+--- a/source/Makefile.deps.mk
++++ b/source/Makefile.deps.mk
+@@ -30,6 +30,8 @@ else ifneq (,$(findstring haiku,$(TARGET_MACHINE)))
+ HAIKU = true
+ else ifneq (,$(findstring linux,$(TARGET_MACHINE)))
+ LINUX = true
++else ifneq (,$(findstring windows,$(TARGET_MACHINE)))
++WINDOWS = true
+ else ifneq (,$(findstring gnu,$(TARGET_MACHINE)))
+ HURD = true
+ else ifneq (,$(findstring apple,$(TARGET_MACHINE)))
+@@ -40,8 +42,6 @@ else ifneq (,$(findstring msys,$(TARGET_MACHINE)))
+ WINDOWS = true
+ else ifneq (,$(findstring wasm,$(TARGET_MACHINE)))
+ WASM = true
+-else ifneq (,$(findstring windows,$(TARGET_MACHINE)))
+-WINDOWS = true
+ endif
+ 
+ endif # WINDOWS
+diff --git a/source/Makefile.mk b/source/Makefile.mk
+index ee04620..60603d4 100644
+--- a/source/Makefile.mk
++++ b/source/Makefile.mk
+@@ -58,8 +58,8 @@ BASE_OPTS  = -O2 -ffast-math -fdata-sections -ffunction-sections -DBUILDING_CARL
+ endif
+ 
+ ifeq ($(WINDOWS),true)
+-# Assume we want posix
+-BASE_FLAGS += -posix
++# Assume we want posix; GCC's -posix defines just this, and Clang lacks it
++BASE_FLAGS += -D_POSIX_SOURCE
+ # Needed for windows, see https://github.com/falkTX/Carla/issues/855
+ BASE_FLAGS += -mstackrealign
+ ifeq ($(BUILDING_FOR_WINE),true)
+diff --git a/source/plugin/symbols/carla-lv2_dsp+ui.def b/source/plugin/symbols/carla-lv2_dsp+ui.def
+index 48ec7f1..6aa8fdf 100644
+--- a/source/plugin/symbols/carla-lv2_dsp+ui.def
++++ b/source/plugin/symbols/carla-lv2_dsp+ui.def
+@@ -1,5 +1,4 @@
+ LIBRARY     CarlaLV2
+-DESCRIPTION 'Carla LV2 Plugin'
+ EXPORTS
+     lv2_descriptor @1
+     lv2ui_descriptor @2
+diff --git a/source/plugin/symbols/carla-lv2_dsp.def b/source/plugin/symbols/carla-lv2_dsp.def
+index d62bc29..b4c1d7a 100644
+--- a/source/plugin/symbols/carla-lv2_dsp.def
++++ b/source/plugin/symbols/carla-lv2_dsp.def
+@@ -1,3 +1,2 @@
+ LIBRARY     CarlaLV2
+-DESCRIPTION 'Carla LV2 Plugin'
+ EXPORTS lv2_descriptor
+diff --git a/source/plugin/symbols/carla-lv2_ui.def b/source/plugin/symbols/carla-lv2_ui.def
+index 8736512..13f68b1 100644
+--- a/source/plugin/symbols/carla-lv2_ui.def
++++ b/source/plugin/symbols/carla-lv2_ui.def
+@@ -1,3 +1,2 @@
+ LIBRARY     CarlaLV2UI
+-DESCRIPTION 'Carla LV2 UI'
+ EXPORTS lv2ui_descriptor
+diff --git a/source/plugin/symbols/carla-native-plugin.def b/source/plugin/symbols/carla-native-plugin.def
+index e222e9c..e5bd55b 100644
+--- a/source/plugin/symbols/carla-native-plugin.def
++++ b/source/plugin/symbols/carla-native-plugin.def
+@@ -1,5 +1,4 @@
+ LIBRARY     CarlaNativePlugin
+-DESCRIPTION 'Carla Native Plugin'
+ EXPORTS
+     carla_get_native_rack_plugin @1
+     carla_get_native_patchbay_plugin @2
+diff --git a/source/plugin/symbols/carla-vst.def b/source/plugin/symbols/carla-vst.def
+index 70e286c..184899d 100644
+--- a/source/plugin/symbols/carla-vst.def
++++ b/source/plugin/symbols/carla-vst.def
+@@ -1,3 +1,2 @@
+ LIBRARY     CarlaVST
+-DESCRIPTION 'Carla VST Plugin'
+ EXPORTS VSTPluginMain
+diff --git a/source/modules/juce_audio_processors/processors/juce_AudioPluginInstance.h b/source/modules/juce_audio_processors/processors/juce_AudioPluginInstance.h
+index e849bef..261e328 100644
+--- a/source/modules/juce_audio_processors/processors/juce_AudioPluginInstance.h
++++ b/source/modules/juce_audio_processors/processors/juce_AudioPluginInstance.h
+@@ -158,10 +158,7 @@ protected:
+         const StringArray onStrings, offStrings;
+     };
+ 
+-    AudioPluginInstance() = default;
+-    AudioPluginInstance (const BusesProperties& ioLayouts) : AudioProcessor (ioLayouts) {}
+-    template <size_t numLayouts>
+-    AudioPluginInstance (const short channelLayoutList[numLayouts][2]) : AudioProcessor (channelLayoutList) {}
++    using AudioProcessor::AudioProcessor;
+ 
+ private:
+     // It's not safe to add a plain AudioProcessorParameter to an AudioPluginInstance.
+diff --git a/source/modules/juce_core/system/juce_StandardHeader.h b/source/modules/juce_core/system/juce_StandardHeader.h
+index a84c76a..d000993 100644
+--- a/source/modules/juce_core/system/juce_StandardHeader.h
++++ b/source/modules/juce_core/system/juce_StandardHeader.h
+@@ -66,6 +66,7 @@
+ #include <queue>
+ #include <set>
+ #include <sstream>
++#include <type_traits>
+ #include <typeindex>
+ #include <unordered_map>
+ #include <unordered_set>

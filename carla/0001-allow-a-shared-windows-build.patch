@@ -1,0 +1,59 @@
+Allow a Windows build against shared libraries
+
+On Windows, Makefile.mk always links with -static and Makefile.deps.mk
+asks pkg-config for --static flags, as upstream's releases are static
+cross builds. The LV2 UI bridge for Windows adds its own -static on top.
+With WINDOWS_SHARED=true, Carla links the shared MinGW libraries instead;
+without it nothing changes. The UI bridge's -static was redundant, as
+LINK_FLAGS already carries it in a static build.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/source/Makefile.deps.mk b/source/Makefile.deps.mk
+index c933682..f79a33e 100644
+--- a/source/Makefile.deps.mk
++++ b/source/Makefile.deps.mk
+@@ -92,8 +92,12 @@ ifeq ($(WASM),true)
+ # Skip on wasm by default
+ PKG_CONFIG ?= false
+ else ifeq ($(WINDOWS),true)
++ifeq ($(WINDOWS_SHARED),true)
++PKG_CONFIG ?= pkg-config
++else
+ # Build statically on Windows by default
+ PKG_CONFIG ?= pkg-config --static
++endif
+ else
+ PKG_CONFIG ?= pkg-config
+ endif
+diff --git a/source/Makefile.mk b/source/Makefile.mk
+index 49e1cdf..69cdf1d 100644
+--- a/source/Makefile.mk
++++ b/source/Makefile.mk
+@@ -112,9 +112,11 @@ LINK_FLAGS += -Wl,--no-undefined
+ endif
+ 
+ ifeq ($(WINDOWS),true)
+-# Always build static binaries on Windows
++ifneq ($(WINDOWS_SHARED),true)
++# Always build static binaries on Windows, unless asked not to
+ LINK_FLAGS += -static
+ endif
++endif
+ 
+ # ---------------------------------------------------------------------------------------------------------------------
+ # Strict test build
+diff --git a/source/bridges-ui/Makefile b/source/bridges-ui/Makefile
+index 243bbfa..76b1fc5 100644
+--- a/source/bridges-ui/Makefile
++++ b/source/bridges-ui/Makefile
+@@ -54,7 +54,7 @@ BUILD_COCOA_FLAGS   = $(BUILD_CXX_FLAGS) -DBRIDGE_COCOA -ObjC++
+ LINK_COCOA_FLAGS    = $(LINK_FLAGS) -framework Cocoa $(LIBDL_LIBS)
+ 
+ BUILD_WINDOWS_FLAGS = $(BUILD_CXX_FLAGS) -DBRIDGE_HWND
+-LINK_WINDOWS_FLAGS  = $(LINK_FLAGS) -static -mwindows
++LINK_WINDOWS_FLAGS  = $(LINK_FLAGS) -mwindows
+ 
+ ifeq ($(MACOS),true)
+ BUILD_GTK2_FLAGS  += -ObjC++

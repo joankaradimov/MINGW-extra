@@ -1,0 +1,35 @@
+Normalise path separators in getPaths()
+
+The frontend recognises an installed resources directory by
+CWD.endswith("/share/carla/resources"). On Windows the script's directory
+comes with backslashes, even when MSYS2's Python uses '/' as os.sep, so the
+plugin UIs in share/carla/resources took share/carla for the binaries
+directory and could not load libcarla_utils. Compare with forward slashes.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/source/frontend/carla_shared.py b/source/frontend/carla_shared.py
+index dcdc11e..505f507 100644
+--- a/source/frontend/carla_shared.py
++++ b/source/frontend/carla_shared.py
+@@ -777,6 +777,10 @@ def getInitialProjectFile(skipExistCheck = False):
+ def getPaths(libPrefix = None):
+     CWDl = CWD.lower()
+ 
++    # Windows paths can come with either separator
++    if WINDOWS:
++        CWDl = CWDl.replace("\\", "/")
++
+     # adjust for special distros
+     libdir  = os.path.basename(os.path.normpath(X_LIBDIR_X))  if X_LIBDIR_X  else "lib"
+     datadir = os.path.basename(os.path.normpath(X_DATADIR_X)) if X_DATADIR_X else "share"
+@@ -799,7 +803,7 @@ def getPaths(libPrefix = None):
+             pathResources = CWD
+ 
+         # local source
+-        elif CWDl.endswith("native-plugins%sresources" % os.sep):
++        elif CWDl.endswith("native-plugins/resources"):
+             pathBinaries  = os.path.abspath(os.path.join(CWD, "..", "..", "..", "bin"))
+             pathResources = CWD
+ 

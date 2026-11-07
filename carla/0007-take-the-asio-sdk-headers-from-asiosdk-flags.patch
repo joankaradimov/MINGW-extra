@@ -1,0 +1,24 @@
+Take the ASIO SDK headers from ASIOSDK_FLAGS
+
+JUCE's ASIO driver includes iasiodrv.h, which Carla finds among the ASIO
+SDK headers bundled in its copy of RtAudio. Let ASIOSDK_FLAGS name another
+location, such as the asiosdk package's include/asiosdk/common, and keep
+RtAudio's copy as the default.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/source/modules/juce_audio_devices/Makefile b/source/modules/juce_audio_devices/Makefile
+index d6b73c1..b44d1a6 100644
+--- a/source/modules/juce_audio_devices/Makefile
++++ b/source/modules/juce_audio_devices/Makefile
+@@ -15,7 +15,8 @@ BUILD_CXX_FLAGS += $(JUCE_AUDIO_DEVICES_FLAGS) -I.. -std=gnu++14
+ ifeq ($(WINDOWS),true)
+ # BUILD_CXX_FLAGS += -Wno-missing-field-initializers
+ # BUILD_CXX_FLAGS += -I$(CWD)/includes/asio
+-BUILD_CXX_FLAGS += -I$(CWD)/modules/rtaudio/include
++ASIOSDK_FLAGS ?= -I$(CWD)/modules/rtaudio/include
++BUILD_CXX_FLAGS += $(ASIOSDK_FLAGS)
+ endif
+ 
+ ifeq ($(WINDOWS),true)

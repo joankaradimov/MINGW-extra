@@ -1,0 +1,29 @@
+Derive the pkg-config directories from the prefix
+
+The pkg-config files get libdir and includedir as absolute paths. Write
+them relative to ${prefix} when they are under PREFIX, so that pkg-config's
+prefix relocation applies to them too.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/Makefile b/Makefile
+index 7298acd..b72a5f4 100644
+--- a/Makefile
++++ b/Makefile
+@@ -523,13 +523,13 @@ endif
+ 		$(DESTDIR)$(LIBDIR)/pkgconfig/carla-standalone.pc \
+ 		$(DESTDIR)$(LIBDIR)/pkgconfig/carla-utils.pc
+ 
+-	sed $(SED_ARGS) 's?X-LIBDIR-X?$(LIBDIR)?' \
++	sed $(SED_ARGS) 's?X-LIBDIR-X?$(patsubst $(PREFIX)/%,$${prefix}/%,$(LIBDIR))?' \
+ 		$(DESTDIR)$(LIBDIR)/pkgconfig/carla-host-plugin.pc \
+ 		$(DESTDIR)$(LIBDIR)/pkgconfig/carla-native-plugin.pc \
+ 		$(DESTDIR)$(LIBDIR)/pkgconfig/carla-standalone.pc \
+ 		$(DESTDIR)$(LIBDIR)/pkgconfig/carla-utils.pc
+ 
+-	sed $(SED_ARGS) 's?X-INCLUDEDIR-X?$(INCLUDEDIR)?' \
++	sed $(SED_ARGS) 's?X-INCLUDEDIR-X?$(patsubst $(PREFIX)/%,$${prefix}/%,$(INCLUDEDIR))?' \
+ 		$(DESTDIR)$(LIBDIR)/pkgconfig/carla-host-plugin.pc \
+ 		$(DESTDIR)$(LIBDIR)/pkgconfig/carla-native-plugin.pc \
+ 		$(DESTDIR)$(LIBDIR)/pkgconfig/carla-standalone.pc \

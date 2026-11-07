@@ -1,0 +1,4 @@
+@ECHO off
+SETLOCAL
+SET "prefix=%~dp0.."
+"%~dp0python.exe" "%prefix%\share\carla\@SCRIPT@" @APPNAME@--with-libprefix="%prefix%" %*

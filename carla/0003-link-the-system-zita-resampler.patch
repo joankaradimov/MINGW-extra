@@ -1,0 +1,126 @@
+Link the system zita-resampler
+
+Carla compiles its own copy of zita-resampler into zita-resampler.a. Link
+-lzita-resampler instead, through ZITA_RESAMPLER_LIBS, everywhere the
+archive was used. The headers keep their name, zita-resampler/resampler.h.
+
+Upstream: not submitted (upstream bundles its dependencies)
+Applies-to: all environments
+
+diff --git a/Makefile b/Makefile
+index 4d62049..e151b3b 100644
+--- a/Makefile
++++ b/Makefile
+@@ -50,7 +50,6 @@ ALL_LIBS += $(MODULEDIR)/rtmempool.a
+ 3RD_LIBS += $(MODULEDIR)/lilv.a
+ 3RD_LIBS += $(MODULEDIR)/sfzero.a
+ 3RD_LIBS += $(MODULEDIR)/water.a
+-3RD_LIBS += $(MODULEDIR)/zita-resampler.a
+ 
+ ifeq ($(HAVE_DGL),true)
+ ifneq ($(USING_CUSTOM_DPF),true)
+@@ -197,7 +196,7 @@ endif
+ libjack: libs
+ 	@$(MAKE) -C source/libjack
+ 
+-lv2-bundles-dep: $(MODULEDIR)/audio_decoder.a $(MODULEDIR)/water.a $(MODULEDIR)/zita-resampler.a
++lv2-bundles-dep: $(MODULEDIR)/audio_decoder.a $(MODULEDIR)/water.a
+ 	@$(MAKE) -C source/native-plugins bundles
+ 
+ lv2-bundles: lv2-bundles-dep
+diff --git a/source/Makefile.deps.mk b/source/Makefile.deps.mk
+index f79a33e..49d6e8e 100644
+--- a/source/Makefile.deps.mk
++++ b/source/Makefile.deps.mk
+@@ -651,6 +651,8 @@ endif
+ 
+ # ---------------------------------------------------------------------------------------------------------------------
+ 
++ZITA_RESAMPLER_LIBS = -lzita-resampler
++
+ AUDIO_DECODER_LIBS  = $(FFMPEG_LIBS)
+ AUDIO_DECODER_LIBS += $(SNDFILE_LIBS)
+ 
+@@ -667,6 +669,7 @@ STATIC_CARLA_PLUGIN_LIBS += $(LILV_LIBS)
+ STATIC_CARLA_PLUGIN_LIBS += $(MAGIC_LIBS)
+ STATIC_CARLA_PLUGIN_LIBS += $(RTMEMPOOL_LIBS)
+ STATIC_CARLA_PLUGIN_LIBS += $(WATER_LIBS)
++STATIC_CARLA_PLUGIN_LIBS += $(ZITA_RESAMPLER_LIBS)
+ STATIC_CARLA_PLUGIN_LIBS += $(YSFX_LIBS)
+ 
+ ifeq ($(USING_JUCE),true)
+diff --git a/source/backend/Makefile b/source/backend/Makefile
+index 8c14c79..645018f 100644
+--- a/source/backend/Makefile
++++ b/source/backend/Makefile
+@@ -40,7 +40,6 @@ STANDALONE_LIBS += $(MODULEDIR)/native-plugins.a
+ STANDALONE_LIBS += $(MODULEDIR)/rtmempool.a
+ STANDALONE_LIBS += $(MODULEDIR)/sfzero.a
+ STANDALONE_LIBS += $(MODULEDIR)/water.a
+-STANDALONE_LIBS += $(MODULEDIR)/zita-resampler.a
+ 
+ ifeq ($(HAVE_DGL),true)
+ STANDALONE_LIBS += $(MODULEDIR)/dgl.a
+@@ -77,6 +76,7 @@ STANDALONE_LIBS += $(MODULEDIR)/ysfx.a
+ STANDALONE_LINK_FLAGS  = $(HYLIA_LIBS)
+ STANDALONE_LINK_FLAGS += $(JACKBRIDGE_LIBS)
+ STANDALONE_LINK_FLAGS += $(LILV_LIBS)
++STANDALONE_LINK_FLAGS += $(ZITA_RESAMPLER_LIBS)
+ STANDALONE_LINK_FLAGS += $(NATIVE_PLUGINS_LIBS)
+ STANDALONE_LINK_FLAGS += $(RTMEMPOOL_LIBS)
+ STANDALONE_LINK_FLAGS += $(WATER_LIBS)
+diff --git a/source/bridges-plugin/Makefile b/source/bridges-plugin/Makefile
+index 8bdc151..fcbc494 100644
+--- a/source/bridges-plugin/Makefile
++++ b/source/bridges-plugin/Makefile
+@@ -183,7 +183,7 @@ NATIVE_LINK_FLAGS  += $(MAGIC_LIBS)
+ LIBS_native        += $(MODULEDIR)/audio_decoder.a
+ LIBS_native        += $(MODULEDIR)/native-plugins.a
+ LIBS_native        += $(MODULEDIR)/sfzero.a
+-LIBS_native        += $(MODULEDIR)/zita-resampler.a
++NATIVE_LINK_FLAGS  += $(ZITA_RESAMPLER_LIBS)
+ 
+ ifeq ($(HAVE_DGL),true)
+ ifneq ($(USING_CUSTOM_DPF),true)
+diff --git a/source/plugin/Makefile b/source/plugin/Makefile
+index ac37281..bd14941 100644
+--- a/source/plugin/Makefile
++++ b/source/plugin/Makefile
+@@ -70,7 +70,6 @@ LIBS += $(MODULEDIR)/water.a
+ LIBS += $(MODULEDIR)/audio_decoder.a
+ LIBS += $(MODULEDIR)/native-plugins.a
+ LIBS += $(MODULEDIR)/sfzero.a
+-LIBS += $(MODULEDIR)/zita-resampler.a
+ 
+ ifeq ($(HAVE_DGL),true)
+ ifneq ($(USING_CUSTOM_DPF),true)
+@@ -105,6 +104,7 @@ NATIVE_LINK_FLAGS  = $(HYLIA_LIBS)
+ NATIVE_LINK_FLAGS += $(LINK_FLAGS)
+ NATIVE_LINK_FLAGS += $(JACKBRIDGE_LIBS)
+ NATIVE_LINK_FLAGS += $(LILV_LIBS)
++NATIVE_LINK_FLAGS += $(ZITA_RESAMPLER_LIBS)
+ NATIVE_LINK_FLAGS += $(RTMEMPOOL_LIBS)
+ NATIVE_LINK_FLAGS += $(WATER_LIBS)
+ NATIVE_LINK_FLAGS += $(NATIVE_PLUGINS_LIBS)
+@@ -288,7 +288,7 @@ BUNDLE_LIBS += $(WATER_LIBS)
+ 
+ BUNDLE_FILES_LIBS += $(MODULEDIR)/audio_decoder.a
+ BUNDLE_FILES_LIBS += $(MODULEDIR)/water.a
+-BUNDLE_FILES_LIBS += $(MODULEDIR)/zita-resampler.a
++BUNDLE_FILES_LIBS += $(ZITA_RESAMPLER_LIBS)
+ BUNDLE_FILES_LIBS += $(AUDIO_DECODER_LIBS)
+ BUNDLE_FILES_LIBS += $(WATER_LIBS)
+ 
+diff --git a/source/tests/Makefile b/source/tests/Makefile
+index 016bd12..0a5ce89 100644
+--- a/source/tests/Makefile
++++ b/source/tests/Makefile
+@@ -143,7 +143,7 @@ carla-engine-sdl$(APP_EXT): $(OBJDIR)/carla-engine-sdl.c.o $(OBJDIR)/carla-engin
+ 		$(MODULEDIR)/rtmempool.a \
+ 		$(MODULEDIR)/water.a \
+ 		$(MODULEDIR)/ysfx.a \
+-		$(MODULEDIR)/zita-resampler.a \
++		$(ZITA_RESAMPLER_LIBS) \
+ 		$(SDL_LIBS) --preload-file foolme.mp3 -sALLOW_MEMORY_GROWTH \
+ 		-o $@
+ 

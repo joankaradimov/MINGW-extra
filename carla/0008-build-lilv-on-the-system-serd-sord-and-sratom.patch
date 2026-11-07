@@ -1,0 +1,67 @@
+Build lilv on the system serd, sord and sratom
+
+Carla's lilv module compiles its fork of lilv 0.24 together with copies of
+serd 0.24, sord 0.16 and sratom 0.6. Compile only lilv.c, and take serd,
+sord and sratom from pkg-config: LILV_FLAGS for every compilation, since
+CarlaLv2Utils.hpp includes sratom/sratom.h and is used throughout, and
+LILV_LIBS wherever lilv.a is linked, which now includes the LV2 UI bridges.
+The lilv fork itself stays: its API differs from upstream lilv.
+
+Carla's serd patches are lost with its copy: one escapes '#' in file URIs,
+which serd already does for the escaped URIs Carla builds, and one accepts
+Turtle with a missing ';' or '.'.
+
+Upstream: not submitted (upstream bundles its dependencies)
+Applies-to: all environments
+
+diff --git a/source/Makefile.deps.mk b/source/Makefile.deps.mk
+index c151d14..95e1a13 100644
+--- a/source/Makefile.deps.mk
++++ b/source/Makefile.deps.mk
+@@ -651,6 +651,9 @@ endif
+ 
+ # ---------------------------------------------------------------------------------------------------------------------
+ 
++LILV_FLAGS = $(shell $(PKG_CONFIG) --cflags serd-0 sord-0 sratom-0)
++LILV_LIBS += $(shell $(PKG_CONFIG) --libs serd-0 sord-0 sratom-0)
++
+ ZITA_RESAMPLER_LIBS = -lzita-resampler
+ YSFX_LIBS           = -lysfx
+ 
+diff --git a/source/Makefile.mk b/source/Makefile.mk
+index 69cdf1d..ee04620 100644
+--- a/source/Makefile.mk
++++ b/source/Makefile.mk
+@@ -23,6 +23,7 @@ include $(CWD)/Makefile.deps.mk
+ # Set build and link flags
+ 
+ BASE_FLAGS = -Wall -Wextra -pipe -DBUILDING_CARLA -MD -MP -fno-common
++BASE_FLAGS += $(LILV_FLAGS)
+ BASE_OPTS  = -O3 -ffast-math -fdata-sections -ffunction-sections
+ 
+ ifeq ($(WASM),true)
+diff --git a/source/bridges-ui/Makefile b/source/bridges-ui/Makefile
+index 76b1fc5..2749ca1 100644
+--- a/source/bridges-ui/Makefile
++++ b/source/bridges-ui/Makefile
+@@ -24,6 +24,7 @@ endif
+ 
+ BUILD_CXX_FLAGS  += -DBUILD_BRIDGE -DBUILD_BRIDGE_UI -I. -I$(CWD)/backend -I$(CWD)/includes -I$(CWD)/utils -I$(CWD)/modules
+ LINK_FLAGS       += $(WATER_LIBS)
++LINK_FLAGS       += $(LILV_LIBS)
+ 
+ ifneq ($(WASM),true)
+ ifeq ($(HAIKU),true)
+diff --git a/source/modules/lilv/Makefile b/source/modules/lilv/Makefile
+index 9c06a18..ad19194 100644
+--- a/source/modules/lilv/Makefile
++++ b/source/modules/lilv/Makefile
+@@ -21,7 +21,7 @@ BUILD_C_FLAGS += $(LILV_FLAGS) -Iconfig -w
+ 
+ # ---------------------------------------------------------------------------------------------------------------------
+ 
+-OBJS         = $(OBJDIR)/serd.c.o         $(OBJDIR)/sord.c.o         $(OBJDIR)/sratom.c.o         $(OBJDIR)/lilv.c.o
++OBJS         = $(OBJDIR)/lilv.c.o
+ OBJS_arm32   = $(OBJDIR)/serd.c.arm32.o   $(OBJDIR)/sord.c.arm32.o   $(OBJDIR)/sratom.c.arm32.o   $(OBJDIR)/lilv.c.arm32.o
+ OBJS_posix32 = $(OBJDIR)/serd.c.posix32.o $(OBJDIR)/sord.c.posix32.o $(OBJDIR)/sratom.c.posix32.o $(OBJDIR)/lilv.c.posix32.o
+ OBJS_posix64 = $(OBJDIR)/serd.c.posix64.o $(OBJDIR)/sord.c.posix64.o $(OBJDIR)/sratom.c.posix64.o $(OBJDIR)/lilv.c.posix64.o

@@ -1,0 +1,75 @@
+Find Carla's binaries and resources from the plugin bundles on Windows
+
+The LV2 and VST builds of Carla look for its binaries beside the plugin
+and for its resources in the bundle, where Linux has symlinks into
+lib/carla and share/carla. On Windows, when they are not there, use
+<prefix>/lib/carla and <prefix>/share/carla/resources, found from the
+bundle's place in <prefix>/lib/lv2 or <prefix>/lib/vst.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/source/backend/engine/CarlaEngineNative.cpp b/source/backend/engine/CarlaEngineNative.cpp
+index 4def20b..2390233 100644
+--- a/source/backend/engine/CarlaEngineNative.cpp
++++ b/source/backend/engine/CarlaEngineNative.cpp
+@@ -184,7 +184,20 @@ public:
+         if (pData->options.binaryDir != nullptr)
+             delete[] pData->options.binaryDir;
+ 
+-        const water::String binaryDir(File(File::getSpecialLocation(File::currentExecutableFile).getParentDirectory()).getFullPathName());
++        File binaryDirFile(File::getSpecialLocation(File::currentExecutableFile).getParentDirectory());
++#ifdef CARLA_OS_WIN
++        // Without symlinks, the LV2 and VST bundles do not carry Carla's
++        // binaries; they stay in <prefix>/lib/carla, beside <prefix>/lib/lv2
++        // and <prefix>/lib/vst.
++        if (! binaryDirFile.getChildFile("carla-discovery-native.exe").existsAsFile())
++        {
++            const File libDir(binaryDirFile.getParentDirectory().getParentDirectory().getChildFile("carla"));
++
++            if (libDir.getChildFile("carla-discovery-native.exe").existsAsFile())
++                binaryDirFile = libDir;
++        }
++#endif
++        const water::String binaryDir(binaryDirFile.getFullPathName());
+ 
+         pData->options.resourceDir = carla_strdup(pHost->resourceDir);
+         pData->options.binaryDir   = carla_strdup(binaryDir.toRawUTF8());
+diff --git a/source/plugin/carla-lv2.cpp b/source/plugin/carla-lv2.cpp
+index 32e90c4..a23c27b 100644
+--- a/source/plugin/carla-lv2.cpp
++++ b/source/plugin/carla-lv2.cpp
+@@ -87,7 +87,14 @@ public:
+         using water::File;
+         using water::String;
+ 
+-        String resourceDir(water::File(bundlePath).getChildFile("resources").getFullPathName());
++        water::File resourceDirFile(water::File(bundlePath).getChildFile("resources"));
++#ifdef CARLA_OS_WIN
++        // No resources link in the bundle: <prefix>/lib/lv2/carla.lv2
++        if (! resourceDirFile.exists())
++            resourceDirFile = water::File(bundlePath).getParentDirectory().getParentDirectory().getParentDirectory()
++                              .getChildFile("share").getChildFile("carla").getChildFile("resources");
++#endif
++        String resourceDir(resourceDirFile.getFullPathName());
+ 
+         fHost.handle      = this;
+         fHost.resourceDir = carla_strdup(resourceDir.toRawUTF8());
+diff --git a/source/plugin/carla-vst.cpp b/source/plugin/carla-vst.cpp
+index 2cb278b..b5b804e 100644
+--- a/source/plugin/carla-vst.cpp
++++ b/source/plugin/carla-vst.cpp
+@@ -98,6 +98,13 @@ public:
+         File curExe = File::getSpecialLocation(File::currentExecutableFile).getLinkedTarget();
+         File resDir = curExe.getSiblingFile("resources");
+ 
++#ifdef CARLA_OS_WIN
++        // No resources link in the bundle: <prefix>/lib/vst/carla.vst/<plugin>
++        if (! resDir.exists())
++            resDir = curExe.getParentDirectory().getParentDirectory().getParentDirectory().getParentDirectory()
++                     .getChildFile("share").getChildFile("carla").getChildFile("resources");
++#endif
++
+ #ifndef CARLA_OS_MAC
+         // FIXME: proper fallback path for other OSes
+         if (! resDir.exists())
