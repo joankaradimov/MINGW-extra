@@ -1,0 +1,27 @@
+Keep water's DllMain out of the DLL exports
+
+water records the module it is linked into from DllMain, and exports
+DllMain to keep it. Built as shared libraries, libcarla_native-plugin,
+libcarla_host-plugin and libcarla_standalone2 therefore export DllMain,
+and a DLL linked to one of them without a DllMain of its own resolves
+its own to that import: its startup then calls Carla's DllMain with its
+own module handle, and carla_get_library_filename() and
+carla_get_library_folder() name that DLL instead of Carla's. LMMS's
+carlabase is such a DLL. The C runtime's startup code calls DllMain
+within the same DLL, so it needs no export.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/source/modules/water/water.cpp b/source/modules/water/water.cpp
+--- a/source/modules/water/water.cpp
++++ b/source/modules/water/water.cpp
+@@ -34,7 +34,7 @@ HINSTANCE getCurrentModuleInstanceHandle() noexcept
+ }
+ 
+ # ifndef STATIC_PLUGIN_TARGET
+-CARLA_PLUGIN_EXPORT
++CARLA_EXTERN_C
+ BOOL WINAPI DllMain (HINSTANCE hInst, DWORD reason, LPVOID)
+ {
+     if (reason == DLL_PROCESS_ATTACH)

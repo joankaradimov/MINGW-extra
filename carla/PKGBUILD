@@ -4,7 +4,7 @@ _realname=carla
 pkgbase=mingw-w64-${_realname}
 pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
 pkgver=2.5.10
-pkgrel=1
+pkgrel=2
 pkgdesc="Audio plugin host (mingw-w64)"
 arch=('any')
 mingw_arch=('ucrt64' 'clang64')
@@ -51,9 +51,14 @@ source=("${_realname}-${pkgver}.tar.gz::https://github.com/falkTX/Carla/archive/
         "0011-derive-pkg-config-dirs-from-the-prefix.patch"
         "0012-normalise-path-separators-in-getpaths.patch"
         "0013-build-with-clang-on-mingw.patch"
+        "0014-name-the-native-plugin-dll-after-its-file.patch"
+        "0015-keep-water-s-dllmain-out-of-the-dll-exports.patch"
+        "0016-search-the-prefix-plugin-folders-on-windows.patch"
         "carla-ui-launcher.c"
         "carla.cmd.in"
-        "test-carla-engine.py")
+        "test-carla-engine.py"
+        "test-carla-native-plugin.c"
+        "test-carla-plugin-paths.py")
 noextract=("${_realname}-${pkgver}.tar.gz")
 sha256sums=('ae2835b12081f7271a6b0b25d34b87d36b022c40370028ca4a10f90fcedfa661'
             'd38394f543f59ccd506e76c47fb5e953c9f18098a25958b3a49cabf0900946ff'
@@ -69,9 +74,14 @@ sha256sums=('ae2835b12081f7271a6b0b25d34b87d36b022c40370028ca4a10f90fcedfa661'
             '631dbcf3ba22092bd6eac8544856f118cf9af58e9789f0c18b193dd8d23afab6'
             '2cbc1425d39a1082dcb24e510b76dea015d9070ddb8699ea58578ab5fdf5e7f6'
             '903819b18ec24802ebab3fefde83d8a35b186114fb5e195ba0574cb4c1218bbf'
+            '13346660af48d6b714540f69c885e9e9fcae30ae1d026a437c8d6b90b6dd215f'
+            'c1d7cbad34224afcc5fdf92da4ad006da7fc7d73aa45fbf7a5e6eea57fcc3faf'
+            '3b6024c39fc7a0e30d0505be4aff27b0954816ea26cbd5569edd5a5fb5b6ab07'
             'caa87423d0be0aa662b43cb9500eaa7701e74a4ea6e21a44ddd58242f5960831'
             '1dcdef82fb2c5e3c2e7285d8acab9771e6712c0540449340aa0a2013bcfe7763'
-            '10887c3bd03220066f4596d6b0a0b9d05315f4d0834e79f4abe0aee1b04a34f7')
+            '10887c3bd03220066f4596d6b0a0b9d05315f4d0834e79f4abe0aee1b04a34f7'
+            '7796df95b0f55966268a28556298125ab61ca4813828df4988b1479149336d23'
+            '60b6d19e4fbc3eb4db76e5eb1de04b842af1521bf1f94ca24b76abe3def8fd18')
 
 apply_patch_with_msg() {
   for _patch in "$@"; do
@@ -104,6 +114,11 @@ prepare() {
   # Its JUCE hunks have CRLF lines, as the files they change do.
   msg2 "Applying 0013-build-with-clang-on-mingw.patch"
   patch -Np1 --binary -i "${srcdir}/0013-build-with-clang-on-mingw.patch"
+  apply_patch_with_msg 0014-name-the-native-plugin-dll-after-its-file.patch
+  # water.cpp has CRLF lines.
+  msg2 "Applying 0015-keep-water-s-dllmain-out-of-the-dll-exports.patch"
+  patch -Np1 --binary -i "${srcdir}/0015-keep-water-s-dllmain-out-of-the-dll-exports.patch"
+  apply_patch_with_msg 0016-search-the-prefix-plugin-folders-on-windows.patch
 
   # Copies of packaged libraries, and code the Windows build does not use
   # (RtAudio, JUCE's LV2 host). Carla's own forks stay part of its source:
@@ -151,6 +166,19 @@ check() {
 
   # The engine with internal, JSFX, LV2 and VST2 plugins.
   "${MINGW_PREFIX}/bin/python" "${srcdir}/test-carla-engine.py" "${_prefix}" "${_scratch}"
+
+  # The frontend's default plugin folders include the prefix's lib/vst3 etc.
+  "${MINGW_PREFIX}/bin/python" "${srcdir}/test-carla-plugin-paths.py" "${_prefix}"
+
+  # A plugin host linked to the native plugin library, as LMMS's Carla
+  # plugin is, loaded by a program.
+  ${CC} -shared -DCARLA_TEST_HOST "${srcdir}/test-carla-native-plugin.c" \
+    -o "${_scratch}/carla-test-host.dll" \
+    $(PKG_CONFIG_PATH="${_prefix}/lib/pkgconfig" \
+      pkg-config --define-prefix --cflags --libs carla-native-plugin)
+  ${CC} "${srcdir}/test-carla-native-plugin.c" -o "${_scratch}/carla-test.exe"
+  PATH="${_prefix}/lib/carla:${PATH}" \
+    "${_scratch}/carla-test.exe" "$(cygpath -w "${_scratch}/carla-test-host.dll")"
 
   # Upstream's header tests, built against the installed headers and
   # libraries through Carla's pkg-config files. Not C89: the headers use //

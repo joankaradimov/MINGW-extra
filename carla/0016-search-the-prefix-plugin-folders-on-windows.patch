@@ -1,0 +1,44 @@
+Search the prefix's plugin folders on Windows
+
+On Windows the frontend's default plugin paths are only the system-wide
+and per-user folders (Program Files, Common Files, AppData). Plugins
+packaged for the prefix Carla is installed in go to <prefix>/lib/ladspa,
+dssi, lv2, vst and vst3, as on Linux, so add those too. The prefix is
+found from this file's place in <prefix>/share/carla, or in
+<prefix>/share/carla/resources for the plugin UIs.
+
+Also separate the 32-bit Common Files VST3 folder from the folder before
+it: the missing ';' glued the two into one path that does not exist.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/source/frontend/carla_shared.py b/source/frontend/carla_shared.py
+index 505f507..9efb8ae 100755
+--- a/source/frontend/carla_shared.py
++++ b/source/frontend/carla_shared.py
+@@ -417,7 +417,23 @@ if WINDOWS:
+         #DEFAULT_JSFX_PATH   += ";" + PROGRAMFILESx86 + "\\REAPER\\InstallData\\Effects"
+ 
+     if COMMONPROGRAMFILESx86:
+-        DEFAULT_VST3_PATH   += COMMONPROGRAMFILESx86 + "\\VST3"
++        DEFAULT_VST3_PATH   += ";" + COMMONPROGRAMFILESx86 + "\\VST3"
++
++    # The plugin folders of the prefix this file is installed in, as
++    # <prefix>/share/carla or <prefix>/share/carla/resources.
++    _prefix = os.path.dirname(os.path.abspath(__file__)).replace("/", "\\")
++
++    for _sharedir in ("\\share\\carla\\resources", "\\share\\carla"):
++        if _prefix.lower().endswith(_sharedir):
++            _prefix = _prefix[:-len(_sharedir)]
++            DEFAULT_LADSPA_PATH += ";" + _prefix + "\\lib\\ladspa"
++            DEFAULT_DSSI_PATH   += ";" + _prefix + "\\lib\\dssi"
++            DEFAULT_LV2_PATH    += ";" + _prefix + "\\lib\\lv2"
++            DEFAULT_VST2_PATH   += ";" + _prefix + "\\lib\\vst"
++            DEFAULT_VST3_PATH   += ";" + _prefix + "\\lib\\vst3"
++            break
++
++    del _prefix, _sharedir
+ 
+ elif HAIKU:
+     splitter = ":"

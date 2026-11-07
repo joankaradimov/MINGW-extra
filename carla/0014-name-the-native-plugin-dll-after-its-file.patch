@@ -1,0 +1,21 @@
+Name the native plugin DLL after its file
+
+libcarla_native-plugin.dll is linked with carla-native-plugin.def, whose
+LIBRARY statement names it CarlaNativePlugin. GNU ld writes that name into
+the DLL's export table, and a program linked to the DLL itself (Carla
+installs no import library) imports CarlaNativePlugin.dll, a file that does
+not exist, so it cannot start. lld names the DLL after its file anyway.
+Name it after its file.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/source/plugin/symbols/carla-native-plugin.def b/source/plugin/symbols/carla-native-plugin.def
+--- a/source/plugin/symbols/carla-native-plugin.def
++++ b/source/plugin/symbols/carla-native-plugin.def
+@@ -1,3 +1,3 @@
+-LIBRARY     CarlaNativePlugin
++LIBRARY     libcarla_native-plugin
+ EXPORTS
+     carla_get_native_rack_plugin @1
+     carla_get_native_patchbay_plugin @2
