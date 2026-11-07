@@ -1,0 +1,15 @@
+<CARLA-PROJECT VERSION='2.5'>
+ <Plugin>
+  <Info>
+   <Type>JSFX</Type>
+   <Name>Test tone</Name>
+   <Filename>@TONE@</Filename>
+   <Label>test-carla-tone.jsfx</Label>
+  </Info>
+  <Data>
+   <Active>Yes</Active>
+   <ControlChannel>1</ControlChannel>
+   <Options>0x0</Options>
+  </Data>
+ </Plugin>
+</CARLA-PROJECT>

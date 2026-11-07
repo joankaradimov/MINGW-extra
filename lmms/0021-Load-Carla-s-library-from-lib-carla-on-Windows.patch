@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sat, 7 Nov 2026 10:58:42 +0200
+Subject: [PATCH] Load Carla's library from lib/carla on Windows
+
+Carla installs libcarla_native-plugin in lib/carla, and carlabase links
+to it. Elsewhere the RPATH from carla-native-plugin.pc finds it there;
+Windows has no RPATH and searches neither lib/carla nor the plugin's
+own directory, so carlabase, and with it Carla Rack and Patchbay, fail
+to load. Load the library by its full path before the plugins: loading
+carlabase then finds it in the process, as the discovery loop already
+relies on for ZynAddSubFxCore. Without Carla installed nothing loads,
+and the two instruments are left out as before.
+
+Upstream: not submitted
+---
+ src/core/PluginFactory.cpp | 7 +++++++
+ src/lmmsconfig.h.in        | 1 +
+ 2 files changed, 8 insertions(+)
+
+diff --git a/src/core/PluginFactory.cpp b/src/core/PluginFactory.cpp
+index 936b33c..bc7c76d 100644
+--- a/src/core/PluginFactory.cpp
++++ b/src/core/PluginFactory.cpp
+@@ -77,6 +77,13 @@ PluginFactory::PluginFactory()
+ 
+ 	QDir::addSearchPath("plugins", ConfigManager::inst()->workingDir() + "plugins");
+ 
++#if defined(LMMS_BUILD_WIN32) && defined(LMMS_HAVE_CARLA) && !defined(LMMS_PORTABLE_LAYOUT)
++	// carlabase links to libcarla_native-plugin, which Carla keeps in
++	// lib/carla. Windows does not search there, so load it by its path.
++	QLibrary(QDir::cleanPath(qApp->applicationDirPath()
++		+ "/../lib/carla/libcarla_native-plugin.dll")).load();
++#endif
++
+ 	discoverPlugins();
+ }
+ 
+diff --git a/src/lmmsconfig.h.in b/src/lmmsconfig.h.in
+index 921ba1e..1f1c83b 100644
+--- a/src/lmmsconfig.h.in
++++ b/src/lmmsconfig.h.in
+@@ -12,6 +12,7 @@
+ #cmakedefine LMMS_HOST_X86_64
+ 
+ #cmakedefine LMMS_HAVE_ALSA
++#cmakedefine LMMS_HAVE_CARLA
+ #cmakedefine LMMS_HAVE_FLUIDSYNTH
+ #cmakedefine LMMS_HAVE_JACK
+ #cmakedefine LMMS_HAVE_WEAKJACK

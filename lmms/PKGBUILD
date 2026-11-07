@@ -4,7 +4,7 @@ _realname=lmms
 pkgbase=mingw-w64-${_realname}
 pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
 pkgver=1.2.2
-pkgrel=1
+pkgrel=2
 pkgdesc="Free cross-platform music production software (mingw-w64)"
 arch=('any')
 mingw_arch=('ucrt64' 'clang64')
@@ -33,12 +33,18 @@ depends=("${MINGW_PACKAGE_PREFIX}-adplug"
          "${MINGW_PACKAGE_PREFIX}-SDL"
          "${MINGW_PACKAGE_PREFIX}-stk"
          "${MINGW_PACKAGE_PREFIX}-zlib")
-makedepends=("${MINGW_PACKAGE_PREFIX}-cc"
+# Carla stays optional: without it LMMS leaves out the two Carla
+# instruments, whose plugins cannot load (patch 0021). Linked to an older
+# Carla, carlabase imports a DLL name that does not exist and takes over
+# Carla's DllMain.
+makedepends=("${MINGW_PACKAGE_PREFIX}-carla>=2.5.10-2"
+             "${MINGW_PACKAGE_PREFIX}-cc"
              "${MINGW_PACKAGE_PREFIX}-cmake"
              "${MINGW_PACKAGE_PREFIX}-ninja"
              "${MINGW_PACKAGE_PREFIX}-pkgconf"
              "${MINGW_PACKAGE_PREFIX}-qt5-tools")
-optdepends=("${MINGW_PACKAGE_PREFIX}-qt5-translations: translated Qt dialogs")
+optdepends=("${MINGW_PACKAGE_PREFIX}-carla: Carla Rack and Carla Patchbay instruments"
+            "${MINGW_PACKAGE_PREFIX}-qt5-translations: translated Qt dialogs")
 # Left in the source, as LMMS ships them: its own forks of ZynAddSubFX,
 # Calf (veal), CMT and TAP; the swh and C* (caps) LADSPA suites, which
 # LMMS builds with its own CMake files; Blargg's Gb_Apu in papu, which
@@ -64,6 +70,12 @@ source=("https://github.com/LMMS/lmms/releases/download/v${pkgver}/${_realname}_
         "0017-tests-Build-the-suite-list-before-the-suites-join-it.patch"
         "0018-tests-Connect-to-the-dataChanged-that-Qt-5-builds-ha.patch"
         "0019-Eliminate-deprecated-register-keyword-6133.patch"
+        "0020-Fix-Carla-version-detction-in-CarlaBase-6403.patch"
+        "0021-Load-Carla-s-library-from-lib-carla-on-Windows.patch"
+        "0022-Find-Carla-s-resources-under-the-prefix-on-Windows.patch"
+        "test-carla-patchbay.carxp"
+        "test-carla-rack.carxp"
+        "test-carla-tone.jsfx"
         "test-ladspa.c"
         "test-project.mmp"
         "test-wavpeak.c")
@@ -88,13 +100,19 @@ sha256sums=('b185507fb64ecfd8e31145135b58ab244b637f9efc09c4176caf70aa3cbaae1e'
             'd8071c444ebea751b926e1848e0f4e640284cf61db1a8d58a239645c83f634f8'
             '632deb4ef431fd6ff81a37f99dffdeadb6f2a0b7e52c1294e702b86ae2b1f39b'
             'e1feff342a43ae8874e86407da95bfd8954e051d76bf5b6e3e5da931f3b1a3b0'
+            'b0cd514c0922282d356a2e292047744b293610177e46effe742940dbb080bc78'
+            '1e7175a516cc17d9588433e340c138986bd76c697b8bdd940176894de1335121'
+            '52cb9c8261a92cb9777a034e31f3b488c5c1d2794f6533a6fd72c9305f99e02c'
+            '37a1ba2ec4e3f072bfdf2a5ec819f0572f26809fdb09f14df1202efdf66f75ab'
+            '40bbe473bcec89334f6abafa7b7a5c9c08947802026fd07ac8a0eacd16d6ab1e'
+            'd68feeebd70f44711461b4ccd0ab276b645b3fa29cb603429b497d2e8370eed2'
             'a2f1eb5bf9ee8ab35bac317a8da40444ca42eb9059630423555d3fb8e9980d34'
-            '9dc0d235d270575b0111fac95016174719a27ab509513d81941864cbf93b6c89'
+            '8e23555286035b8aaf218f07ba31000b7b8bbffa6faf18b023a85fc8dc900a68'
             '71df09b6beb562b211e313abc0fb3e4b92a0070bada97425419ebcf3e298700f')
 
 prepare() {
-  # The bundled Carla holds symlinks bsdtar cannot create here, and
-  # WANT_CARLA=OFF leaves it unused.
+  # The bundled Carla, used only when no Carla is installed, holds
+  # symlinks bsdtar cannot create here.
   bsdtar -xf "${_realname}_${pkgver}.tar.xz" \
     --exclude "${_realname}/plugins/carlabase/carla"
   cd "${_realname}"
@@ -123,7 +141,6 @@ build() {
 
   # LMMS_BUILD_MSYS: upstream's switch for a native MSYS2 build; it skips
   # the 32-bit VST host, which needs a second, 32-bit toolchain.
-  # WANT_CARLA=OFF: there is no Carla package to build against.
   MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
     cmake \
       -GNinja \
@@ -132,7 +149,6 @@ build() {
       -DWANT_QT5=ON \
       -DWANT_PORTABLE_LAYOUT=OFF \
       -DLMMS_BUILD_MSYS=ON \
-      -DWANT_CARLA=OFF \
       -S "${_realname}" \
       -B "build-${MSYSTEM}"
 
@@ -146,6 +162,10 @@ check() {
   local _stage="${srcdir}/stage-${MSYSTEM}"
   rm -rf "${_stage}" "${srcdir}/check-${MSYSTEM}"
   DESTDIR="${_stage}" cmake --install "build-${MSYSTEM}" > /dev/null
+  # Carla is in the prefix, not the stage: put its library where patch
+  # 0021 has the staged lmms.exe look for it.
+  install -Dm644 "${MINGW_PREFIX}/lib/carla/libcarla_native-plugin.dll" \
+    -t "${_stage}${MINGW_PREFIX}/lib/carla"
   mkdir "${srcdir}/check-${MSYSTEM}" && cd "${srcdir}/check-${MSYSTEM}"
 
   cc -O2 -o wavpeak.exe "${srcdir}/test-wavpeak.c"
@@ -155,10 +175,12 @@ check() {
   ./ladspa.exe "${_stage}${MINGW_PREFIX}"/lib/lmms/ladspa/*.dll
 
   # Each instrument that sounds with default settings renders sound
-  # (Vibed's strings default to off). The staged lmms.exe finds its
-  # plugins and data relative to itself. Qt takes the profile from Windows,
-  # not USERPROFILE, so the configuration names every directory LMMS would
-  # otherwise put there, and points STK at the installed rawwaves.
+  # (Vibed's strings default to off), and Carla Rack and Patchbay play a
+  # JSFX that sounds only while a note is held. The staged lmms.exe finds
+  # its plugins and data relative to itself. Qt takes the profile from
+  # Windows, not USERPROFILE, so the configuration names every directory
+  # LMMS would otherwise put there, and points STK at the installed
+  # rawwaves.
   local _w="$(cygpath -m "${PWD}")/work"
   cat > lmmsrc.xml <<EOF
 <?xml version="1.0"?>
@@ -169,8 +191,15 @@ check() {
 EOF
   local _i
   for _i in OPL2 bitinvader kicker lb302 malletsstk monstro nes organic \
-      papu sid tripleoscillator watsyn zynaddsubfx; do
-    sed "s/@INSTRUMENT@/${_i}/g" "${srcdir}/test-project.mmp" > "${_i}.mmp"
+      papu sid tripleoscillator watsyn zynaddsubfx carlarack carlapatchbay; do
+    if [[ ${_i} == carla* ]]; then
+      sed "s|@TONE@|$(cygpath -m "${srcdir}/test-carla-tone.jsfx")|" \
+        "${srcdir}/test-carla-${_i#carla}.carxp" > state.xml
+    else
+      : > state.xml
+    fi
+    sed -e "s/@INSTRUMENT@/${_i}/g" -e "/@STATE@/{r state.xml" -e "d}" \
+      "${srcdir}/test-project.mmp" > "${_i}.mmp"
     "${_stage}${MINGW_PREFIX}/bin/lmms.exe" -c lmmsrc.xml \
       render "${_i}.mmp" -f wav -o "${_i}.wav"
     ./wavpeak.exe "${_i}.wav"

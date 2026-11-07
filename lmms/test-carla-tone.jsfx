@@ -1,0 +1,19 @@
+desc:Test tone
+in_pin:none
+out_pin:left
+out_pin:right
+
+@init
+held = 0;
+
+@block
+while (midirecv(offset, msg1, msg2, msg3)) (
+  status = msg1 & 0xF0;
+  status == 0x90 && msg3 > 0 ? held += 1 :
+    status == 0x80 || status == 0x90 ? held = max(held - 1, 0);
+);
+
+@sample
+spl0 = spl1 = held > 0 ? 0.5 * sin(phase) : 0;
+phase += 2 * $pi * 440 / srate;
+phase > 2 * $pi ? phase -= 2 * $pi;

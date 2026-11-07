@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Hyunjin Song <tteu.ingog@gmail.com>
+Date: Tue, 24 May 2022 09:57:09 +0900
+Subject: [PATCH] Fix Carla version detction in CarlaBase (#6403)
+
+carla.h tested CARLA_VERSION_HEX before including anything that defines
+it, so it never took CarlaNativePlugin.h and declared Carla's functions
+with CARLA_EXPORT, which Carla 2.1 renamed.
+
+Upstream: backport of 3518d307f47c79db06bd0e9430f39b91488673dc, on master
+after 1.2.2
+---
+ plugins/carlabase/carla.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/plugins/carlabase/carla.h b/plugins/carlabase/carla.h
+index fb54e22..6f1971e 100644
+--- a/plugins/carlabase/carla.h
++++ b/plugins/carlabase/carla.h
+@@ -28,6 +28,7 @@
+ #include <QtCore/QMutex>
+ 
+ #define REAL_BUILD // FIXME this shouldn't be needed
++#include "CarlaDefines.h"
+ #if CARLA_VERSION_HEX >= 0x010911
+     #include "CarlaNativePlugin.h"
+ #else

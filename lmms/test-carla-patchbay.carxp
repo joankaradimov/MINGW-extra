@@ -1,0 +1,31 @@
+<CARLA-PROJECT VERSION='2.5'>
+ <!-- Carla 2.5 names a JSFX's outputs after its input pins; with
+      in_pin:none they are output_1 and output_2. -->
+ <Plugin>
+  <Info>
+   <Type>JSFX</Type>
+   <Name>Test tone</Name>
+   <Filename>@TONE@</Filename>
+   <Label>test-carla-tone.jsfx</Label>
+  </Info>
+  <Data>
+   <Active>Yes</Active>
+   <ControlChannel>1</ControlChannel>
+   <Options>0x0</Options>
+  </Data>
+ </Plugin>
+ <Patchbay>
+  <Connection>
+   <Source>Midi Input:Capture 1</Source>
+   <Target>Test tone:events-in</Target>
+  </Connection>
+  <Connection>
+   <Source>Test tone:output_1</Source>
+   <Target>Audio Output:Left</Target>
+  </Connection>
+  <Connection>
+   <Source>Test tone:output_2</Source>
+   <Target>Audio Output:Right</Target>
+  </Connection>
+ </Patchbay>
+</CARLA-PROJECT>

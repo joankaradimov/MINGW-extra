@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joan Karadimov <joan.karadimov@gmail.com>
+Date: Sat, 7 Nov 2026 10:58:42 +0200
+Subject: [PATCH] Find Carla's resources under the prefix on Windows
+
+Carla's plugin UIs are programs in its resources directory, which the
+host passes to Carla. On Windows carlabase passes an empty one ("not
+yet supported"), so Show GUI has no program to start. Installed in a
+prefix, Carla keeps its library in lib/carla and its resources in
+share/carla/resources on Windows as on Linux: derive the directory
+the same way there.
+
+Upstream: not submitted; master uses <library dir>/resources instead,
+the layout of Carla's own Windows installer.
+---
+ plugins/carlabase/carla.cpp | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/plugins/carlabase/carla.cpp b/plugins/carlabase/carla.cpp
+index 0029a6b..fe606e2 100644
+--- a/plugins/carlabase/carla.cpp
++++ b/plugins/carlabase/carla.cpp
+@@ -143,7 +143,7 @@ CarlaInstrument::CarlaInstrument(InstrumentTrack* const instrumentTrack, const D
+     // carla/resources contains PyQt scripts required for launch
+     QString dllName(carla_get_library_filename());
+     QString resourcesPath;
+-#if defined(CARLA_OS_LINUX)
++#if defined(CARLA_OS_LINUX) || defined(CARLA_OS_WIN32) || defined(CARLA_OS_WIN64)
+     // parse prefix from dll filename
+     QDir path = QFileInfo(dllName).dir();
+     path.cdUp();
+@@ -153,8 +153,6 @@ CarlaInstrument::CarlaInstrument(InstrumentTrack* const instrumentTrack, const D
+     // parse prefix from dll filename
+     QDir path = QFileInfo(dllName).dir();
+     resourcesPath = path.absolutePath() + "/resources";
+-#elif defined(CARLA_OS_WIN32) || defined(CARLA_OS_WIN64)
+-    // not yet supported
+ #endif
+     fHost.resourceDir            = strdup(resourcesPath.toUtf8().constData());
+     fHost.get_buffer_size        = host_get_buffer_size;

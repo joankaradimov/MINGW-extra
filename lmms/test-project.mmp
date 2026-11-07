@@ -7,7 +7,9 @@
       <track muted="0" type="0" name="@INSTRUMENT@" solo="0">
         <instrumenttrack pan="0" fxch="0" usemasterpitch="1" pitchrange="1" pitch="0" basenote="57" vol="100">
           <instrument name="@INSTRUMENT@">
-            <@INSTRUMENT@/>
+            <@INSTRUMENT@>
+@STATE@
+            </@INSTRUMENT@>
           </instrument>
           <fxchain numofeffects="0" enabled="0"/>
         </instrumenttrack>
