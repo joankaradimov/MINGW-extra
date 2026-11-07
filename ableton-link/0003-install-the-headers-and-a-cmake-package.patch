@@ -1,0 +1,97 @@
+Install the headers and a CMake package configuration
+
+Link has no install rules; projects are meant to include
+AbletonLinkConfig.cmake from a copy of the source tree. This installs
+include/ableton and a relocatable AbletonLinkConfig.cmake in
+lib/cmake/AbletonLink, so find_package(AbletonLink) provides Ableton::Link
+from the prefix. The installed configuration defaults LINK_USE_BUNDLED_ASIO
+to OFF, because the bundled Asio is not installed, and asks for C++17 as a
+compile feature of the target instead of setting CMAKE_CXX_STANDARD for the
+whole consuming project.
+
+ConfigureAbletonLink.cmake now finds ConfigureAsioStandalone.cmake beside
+itself instead of under the path it is given: that path is the source tree
+in upstream's layout, but the prefix once installed.
+
+Arch Linux installs the source tree's configuration with /usr/include
+hard-coded (abletonlink-3.0.5-cmake_system_paths.patch).
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index ad477eb..e97ddd5 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -44,6 +44,31 @@ endif()
+ add_subdirectory(examples)
+ add_subdirectory(extensions/abl_link)
+ 
++# Install the headers and a CMake package configuration for them
++
++include(GNUInstallDirs)
++include(CMakePackageConfigHelpers)
++
++set(LINK_INSTALL_CMAKEDIR ${CMAKE_INSTALL_LIBDIR}/cmake/AbletonLink)
++
++install(DIRECTORY include/ableton
++  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
++  FILES_MATCHING PATTERN "*.hpp" PATTERN "*.ipp"
++)
++
++configure_package_config_file(
++  cmake_include/AbletonLinkConfig.cmake.in
++  ${CMAKE_CURRENT_BINARY_DIR}/AbletonLinkConfig.cmake
++  INSTALL_DESTINATION ${LINK_INSTALL_CMAKEDIR}
++)
++
++install(FILES
++  ${CMAKE_CURRENT_BINARY_DIR}/AbletonLinkConfig.cmake
++  cmake_include/ConfigureAbletonLink.cmake
++  cmake_include/ConfigureAsioStandalone.cmake
++  DESTINATION ${LINK_INSTALL_CMAKEDIR}
++)
++
+ #  ____
+ # / ___| _   _ _ __ ___  _ __ ___   __ _ _ __ _   _
+ # \___ \| | | | '_ ` _ \| '_ ` _ \ / _` | '__| | | |
+diff --git a/cmake_include/AbletonLinkConfig.cmake.in b/cmake_include/AbletonLinkConfig.cmake.in
+new file mode 100644
+index 0000000..bde02f6
+--- /dev/null
++++ b/cmake_include/AbletonLinkConfig.cmake.in
+@@ -0,0 +1,13 @@
++@PACKAGE_INIT@
++
++# The installed headers come without Link's bundled Asio.
++set(LINK_USE_BUNDLED_ASIO OFF CACHE BOOL "Use Link's bundled asio standalone library")
++
++if(NOT TARGET Ableton::Link)
++  include("${CMAKE_CURRENT_LIST_DIR}/ConfigureAbletonLink.cmake")
++  ConfigureAbletonLink("${PACKAGE_PREFIX_DIR}")
++  set_property(TARGET Ableton::Link APPEND PROPERTY
++    INTERFACE_COMPILE_FEATURES
++    cxx_std_17
++  )
++endif()
+diff --git a/cmake_include/ConfigureAbletonLink.cmake b/cmake_include/ConfigureAbletonLink.cmake
+index 5a9cd04..556225e 100644
+--- a/cmake_include/ConfigureAbletonLink.cmake
++++ b/cmake_include/ConfigureAbletonLink.cmake
+@@ -1,5 +1,7 @@
+ cmake_minimum_required(VERSION 3.16)
+ 
++set(_link_cmake_include_dir ${CMAKE_CURRENT_LIST_DIR})
++
+ function(link_pin_win32_winnt target)
+   if(WIN32)
+     target_compile_definitions(${target} PRIVATE _WIN32_WINNT=0x0601)
+@@ -63,7 +65,7 @@ function(ConfigureAbletonLink PATH_TO_LINK)
+     endif()
+   endif()
+ 
+-  include(${PATH_TO_LINK}/cmake_include/ConfigureAsioStandalone.cmake)
++  include(${_link_cmake_include_dir}/ConfigureAsioStandalone.cmake)
+     ConfigureAsioStandalone(${PATH_TO_LINK})
+     set_property(TARGET Ableton::Link APPEND PROPERTY
+       INTERFACE_LINK_LIBRARIES

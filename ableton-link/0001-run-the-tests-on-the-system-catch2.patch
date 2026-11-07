@@ -1,0 +1,71 @@
+Run the unit tests on the system Catch2 3
+
+Link vendors Catch 2.13.10 in third_party/catch for its unit tests. Take
+Catch 3 from find_package() instead, and only when LINK_BUILD_TESTS is on,
+since nothing else uses it. The tests link Catch2WithMain, include
+catch2/catch_all.hpp, and get Catch::Approx in the global namespace, where
+Catch 2 declared it and the tests call it.
+
+tst_Queue.cpp uses std::minstd_rand without including <random>; Catch 2's
+single header used to pull that in.
+
+Adapted from Arch Linux's abletonlink-3.1.2-devendor_catch2.patch.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/cmake_include/CatchConfig.cmake b/cmake_include/CatchConfig.cmake
+index 2470e18..0a41078 100644
+--- a/cmake_include/CatchConfig.cmake
++++ b/cmake_include/CatchConfig.cmake
+@@ -1,6 +1,3 @@
+-add_library(Catch::Catch IMPORTED INTERFACE)
+-
+-set_property(TARGET Catch::Catch APPEND PROPERTY
+-  INTERFACE_INCLUDE_DIRECTORIES
+-  ${CMAKE_CURRENT_LIST_DIR}/../third_party/catch
+-)
++if(LINK_BUILD_TESTS)
++  find_package(Catch2 3 REQUIRED)
++endif()
+diff --git a/include/ableton/test/CatchWrapper.hpp b/include/ableton/test/CatchWrapper.hpp
+index 997da91..2bec680 100644
+--- a/include/ableton/test/CatchWrapper.hpp
++++ b/include/ableton/test/CatchWrapper.hpp
+@@ -35,7 +35,10 @@
+ #pragma warning(disable : 5220)
+ #endif
+ 
+-#include <catch.hpp>
++#include <catch2/catch_all.hpp>
++
++// Catch 2 declared Approx in the global namespace.
++using Catch::Approx;
+ 
+ #if defined(_MSC_VER)
+ #pragma warning(pop)
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index d2a7acd..b73a737 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -109,7 +109,7 @@ source_group("Test Utils" FILES
+ #                |___/
+ 
+ function(configure_link_test_executable target)
+-  target_link_libraries(${target} Catch::Catch Ableton::Link)
++  target_link_libraries(${target} Catch2::Catch2WithMain Ableton::Link)
+   target_compile_definitions(${target} PRIVATE -DCATCH_CONFIG_ENABLE_BENCHMARKING=1)
+   link_pin_win32_winnt(${target})
+   if(ANDROID)
+diff --git a/src/ableton/link_audio/tst_Queue.cpp b/src/ableton/link_audio/tst_Queue.cpp
+index 59319a4..3878fc9 100644
+--- a/src/ableton/link_audio/tst_Queue.cpp
++++ b/src/ableton/link_audio/tst_Queue.cpp
+@@ -20,6 +20,7 @@
+ #include <ableton/link_audio/Queue.hpp>
+ #include <ableton/test/CatchWrapper.hpp>
+ #include <array>
++#include <random>
+ #include <thread>
+ 
+ namespace ableton

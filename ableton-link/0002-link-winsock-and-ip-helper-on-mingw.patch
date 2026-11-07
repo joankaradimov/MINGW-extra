@@ -1,0 +1,31 @@
+Link Winsock and the IP Helper API on MinGW
+
+ScanIpIfAddrs.hpp asks for iphlpapi.lib and ws2_32.lib through
+#pragma comment(lib), which only MSVC honours. With GCC or Clang, every
+program using Link fails to link with undefined references to WSAStartup,
+htonl and the rest of Winsock. Ableton::Link now carries both libraries in
+its interface on MinGW.
+
+Upstream: not submitted
+Applies-to: all environments
+
+diff --git a/cmake_include/ConfigureAbletonLink.cmake b/cmake_include/ConfigureAbletonLink.cmake
+index 1533cc7..5a9cd04 100644
+--- a/cmake_include/ConfigureAbletonLink.cmake
++++ b/cmake_include/ConfigureAbletonLink.cmake
+@@ -34,6 +34,15 @@ function(ConfigureAbletonLink PATH_TO_LINK)
+       INTERFACE_COMPILE_DEFINITIONS
+       INCL_EXTRA_HTON_FUNCTIONS=1
+     )
++    if(MINGW)
++      # MSVC links these through #pragma comment(lib) in ScanIpIfAddrs.hpp;
++      # GCC and Clang ignore that pragma.
++      set_property(TARGET Ableton::Link APPEND PROPERTY
++        INTERFACE_LINK_LIBRARIES
++        iphlpapi
++        ws2_32
++      )
++    endif()
+     elseif(CMAKE_SYSTEM_NAME MATCHES "Linux|kFreeBSD|GNU|Android")
+       set_property(TARGET Ableton::Link APPEND PROPERTY
+         INTERFACE_COMPILE_DEFINITIONS

@@ -1,0 +1,107 @@
+# Maintainer: Joan Karadimov <joan.karadimov@gmail.com>
+
+_realname=ableton-link
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=4.1.1
+pkgrel=1
+pkgdesc="Synchronizes musical beat, tempo and phase across applications (mingw-w64)"
+arch=('any')
+mingw_arch=('ucrt64' 'clang64')
+url='https://www.ableton.com/en/link/'
+license=('spdx:GPL-2.0-or-later')
+msys2_repository_url='https://github.com/Ableton/link'
+msys2_references=(
+  'archlinux: abletonlink'
+)
+depends=("${MINGW_PACKAGE_PREFIX}-asio")
+makedepends=("${MINGW_PACKAGE_PREFIX}-cmake"
+             "${MINGW_PACKAGE_PREFIX}-ninja"
+             "${MINGW_PACKAGE_PREFIX}-cc")
+checkdepends=("${MINGW_PACKAGE_PREFIX}-catch")
+source=("link-${pkgver}.tar.gz::https://github.com/Ableton/link/archive/refs/tags/Link-${pkgver}.tar.gz"
+        "0001-run-the-tests-on-the-system-catch2.patch"
+        "0002-link-winsock-and-ip-helper-on-mingw.patch"
+        "0003-install-the-headers-and-a-cmake-package.patch"
+        "0004-turn-asio-threads-on-for-mingw-consumers.patch"
+        "test-link.cpp"
+        "test-link.cmake")
+sha256sums=('23983a87eecc550be849598acb5219fbf1a16a5b4266a50ba4471b4f6c34f4a4'
+            '6f432c71879067297c3d2b90b69ed8946175ce1fdba4c90a81df749351ae4a39'
+            'd9f774994ba9d7719bc8507166cd5f6177ad9ce09b9b3bb44fb48be5041fa808'
+            '7cfb4e4a72034059d8d829021dc1b4dca706c60cbe3ba80dcf729cfa9d21dd25'
+            'ab2d76edee99f9e119c0dca437d46138e2e89830ef07ae20d37ecee1bfc31ac8'
+            'fa8ebcaeb778ef4ebcaef0f71cf64a5ce783fb72289fb5867ffdb39899e9bae3'
+            '65077ec0025ea62d557c6cd52da9013e58f5829173995f8cac9493e3526dfe0d')
+
+_srcdir="link-Link-${pkgver}"
+
+prepare() {
+  cd "${_srcdir}"
+
+  patch -Np1 -i "${srcdir}/0001-run-the-tests-on-the-system-catch2.patch"
+  patch -Np1 -i "${srcdir}/0002-link-winsock-and-ip-helper-on-mingw.patch"
+  patch -Np1 -i "${srcdir}/0003-install-the-headers-and-a-cmake-package.patch"
+  patch -Np1 -i "${srcdir}/0004-turn-asio-threads-on-for-mingw-consumers.patch"
+
+  rm -r third_party/catch
+}
+
+_configure() {
+  local _builddir="$1"; shift
+
+  declare -a extra_config
+  if check_option "debug" "n"; then
+    extra_config+=("-DCMAKE_BUILD_TYPE=Release")
+  else
+    extra_config+=("-DCMAKE_BUILD_TYPE=Debug")
+  fi
+
+  # LINK_BUILD_ASIO=ON downloads Steinberg's ASIO SDK for the examples.
+  MSYS2_ARG_CONV_EXCL="-DCMAKE_INSTALL_PREFIX=" \
+    cmake \
+      -GNinja \
+      -DCMAKE_INSTALL_PREFIX="${MINGW_PREFIX}" \
+      "${extra_config[@]}" \
+      -DLINK_USE_BUNDLED_ASIO=OFF \
+      -DLINK_BUILD_ASIO=OFF \
+      "$@" \
+      -S "${_srcdir}" \
+      -B "${_builddir}"
+}
+
+build() {
+  # Header-only: the package needs a configured tree, not a build.
+  _configure "build-${MSYSTEM}" -DLINK_BUILD_TESTS=OFF
+}
+
+check() {
+  local _tests=(LinkCoreTest LinkDiscoveryTest LinkAudioTest LinkUtilTest)
+  _configure "check-${MSYSTEM}" -DLINK_BUILD_TESTS=ON
+  cmake --build "check-${MSYSTEM}" --target "${_tests[@]}"
+  for _test in "${_tests[@]}"; do
+    "check-${MSYSTEM}/bin/${_test}.exe"
+  done
+
+  # A consumer of the installed package, through find_package(AbletonLink).
+  rm -rf "stage-${MSYSTEM}" "consumer-${MSYSTEM}"
+  DESTDIR="${srcdir}/stage-${MSYSTEM}" cmake --install "build-${MSYSTEM}"
+  mkdir -p "consumer-${MSYSTEM}/src"
+  cp test-link.cpp "consumer-${MSYSTEM}/src/"
+  cp test-link.cmake "consumer-${MSYSTEM}/src/CMakeLists.txt"
+  cmake -GNinja \
+    -DCMAKE_PREFIX_PATH="${srcdir}/stage-${MSYSTEM}${MINGW_PREFIX}" \
+    -S "consumer-${MSYSTEM}/src" \
+    -B "consumer-${MSYSTEM}/build"
+  cmake --build "consumer-${MSYSTEM}/build"
+  "consumer-${MSYSTEM}/build/test-link.exe"
+}
+
+package() {
+  DESTDIR="${pkgdir}" cmake --install "build-${MSYSTEM}"
+
+  install -Dm644 "${_srcdir}/LICENSE.md" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/LICENSE.md"
+  install -Dm644 "${_srcdir}/GNU-GPL-v2.0.md" \
+    "${pkgdir}${MINGW_PREFIX}/share/licenses/${_realname}/GNU-GPL-v2.0.md"
+}

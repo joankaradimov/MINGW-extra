@@ -1,0 +1,29 @@
+Turn asio's threads on for MinGW consumers
+
+asio enables threads only when it sees _REENTRANT, _MT or a similar macro.
+MinGW GCC predefines _REENTRANT. Clang predefines none of them, and _MT
+only appears once a CRT header has been included, so on CLANG64 a unit
+whose first include is Link gets asio's null_thread, and the first timer
+aborts with "thread: The attempted operation is not supported". Define
+ASIO_HAS_THREADS for every user of Ableton::Link on MinGW. The MinGW-w64
+CRT is always multithreaded, so this is what asio should detect anyway.
+
+Upstream: not submitted (MSYS2's asio has the same fix pending)
+Applies-to: all environments
+
+--- a/cmake_include/ConfigureAbletonLink.cmake
++++ b/cmake_include/ConfigureAbletonLink.cmake
+@@ -44,6 +44,13 @@
+         iphlpapi
+         ws2_32
+       )
++      # asio turns threads on from _REENTRANT or _MT. Clang predefines
++      # neither, and _MT only comes with the first CRT header, so a unit
++      # that includes Link first would get asio without threads.
++      set_property(TARGET Ableton::Link APPEND PROPERTY
++        INTERFACE_COMPILE_DEFINITIONS
++        ASIO_HAS_THREADS=1
++      )
+     endif()
+     elseif(CMAKE_SYSTEM_NAME MATCHES "Linux|kFreeBSD|GNU|Android")
+       set_property(TARGET Ableton::Link APPEND PROPERTY
